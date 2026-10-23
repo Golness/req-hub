@@ -8,6 +8,7 @@ const React = require('react');
 const { act } = React;
 const { createRoot } = require('react-dom/client');
 const { SettingsPanel } = require('../../src/client/components/SettingsPanel.js');
+const { DocsViewerContext } = require('../../src/client/context.js');
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let root;
 let config;
@@ -53,7 +54,10 @@ async function renderSettings() {
   const container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
-  await act(async () => root.render(React.createElement(SettingsPanel, { workspaceId: 'ws', onClose: vi.fn() })));
+  const header = document.createElement('header');
+  document.body.prepend(header);
+  await act(async () => root.render(React.createElement(DocsViewerContext.Provider, { value: { headerBackTarget: header } },
+    React.createElement(SettingsPanel, { workspaceId: 'ws', onClose: vi.fn() }))));
 }
 
 const click = async element => act(async () => element.click());
@@ -117,7 +121,10 @@ it('preserves the editor when returning from a skill preview', async () => {
   await act(async () => { select.value = 'review'; select.dispatchEvent(new Event('change', { bubbles: true })); });
   await click([...document.querySelectorAll('.rh-prompt-skill button')][0]);
   expect(document.querySelector('.rh-settings-panel').style.display).toBe('none');
-  await click([...document.querySelectorAll('button')].find(el => el.textContent === '← 返回设置'));
+  expect(document.querySelectorAll('header .rh-header-back')).toHaveLength(1);
+  expect(document.querySelector('.rh-preview .rh-header-back')).toBeNull();
+  await click(document.querySelector('header [aria-label="返回设置"]'));
+  expect(document.querySelector('header').childElementCount).toBe(0);
   expect(document.querySelector('.rh-settings-panel').style.display).toBe('');
   expect(tab('工作台').getAttribute('aria-selected')).toBe('true');
   expect(document.querySelector('textarea').value).toBe('搜索草稿');

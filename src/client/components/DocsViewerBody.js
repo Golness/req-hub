@@ -30,6 +30,7 @@ const { IndexPanel } = require('./IndexPanel.js');
 const { SearchPanel } = require('./SearchPanel.js');
 const { EmptyState } = require('./shared/EmptyState.js');
 const { Breadcrumb } = require('./shared/Breadcrumb.js');
+const { HeaderBack } = require('./shared/HeaderBack.js');
 const { ToastContainer, showToast } = require('./shared/ToastContainer.js');
 const { ConfirmDialogContainer, showConfirm } = require('./shared/ConfirmDialog.js');
 const { Skeleton } = require('./shared/Skeleton.js');
@@ -55,6 +56,7 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
   useEffect(() => { setSelectedFile(null); setShowFileTree(false); }, [workspace.id]);
   const [templatesTab, setTemplatesTab] = useState('requirement');
   const [previewToolbarTarget, setPreviewToolbarTarget] = useState(null);
+  const [headerBackTarget, setHeaderBackTarget] = useState(null);
   const [selectedReq, setSelectedReq] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [totalReqs, setTotalReqs] = useState(0);
@@ -510,6 +512,7 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
 
   // Context value for child components
   const contextValue = {
+    headerBackTarget,
     refreshTree: () => refreshTreeRef.current?.(),
     refreshSelectedReq: () => refreshSelectedReqRef.current?.(),
   };
@@ -653,6 +656,13 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
   ] : null;
 
   return h(DocsViewerContext.Provider, { value: contextValue },
+    selectedFile && !activePanel && h(HeaderBack, {
+      onBack: () => {
+        const returnPanel = selectedFile.returnPanel;
+        setSelectedFile(null);
+        if (returnPanel) setActivePanel(returnPanel);
+      },
+    }),
     h('div', { className: 'rh-root' },
       // ── Top bar ──
       h(TopBar, {
@@ -772,6 +782,7 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
           style: { flex: 1 }
         },
           h('div', { className: 'rh-right-header' },
+            h('div', { className: 'rh-header-back-slot', ref: setHeaderBackTarget }),
             h('div', { className: 'rh-right-header-main' },
               filePreviewBreadcrumb
                 ? h(Breadcrumb, { items: filePreviewBreadcrumb })
@@ -808,7 +819,7 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
                 const requirement = { id: parts[1], path: parts.slice(0, 2).join('/'), developer: parts[0], title: parts[1].slice(11), date: parts[1].slice(0, 10) };
                 const local = !source.workspaceId || source.workspaceId === workspace.id;
                 if (local) setSelectedReq(requirement);
-                setSelectedFile({ path: source.relativePath, name: parts.at(-1), workspaceId: source.workspaceId, workspaceTitle: source.workspaceTitle, requirement });
+                setSelectedFile({ path: source.relativePath, name: parts.at(-1), workspaceId: source.workspaceId, workspaceTitle: source.workspaceTitle, requirement, returnPanel: 'search' });
                 setActivePanel(null); setShowFileTree(local);
               } })),
           activePanel !== 'search' && (selectedFile && !activePanel

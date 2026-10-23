@@ -1,6 +1,7 @@
 'use strict';
 const React = require('react');
 const h = React.createElement;
+const { HeaderBack } = require('./shared/HeaderBack.js');
 const { useSearch } = require('../hooks/useSearch.js');
 const { knowledgeRequest } = require('../hooks/useKnowledge.js');
 const { EmptyState } = require('./shared/EmptyState.js');
@@ -40,7 +41,7 @@ function SearchPanel({ onOpenKnowledge, onOpenSource, active = true }) {
     h('div', { className: 'rh-knowledge-results' },
       search.loading ? h(Skeleton, { lines: 4 }) : detailId
         ? h('section', { 'aria-label': '知识详情' },
-          h('button', { className: 'rh-btn rh-btn-ghost rh-btn-sm', onClick: () => setDetailId(null) }, '返回搜索结果'),
+          h(HeaderBack, { onBack: () => setDetailId(null), active, label: '返回搜索结果' }),
           detailError && h('p', { role: 'alert' }, detailError),
           !detail && !detailError && h(Skeleton, { lines: 3 }),
           detail && h(React.Fragment, null, h('h3', null, detail.title), h('p', null, `${detail.workspaceTitle} · 版本 v${detail.version} · ${detail.tags.join(' · ')}`), h('div', { className: 'rh-knowledge-text' }, detail.body),

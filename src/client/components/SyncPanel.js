@@ -2,6 +2,7 @@
 
 const React = require('react');
 const h = React.createElement;
+const { HeaderBack } = require('./shared/HeaderBack.js');
 const { useState, useEffect } = React;
 const { ROUTE } = require('../constants.js');
 const { DocsViewerContext } = require('../context.js');
@@ -200,20 +201,21 @@ function SessionTurnsView({ sessionId, sessionTitle, onBack }) {
 
   if (loading) {
     return h('div', { style: { padding: 20, textAlign: 'center' } },
+      h(HeaderBack, { onBack }),
       h('div', { style: { fontSize: 'var(--rh-font-size-title)', color: 'var(--dsw-alias-label-secondary)' } }, '加载中...')
     );
   }
 
   if (error) {
     return h('div', { style: { padding: 20 } },
-      h('button', { className: 'rh-btn', onClick: onBack, style: { marginBottom: 12 } }, '← 返回'),
+      h(HeaderBack, { onBack }),
       h('div', { style: { color: 'var(--dsw-alias-state-error-primary)', display: 'flex', alignItems: 'center', gap: 6 } }, h(IconError, { size: 14 }), error)
     );
   }
 
   if (!turnsData || !turnsData.turns || turnsData.turns.length === 0) {
     return h('div', { style: { padding: 20 } },
-      h('button', { className: 'rh-btn', onClick: onBack, style: { marginBottom: 12 } }, '← 返回'),
+      h(HeaderBack, { onBack: onBack, label: '返回' }),
       h('div', { style: { fontSize: 'var(--rh-font-size)', color: 'var(--dsw-alias-label-secondary)', fontStyle: 'italic' } },
         '该会话没有对话内容')
     );
@@ -228,7 +230,7 @@ function SessionTurnsView({ sessionId, sessionTitle, onBack }) {
       flexShrink: 0,
     }},
       h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }},
-        h('button', { className: 'rh-btn', onClick: onBack, style: { fontSize: 'var(--rh-font-size-sm)', padding: '3px 8px' } }, '← 返回'),
+        h(HeaderBack, { onBack: onBack, label: '返回' }),
         h('span', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, flex: 1 } }, sessionTitle || '会话内容')
       ),
       h('div', { style: { display: 'flex', alignItems: 'center', gap: 12, fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)' }},
@@ -723,7 +725,7 @@ function SyncProgressView({ sync, onBack, onViewFile, workspaceId, requirementId
       flexShrink: 0,
     }},
       h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }},
-        h('button', { className: 'rh-btn', onClick: onBack, style: { fontSize: 'var(--rh-font-size-sm)', padding: '3px 8px' } }, '← 返回'),
+        h(HeaderBack, { onBack }),
         h('span', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, flex: 1, display: 'flex', alignItems: 'center', gap: 4 } },
           sync.status === 'running'
             ? h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconSync, { size: 14 }), ' 同步进行中')
@@ -864,7 +866,7 @@ function SyncHistoryView({ onBack, onSelectSync, workspaceId, requirementId }) {
       flexShrink: 0,
     }},
       h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 }},
-        h('button', { className: 'rh-btn', onClick: onBack, style: { fontSize: 'var(--rh-font-size-sm)', padding: '3px 8px' } }, '← 返回'),
+        h(HeaderBack, { onBack }),
         h('span', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, flex: 1 } }, '同步历史')
       )
     ),
@@ -940,7 +942,7 @@ function SyncDetailView({ sync, onBack, workspaceId, requirementPath }) {
         flexShrink: 0,
       }},
         h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 }},
-          h('button', { className: 'rh-btn', onClick: () => setViewingFile(null), style: { fontSize: 'var(--rh-font-size-sm)', padding: '3px 8px' } }, '← 返回'),
+          h(HeaderBack, { onBack: () => setViewingFile(null), label: '返回' }),
           h('span', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, flex: 1, display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconFile, { size: 14 }), ' ', viewingFile.split('/').pop())
         )
       ),
@@ -1408,10 +1410,10 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
         flexShrink: 0,
       }},
         h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 }},
-          h('button', { className: 'rh-btn', onClick: () => {
+          h(HeaderBack, { onBack: () => {
             setViewingFile(null);
             setView('progress');
-          }, style: { fontSize: 'var(--rh-font-size-sm)', padding: '3px 8px' } }, '← 返回'),
+          }, label: '返回' }),
           h('span', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, flex: 1, display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconFile, { size: 14 }), ' ', viewingFile.split('/').pop())
         )
       ),
@@ -1475,12 +1477,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
   // Main view: session selector + sync button
   return h('div', { className: 'rh-op-panel' },
     // Back button
-    h('div', { className: 'rh-btn-stack', style: { marginBottom: 12 } },
-      h('button', {
-        className: 'rh-btn',
-        onClick: onClose,
-      }, '← 返回')
-    ),
+    h(HeaderBack, { onBack: onClose, label: '返回' }),
 
     h('div', { className: 'rh-op-info', style: { marginBottom: 12 } },
       h('div', null, '需求目录：', h('code', null, `${selectedReq.developer}/${selectedReq.id}`)),

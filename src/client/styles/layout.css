@@ -730,6 +730,9 @@
 
 /* Shared page heading contract: every feature uses this same row. */
 .rh-right-header-main { display: flex; flex: 1; align-items: center; flex-wrap: wrap; gap: 12px; min-width: 0; }
+.rh-header-back-slot { display: flex; align-items: center; flex-shrink: 0; }
+.rh-header-back-slot:empty { display: none; }
+.rh-header-back { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .rh-right-header-title { flex-shrink: 0; overflow-wrap: anywhere; }
 .rh-right-header .rh-breadcrumb { flex: 1; min-width: 0; max-width: 100%; min-height: 28px; padding: 0; border: 0; background: transparent; font-size: var(--rh-font-size); flex-wrap: nowrap; overflow: hidden; }
 .rh-right-header .rh-workbench-tabs { margin: -8px 0; }

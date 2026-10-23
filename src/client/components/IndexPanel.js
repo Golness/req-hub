@@ -2,6 +2,7 @@
 
 const React = require('react');
 const h = React.createElement;
+const { HeaderBack } = require('./shared/HeaderBack.js');
 const { useState } = React;
 const { ROUTE } = require('../constants.js');
 const { createIconComponents } = require('../icons.js');
@@ -91,18 +92,14 @@ function IndexPanel({ workspaceId, indexStatus, onRefresh, onClose }) {
     if (!indexData) {
       return h('div', { className: 'rh-op-panel' },
         h('div', { style: { textAlign: 'center', padding: 20 } }, '加载中...'),
-        h('div', { className: 'rh-btn-stack' },
-          h('button', { className: 'rh-btn', onClick: () => setShowStructuredIndex(false) }, '← 返回')
-        )
+        h(HeaderBack, { onBack: () => setShowStructuredIndex(false), label: '返回' })
       );
     }
 
     if (indexData.error) {
       return h('div', { className: 'rh-op-panel' },
         h('div', { style: { color: 'var(--dsw-alias-state-error-primary)', padding: 20 } }, indexData.error),
-        h('div', { className: 'rh-btn-stack' },
-          h('button', { className: 'rh-btn', onClick: () => setShowStructuredIndex(false) }, '← 返回')
-        )
+        h(HeaderBack, { onBack: () => setShowStructuredIndex(false), label: '返回' })
       );
     }
 
@@ -170,9 +167,7 @@ function IndexPanel({ workspaceId, indexStatus, onRefresh, onClose }) {
         )
       ),
 
-      h('div', { className: 'rh-btn-stack', style: { marginTop: 16 } },
-        h('button', { className: 'rh-btn', onClick: () => setShowStructuredIndex(false) }, '← 返回')
-      )
+      h(HeaderBack, { onBack: () => setShowStructuredIndex(false), label: '返回' })
     );
   };
 
@@ -193,9 +188,7 @@ function IndexPanel({ workspaceId, indexStatus, onRefresh, onClose }) {
           fontFamily: 'var(--rh-font-code)',
         }
       }, indexContent),
-      h('div', { className: 'rh-btn-stack', style: { marginTop: 12 } },
-        h('button', { className: 'rh-btn', onClick: () => setShowIndexFile(false) }, '← 返回')
-      )
+      h(HeaderBack, { onBack: () => setShowIndexFile(false), label: '返回' })
     );
   }
 

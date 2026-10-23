@@ -2,6 +2,7 @@
 
 const React = require('react');
 const h = React.createElement;
+const { HeaderBack } = require('./shared/HeaderBack.js');
 const { useState, useEffect } = React;
 const { ROUTE } = require('../constants.js');
 const { createIconComponents } = require('../icons.js');
@@ -100,18 +101,14 @@ function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
     if (!metaData) {
       return h('div', { className: 'rh-op-panel' },
         h('div', { style: { textAlign: 'center', padding: 20 } }, '加载中...'),
-        h('div', { className: 'rh-btn-stack' },
-          h('button', { className: 'rh-btn', onClick: () => setShowMeta(false) }, '← 返回')
-        )
+        h(HeaderBack, { onBack: () => setShowMeta(false), label: '返回' })
       );
     }
 
     if (metaData.error) {
       return h('div', { className: 'rh-op-panel' },
         h('div', { style: { color: 'var(--dsw-alias-state-error-primary)', padding: 20, display: 'flex', alignItems: 'center', gap: 8 } }, h(IconError, { size: 16 }), metaData.error),
-        h('div', { className: 'rh-btn-stack' },
-          h('button', { className: 'rh-btn', onClick: () => setShowMeta(false) }, '← 返回')
-        )
+        h(HeaderBack, { onBack: () => setShowMeta(false), label: '返回' })
       );
     }
 
@@ -156,9 +153,7 @@ function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
             ))
           )
         ),
-        h('div', { className: 'rh-btn-stack', style: { marginTop: 16 } },
-          h('button', { className: 'rh-btn', onClick: () => setShowMeta(false) }, '← 返回')
-        )
+        h(HeaderBack, { onBack: () => setShowMeta(false), label: '返回' })
       );
     }
 
@@ -184,9 +179,7 @@ function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
             )
           ))
         ),
-        h('div', { className: 'rh-btn-stack', style: { marginTop: 16 } },
-          h('button', { className: 'rh-btn', onClick: () => setShowMeta(false) }, '← 返回')
-        )
+        h(HeaderBack, { onBack: () => setShowMeta(false), label: '返回' })
       );
     }
 

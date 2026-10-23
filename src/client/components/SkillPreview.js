@@ -2,6 +2,7 @@
 
 const React = require('react');
 const h = React.createElement;
+const { HeaderBack } = require('./shared/HeaderBack.js');
 const { useState, useEffect, useLayoutEffect, useRef } = React;
 
 const { ROUTE, MARKED_SCRIPT_ID, MERMAID_SCRIPT_ID, HIGHLIGHT_SCRIPT_ID } = require('../constants.js');
@@ -166,11 +167,7 @@ function SkillPreview({ skillName, workspaceId, onBack }) {
       borderBottom: '1px solid var(--dsw-alias-border-l1)',
       background: 'var(--dsw-alias-bg-layer-1)'
     }},
-      h('button', {
-        className: 'rh-btn rh-btn-secondary',
-        onClick: onBack,
-        style: { fontSize: 'var(--rh-font-size-sm)', padding: '3px 8px' }
-      }, '← 返回设置'),
+      h(HeaderBack, { onBack: onBack, label: '返回设置' }),
       h('div', { style: { flex: 1 } },
         h('div', { style: { fontWeight: 600, fontSize: 'var(--rh-font-size)', display: 'flex', alignItems: 'center', gap: 4 } }, h(IconLink, { size: 14 }), ` ${skillName}`),
         description && h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', marginTop: 2 } }, description)

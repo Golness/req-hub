@@ -1,6 +1,7 @@
 'use strict';
 const React = require('react');
 const h = React.createElement;
+const { HeaderBack } = require('./shared/HeaderBack.js');
 const { FilePreview } = require('./FilePreview.js');
 const { EmptyState } = require('./shared/EmptyState.js');
 const { Skeleton } = require('./shared/Skeleton.js');
@@ -22,6 +23,7 @@ function KnowledgePanel({ workspaceId, knowledge, selectedFile, onPreviewClose }
   }, [workspaceId, knowledge.job?.updatedAt]);
   const retry = knowledge.job?.files.filter(f => ['failed', 'stale', 'cancelled', 'interrupted'].includes(f.status)).map(f => f.relativePath) || [];
   return h('div', { className: 'rh-knowledge-panel' },
+    tab === 'preview' && selectedFile && h(HeaderBack, { onBack: onPreviewClose }),
     h('div', { className: 'rh-knowledge-toolbar' },
       h('div', { className: 'rh-workbench-tabs', role: 'tablist', 'aria-label': '知识库内容' },
         [['preview', '文档预览'], ['result', '分析结果']].map(([id, text]) => h('button', { key: id, role: 'tab', className: 'rh-workbench-tab', 'aria-selected': tab === id, onClick: () => setTab(id) }, text))),
