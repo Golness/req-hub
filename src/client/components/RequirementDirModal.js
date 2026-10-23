@@ -8,6 +8,17 @@ const { createIconComponents } = require('../icons.js');
 
 const { IconFolderOpen, IconFile, IconExpand } = createIconComponents(h);
 
+/**
+ * @component
+ * Modal dialog that displays a tree of requirement directories organized by developer.
+ * Allows the user to browse and select a specific requirement directory within a workspace.
+ * @param {Object} props - Component props
+ * @param {string} props.workspaceId - The ID of the workspace to load the directory tree from
+ * @param {string|null} props.selectedReqId - The currently selected requirement ID, used to highlight the active item
+ * @param {Function} props.onSelect - Callback invoked with the selected requirement object when a requirement is clicked
+ * @param {Function} props.onClose - Callback invoked to close the modal
+ * @returns {JSX.Element}
+ */
 function RequirementDirModal({ workspaceId, selectedReqId, onSelect, onClose }) {
   const [tree, setTree] = useState(null);
   const [loading, setLoading] = useState(true);

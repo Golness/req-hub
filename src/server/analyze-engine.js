@@ -1,8 +1,8 @@
 /**
- * 需求分析引擎
- * 分析需求文档，生成 .meta.json 元数据
- * 
- * 所有 LLM 调用统一委托给 DSH Subagent
+ * Requirement analysis engine.
+ * Analyzes requirement documents and generates .meta.json metadata.
+ * All LLM calls are delegated to DSH Subagent.
+ * @module analyze-engine
  */
 
 import { join } from 'node:path';
@@ -14,18 +14,30 @@ import { parseAIResponse } from './ai-engine.js';
 import { log } from './logger.js';
 
 /**
- * 分析单个需求文档，生成 .meta.json
- * 
- * @param {Object} options
- * @param {Object} options.ctx - DSH 上下文
- * @param {Object} options.llm - LLM 服务
- * @param {Object} options.config - 配置
- * @param {Object} options.parentAgent - 父 Agent（DSH 会话）
- * @param {string} options.reqPath - 需求目录的完整路径
- * @param {string} options.requirementId - 需求 ID
- * @param {string} options.cwd - 工作目录
- * @param {Object} [options.scopedSkills] - 可选的 scoped skills
- * @returns {Promise<{success: boolean, meta?: Object, error?: string, elapsed?: number}>}
+ * @typedef {Object} AnalyzeOptions
+ * @property {Object} ctx - DSH context
+ * @property {Object} llm - LLM service
+ * @property {Object} config - Configuration object
+ * @property {Object} parentAgent - Parent agent (DSH session)
+ * @property {string} reqPath - Full path to requirement directory
+ * @property {string} requirementId - Requirement ID
+ * @property {string} cwd - Working directory
+ * @property {Object} [scopedSkills] - Optional scoped skills service
+ */
+
+/**
+ * @typedef {Object} AnalyzeResult
+ * @property {boolean} success - Whether analysis succeeded
+ * @property {Object} [meta] - Validated meta data (on success)
+ * @property {string} [error] - Error message (on failure)
+ * @property {string} [elapsed] - Elapsed time in seconds
+ */
+
+/**
+ * Analyze a single requirement document and generate .meta.json.
+ * Reads documents, delegates to Subagent for analysis, validates and saves result.
+ * @param {AnalyzeOptions} options - Analysis options
+ * @returns {Promise<AnalyzeResult>} Analysis result
  */
 export async function analyzeRequirement(options) {
   const { ctx, llm, config, parentAgent, reqPath, requirementId, cwd, scopedSkills } = options;

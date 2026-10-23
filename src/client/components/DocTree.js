@@ -9,10 +9,24 @@ const { Spinner } = require('./Spinner.js');
 const { getDocIcon } = require('../utils/getDocIcon.js');
 const { createIconComponents } = require('../icons.js');
 
-const { IconFolder, IconFolderOpen, IconFile, IconExpand, IconCollapse } = createIconComponents(h);
+const { IconFolder, IconFolderOpen, IconFile, IconChevronRight } = createIconComponents(h);
 
-// ─── DocTree (3-level tree) ──────────────────────────────────────
-// Covers: 2.1, 2.2, 2.3, 2.7, 2.8, 2.9, 2.10, 2.11, 2.14, 2.15
+/**
+ * @component DocTree
+ * @description A three-level hierarchical tree component displaying developers, requirements, and files.
+ * Supports expanding/collapsing nodes, selecting requirements and files, and auto-expanding
+ * to show the selected requirement. Covers features 2.1, 2.2, 2.3, 2.7-2.11, 2.14, 2.15.
+ * @param {Object} props - Component props
+ * @param {string} props.workspaceId - The unique identifier of the workspace
+ * @param {string} props.docsDir - The path to the documents directory
+ * @param {string|null} props.selectedReqId - The ID of the currently selected requirement, or null
+ * @param {Function} props.onSelectReq - Callback invoked when a requirement is selected or deselected
+ * @param {Object|null} props.selectedFile - The currently selected file object, or null
+ * @param {Function} props.onSelectFile - Callback invoked when a file is selected
+ * @param {Function} [props.onTreeLoaded] - Callback invoked when the tree data is loaded with metadata
+ * @param {Function} [props.onRefreshReady] - Callback invoked with a refresh function for external use
+ * @returns {JSX.Element} A hierarchical tree view of developers, requirements, and files
+ */
 function DocTree({ workspaceId, docsDir, selectedReqId, onSelectReq, selectedFile, onSelectFile, onTreeLoaded, onRefreshReady }) {
   const [tree, setTree] = useState(null);
   const [totalReqs, setTotalReqs] = useState(0);
@@ -103,8 +117,13 @@ function DocTree({ workspaceId, docsDir, selectedReqId, onSelectReq, selectedFil
           const isDevExpanded = !!expandedDevs[dev.name];
           return h('div', { key: dev.name, className: 'rh-dev-node', role: 'treeitem', 'aria-expanded': isDevExpanded },
             h('div', { className: 'rh-dev-header', onClick: () => toggleDev(dev.name) },
-              h(IconExpand, { size: 14, style: { transform: isDevExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' } }),
-              h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconFolder, { size: 14 }), ` ${dev.name}`),
+              h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
+                h('span', { style: { width: 10, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' } },
+                  h(IconChevronRight, { size: 10, style: { transform: isDevExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 } })
+                ),
+                h(IconFolder, { size: 14, style: { flexShrink: 0 } }),
+                h('span', null, ` ${dev.name}`)
+              ),
               h('span', { className: 'rh-dev-count' }, `(${dev.requirementCount})`)
             ),
             isDevExpanded && dev.requirements.map(req => {
@@ -122,8 +141,12 @@ function DocTree({ workspaceId, docsDir, selectedReqId, onSelectReq, selectedFil
                     toggleReq(req.id);
                   },
                 },
-                  h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconFolderOpen, { size: 12 }), ` ${req.date.slice(5)} ${req.title}`),
-                  req.fileCount > 0 && h('span', { className: 'rh-dev-count', style: { display: 'inline-flex', alignItems: 'center', gap: 2 } }, h(IconFile, { size: 11 }), ` ${req.fileCount}`)
+                  h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
+                    h('span', { style: { width: 10, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' } }),
+                    h(IconFolderOpen, { size: 14, style: { flexShrink: 0 } }),
+                    h('span', null, ` ${req.date.slice(5)} ${req.title}`)
+                  ),
+                  req.fileCount > 0 && h('span', { className: 'rh-dev-count', style: { display: 'inline-flex', alignItems: 'center', gap: 2 } }, h(IconFile, { size: 14 }), ` ${req.fileCount}`)
                 ),
                 isReqExpanded && h('div', null,
                   req.files.length > 0

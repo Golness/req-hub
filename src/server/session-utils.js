@@ -1,17 +1,28 @@
 /**
- * 会话工具模块
- * 提取会话轮次数据的统一方法
+ * Session utilities module.
+ * Provides unified methods for extracting session turn data.
+ * @module session-utils
  */
 
 import { estimateTextTokens } from './token-utils.js';
 
 /**
- * 从会话事件中提取轮次数据
- * @param {Array} events - 会话事件数组
- * @param {Object} options - 选项
- * @param {number} options.maxSummaryChars - 摘要最大字符数（默认 800，约 200 tokens）。设为 -1 表示不截断
- * @param {string} options.sessionId - 可选，附加到每个轮次
- * @returns {Array} 轮次数组
+ * @typedef {Object} TurnData
+ * @property {number} turnNumber - Turn sequence number
+ * @property {string} time - Turn start time (ISO 8601)
+ * @property {string} userInput - User input text
+ * @property {string} summary - Assistant response summary (truncated if needed)
+ * @property {string} [endTime] - Turn end time (ISO 8601)
+ * @property {string} [sessionId] - Optional session ID
+ */
+
+/**
+ * Extract turn data from session events.
+ * @param {Array<Object>} events - Session events array
+ * @param {Object} [options={}] - Extraction options
+ * @param {number} [options.maxSummaryChars=800] - Max chars for summary (≈200 tokens). Set to -1 for no truncation
+ * @param {string} [options.sessionId=null] - Optional session ID to attach to each turn
+ * @returns {TurnData[]} Array of extracted turns
  */
 export function extractTurnsFromEvents(events, options = {}) {
   const { maxSummaryChars = 800, sessionId = null } = options;
@@ -75,11 +86,11 @@ export function extractTurnsFromEvents(events, options = {}) {
 }
 
 /**
- * 从单个会话提取轮次数据
- * @param {Object} sessionQuery - sessionQuery 服务
- * @param {string} sessionId - 会话 ID
- * @param {Object} options - 选项
- * @returns {Promise<Array>} 轮次数组
+ * Extract turn data from a single session.
+ * @param {Object} sessionQuery - sessionQuery service
+ * @param {string} sessionId - Session ID
+ * @param {Object} [options={}] - Extraction options
+ * @returns {Promise<TurnData[]>} Array of turns, empty array on error
  */
 export async function extractSessionTurns(sessionQuery, sessionId, options = {}) {
   if (!sessionQuery) {
@@ -98,11 +109,11 @@ export async function extractSessionTurns(sessionQuery, sessionId, options = {})
 }
 
 /**
- * 从多个会话提取轮次数据并合并
- * @param {Object} sessionQuery - sessionQuery 服务
- * @param {Array<string>} sessionIds - 会话 ID 数组
- * @param {Object} options - 选项
- * @returns {Promise<{turns: Array, totalTokens: number}>} 轮次数据和总 token 数
+ * Extract and merge turn data from multiple sessions.
+ * @param {Object} sessionQuery - sessionQuery service
+ * @param {string[]} sessionIds - Array of session IDs
+ * @param {Object} [options={}] - Extraction options
+ * @returns {Promise<{turns: TurnData[], totalTokens: number}>} Merged turns and total token count
  */
 export async function extractMultipleSessionTurns(sessionQuery, sessionIds, options = {}) {
   const allTurns = [];
@@ -125,9 +136,9 @@ export async function extractMultipleSessionTurns(sessionQuery, sessionIds, opti
 }
 
 /**
- * 计算轮次数组的总 token 数
- * @param {Array} turns - 轮次数组
- * @returns {number} 总 token 数
+ * Calculate total token count for an array of turns.
+ * @param {TurnData[]} turns - Array of turns
+ * @returns {number} Total estimated token count
  */
 export function calculateTurnsTokens(turns) {
   return turns.reduce(

@@ -1,17 +1,26 @@
 /**
- * 文档树管理模块
- * 负责构建和查询文档目录树结构
+ * Document tree management module.
+ * Handles building and querying of document directory tree structure.
+ * @module tree
  */
 
 import { readdir, stat, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
+/** @type {RegExp} Pattern for requirement directory names (YYYY-MM-DD-title) */
 const REQ_DIR_RE = /^(\d{4}-\d{2}-\d{2})-(.+)$/;
 
 /**
- * 解析需求目录名
- * @param {string} dirName - 目录名
- * @returns {Object|null} 解析结果
+ * @typedef {Object} RequirementDir
+ * @property {string} id - Directory name (requirement ID)
+ * @property {string} date - Date in YYYY-MM-DD format
+ * @property {string} title - Requirement title
+ */
+
+/**
+ * Parse requirement directory name.
+ * @param {string} dirName - Directory name
+ * @returns {RequirementDir|null} Parsed info or null if not a requirement dir
  */
 function parseRequirementDir(dirName) {
   const m = dirName.match(REQ_DIR_RE);
@@ -24,9 +33,9 @@ function parseRequirementDir(dirName) {
 }
 
 /**
- * 推断文档类型
- * @param {string} filename - 文件名
- * @returns {string} 文档类型
+ * Infer document type from filename.
+ * @param {string} filename - File name
+ * @returns {'cr'|'design'|'requirement'|'other'} Document type
  */
 function inferDocType(filename) {
   const lower = filename.toLowerCase();
@@ -37,9 +46,43 @@ function inferDocType(filename) {
 }
 
 /**
- * 构建文档树
- * @param {string} docsDir - 文档根目录
- * @returns {Promise<Object>} 文档树
+ * @typedef {Object} DocFile
+ * @property {string} name - File name
+ * @property {'cr'|'design'|'requirement'|'other'} type - Inferred document type
+ * @property {string|null} mtime - Last modified time (ISO 8601)
+ */
+
+/**
+ * @typedef {Object} Requirement
+ * @property {string} id - Requirement ID (directory name)
+ * @property {string} date - Date in YYYY-MM-DD format
+ * @property {string} title - Requirement title
+ * @property {string} developer - Developer name
+ * @property {string} path - Relative path from docs root
+ * @property {DocFile[]} files - List of document files
+ * @property {number} fileCount - Number of document files
+ * @property {boolean} hasMeta - Whether .meta.json exists
+ * @property {string|null} metaUpdatedAt - Meta file update time (ISO 8601)
+ * @property {Object|null} meta - Parsed meta data
+ */
+
+/**
+ * @typedef {Object} DeveloperNode
+ * @property {string} name - Developer name
+ * @property {number} requirementCount - Number of requirements
+ * @property {Requirement[]} requirements - List of requirements
+ */
+
+/**
+ * @typedef {Object} DocumentTree
+ * @property {DeveloperNode[]} developers - List of developer nodes
+ */
+
+/**
+ * Build document tree from docs directory.
+ * Scans developer directories and their requirement subdirectories.
+ * @param {string} docsDir - Document root directory
+ * @returns {Promise<DocumentTree>} Document tree structure
  */
 export async function buildTree(docsDir) {
   const tree = { developers: [] };
@@ -139,20 +182,20 @@ export async function buildTree(docsDir) {
 }
 
 /**
- * 统计需求总数
- * @param {Object} tree - 文档树
- * @returns {number} 需求总数
+ * Count total requirements across all developers.
+ * @param {DocumentTree} tree - Document tree
+ * @returns {number} Total requirement count
  */
 export function countRequirements(tree) {
   return tree.developers.reduce((sum, d) => sum + d.requirementCount, 0);
 }
 
 /**
- * 根据 ID 查找需求路径
- * @param {string} docsDir - 文档根目录
- * @param {Object} tree - 文档树
- * @param {string} requirementId - 需求 ID
- * @returns {Object|null} 需求信息
+ * Find requirement path by ID.
+ * @param {string} docsDir - Document root directory
+ * @param {DocumentTree} tree - Document tree
+ * @param {string} requirementId - Requirement ID to find
+ * @returns {{path: string, req: Requirement}|null} Requirement info or null if not found
  */
 export function findRequirementPath(docsDir, tree, requirementId) {
   for (const dev of tree.developers) {
@@ -165,7 +208,5 @@ export function findRequirementPath(docsDir, tree, requirementId) {
   return null;
 }
 
-/**
- * 支持的文档扩展名
- */
+/** @type {string[]} Supported document file extensions */
 export const SUPPORTED_DOC_EXTS = ['.md', '.html', '.htm', '.txt', '.text', '.markdown'];

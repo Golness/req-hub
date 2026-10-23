@@ -1,5 +1,7 @@
 /**
- * 配置相关路由
+ * Configuration routes module.
+ * Handles configuration-related HTTP endpoints.
+ * @module routes/config-routes
  */
 
 import { loadConfig, saveConfig, autoDefaultConfig } from '../config.js';
@@ -7,6 +9,12 @@ import { PROMPT_REGISTRY, getPrompt, getAllPromptMetas, getPromptMeta, validateP
 import { json, readBody } from '../utils.js';
 import { log } from '../logger.js';
 
+/**
+ * Create configuration routes.
+ * @param {Object} registry - Workspace registry service
+ * @param {Object} llm - LLM service
+ * @returns {Array<Object>} Array of route definitions
+ */
 export function createConfigRoutes(registry, llm) {
   return [
     // GET+POST /config - 获取/更新配置（合并为单路由，避免同路径重复注册）
@@ -178,7 +186,8 @@ export function createConfigRoutes(registry, llm) {
               requirements: meta.requirements || [],
               default: meta.default,
               current: getPrompt(config, key),
-              isCustom: !!(config.ai?.prompts?.[key] && config.ai.prompts[key].trim())
+              contractVersion: meta.contractVersion || 1,
+              isCustom: !!((meta.contractVersion === 2 ? config.ai?.syncV2 : config.ai)?.prompts?.[key]?.trim())
             };
           }
           

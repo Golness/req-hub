@@ -6,13 +6,25 @@ const { useState, useEffect } = React;
 const { ROUTE } = require('../constants.js');
 const { DocsViewerContext } = require('../context.js');
 const { FilePreview } = require('./FilePreview.js');
+const { showToast } = require('./shared/ToastContainer.js');
 const { createIconComponents } = require('../icons.js');
 
-const { IconFile, IconSync, IconError, IconCheck, IconSkip, IconHourglass, IconUser, IconRobot, IconMerge, IconChart, IconCheckboxOn, IconCheckboxOff, IconBrain, IconWrench, IconComment, IconCode, IconSave, IconChevronDown } = createIconComponents(h);
+const { IconFile, IconSync, IconError, IconCheck, IconSkip, IconHourglass, IconUser, IconRobot, IconMerge, IconChart, IconCheckboxOn, IconCheckboxOff, IconBrain, IconWrench, IconComment, IconCode, IconChevronDown } = createIconComponents(h);
 
 // ─── SyncPanel ───────────────────────────────────────────────────
 // Sync requirement or design docs with code changes from git branch
 // Default to phased sync with two buttons: "同步需求文档" and "同步技术方案"
+/**
+ * @component
+ * Main sync panel for synchronizing requirement or design documentation with code changes
+ * from a git branch. Provides two sync modes: requirement docs and design docs.
+ * Supports viewing sync history, sync details, and managing active sync operations.
+ * @param {Object} props - Component props
+ * @param {string} props.workspaceId - The workspace ID for sync operations
+ * @param {Object|null} props.selectedReq - The currently selected requirement object, or null if none selected
+ * @param {Function} props.onClose - Callback invoked to close the panel
+ * @returns {JSX.Element}
+ */
 function SyncPanel({ workspaceId, selectedReq, onClose }) {
   const [syncDocType, setSyncDocType] = useState(null); // null | 'requirement' | 'design'
   const [syncing, setSyncing] = useState(false);
@@ -20,9 +32,23 @@ function SyncPanel({ workspaceId, selectedReq, onClose }) {
   const [selectedHistorySync, setSelectedHistorySync] = useState(null);
   const { refreshTree } = React.useContext(DocsViewerContext);
 
+  // Check for active sync on mount — if a running sync exists, skip directly to progress view
+  useEffect(() => {
+    if (!selectedReq?.id || !workspaceId) return;
+    fetch(`${ROUTE}/sync-active?workspaceId=${workspaceId}&requirementId=${encodeURIComponent(selectedReq.id)}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data && data.active && data.sync && data.sync.status === 'running') {
+          setSyncDocType(data.sync.docType);
+          setSyncing(true);
+        }
+      })
+      .catch(() => {});
+  }, [workspaceId, selectedReq?.id]);
+
   if (!selectedReq) {
     return h('div', { className: 'rh-op-panel' },
-      h('div', { style: { color: 'var(--dsw-alias-state-warning-primary)', fontSize: 12, marginBottom: 12 } },
+      h('div', { style: { color: 'var(--dsw-alias-state-warning-primary)', fontSize: 'var(--rh-font-size)', marginBottom: 12 } },
         '请先在左侧目录树中选择一个需求目录'),
       h('button', { className: 'rh-btn', onClick: onClose }, '关闭')
     );
@@ -73,105 +99,50 @@ function SyncPanel({ workspaceId, selectedReq, onClose }) {
     });
   }
 
+  // Main view - Aligned with AnalyzePanel style
   return h('div', { className: 'rh-op-panel' },
-    h('div', { className: 'rh-op-info', style: { marginBottom: 16 } },
-      h('div', null, '需求目录：', h('code', null, `${selectedReq.developer}/${selectedReq.id}`)),
-      h('div', { style: { marginTop: 4, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } },
-        '分阶段同步：代码差异分析 → 讨论差异分析 → 增量合并')
+    // Requirement card (same as AnalyzePanel)
+    selectedReq && h('div', { className: 'rh-req-card' },
+      h('div', { className: 'rh-req-card-title' }, selectedReq.title),
+      h('div', { className: 'rh-req-card-row' }, '开发者：', selectedReq.developer),
+      h('div', { className: 'rh-req-card-row' }, '日期：', selectedReq.date),
+      h('div', { className: 'rh-req-card-row' }, '文档数：', selectedReq.fileCount)
     ),
 
-    // History button at top
-    h('button', {
-      className: 'rh-btn',
-      onClick: () => setView('history'),
-      style: { width: '100%', marginBottom: 12 }
-    }, '同步历史'),
-
-    // Two buttons side by side
-    h('div', { style: { display: 'flex', gap: 8 } },
-      h('button', {
-        className: 'rh-btn rh-btn-primary',
-        onClick: () => setSyncDocType('requirement'),
-        style: { flex: 1, padding: '10px 16px', fontSize: 13, fontWeight: 600 },
-      }, '同步需求文档'),
-      h('button', {
-        className: 'rh-btn rh-btn-primary',
-        onClick: () => setSyncDocType('design'),
-        style: { flex: 1, padding: '10px 16px', fontSize: 13, fontWeight: 600 },
-      }, '同步技术方案')
-    ),
-  );
-}
-
-// ─── TraditionalSyncUI ──────────────────────────────────────────
-function TraditionalSyncUI({ workspaceId, selectedReq, activeTab, syncing, status, streamContent, error, result, docTypeName, docFileName, handleSync, onClose }) {
-  return h('div', null,
-    h('div', { className: 'rh-op-info' },
-      h('div', null, '需求目录：', h('code', null, `${selectedReq.developer}/${selectedReq.id}`)),
-      h('div', { style: { marginTop: 4 } }, '目标文件：', h('code', null, docFileName)),
-      h('div', { style: { marginTop: 4, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } },
-        '基于当前分支的 git commit 对比代码变更，以代码为准更新文档')
-    ),
-
+    // Sync type buttons
     h('div', { className: 'rh-btn-stack', style: { marginBottom: 12 } },
       h('button', {
-        className: 'rh-btn rh-btn-primary',
-        onClick: handleSync,
-        disabled: syncing,
-      }, syncing ? '同步中...' : h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconSync, { size: 14 }), ` 同步${docTypeName}`)),
-      h('button', { className: 'rh-btn', onClick: onClose }, '关闭')
+        className: 'rh-btn',
+        onClick: () => setSyncDocType('requirement'),
+      }, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconSync, { size: 14 }), ' 同步需求文档')),
+      h('button', {
+        className: 'rh-btn',
+        onClick: () => setSyncDocType('design'),
+      }, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconSync, { size: 14 }), ' 同步技术方案'))
     ),
 
-    error && h('div', { style: { color: 'var(--dsw-alias-state-error-primary)', fontSize: 12, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 } }, h(IconError, { size: 14 }), error),
-
-    status && h('div', {
-      style: {
-        fontSize: 12,
-        color: 'var(--dsw-alias-brand-primary)',
-        marginBottom: 8,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-      }
-    },
-      syncing && h('div', { className: 'rh-spinner', style: { width: 14, height: 14, margin: 0 } }),
-      status
-    ),
-
-    streamContent && h('div', {
-      style: {
-        background: 'var(--dsw-alias-bg-layer-2)',
-        border: '1px solid var(--dsw-alias-border-l1)',
-        borderRadius: 6,
-        padding: 12,
-        fontSize: 11,
-        fontFamily: 'ui-monospace, monospace',
-        color: 'var(--dsw-alias-label-secondary)',
-        maxHeight: 300,
-        overflow: 'auto',
-        whiteSpace: 'pre-wrap',
-        wordBreak: 'break-all',
-        lineHeight: 1.5,
-        marginBottom: 12,
-      }
-    }, streamContent),
-
-    result && h('div', { className: 'rh-op-info' },
-      h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--dsw-alias-state-success-primary)' } }, '同步完成'),
-      result.changes && result.changes.length > 0 && h('div', null,
-        h('div', { style: { fontSize: 11, fontWeight: 600, marginBottom: 4 } }, '主要变更：'),
-        ...result.changes.map((c, i) =>
-          h('div', { key: i, style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', paddingLeft: 8 } }, `• ${c}`)
-        )
-      ),
-      result.logFile && h('div', { style: { marginTop: 8, fontSize: 11 } },
-        '同步日志：', h('code', null, result.logFile)
-      )
+    // History button
+    h('div', { className: 'rh-btn-stack' },
+      h('button', {
+        className: 'rh-btn',
+        onClick: () => setView('history'),
+      }, '同步历史')
     )
   );
 }
 
 // ─── SessionTurnsView - 会话轮次内容查看器（二级页面）─────────────
+/**
+ * @component
+ * Displays the conversation turns of a session in an expandable list format.
+ * Each turn shows user input and summary with timestamps, and can be expanded/collapsed.
+ * Supports expand all / collapse all functionality.
+ * @param {Object} props - Component props
+ * @param {string} props.sessionId - The session ID to load turns for
+ * @param {string} props.sessionTitle - Display title for the session
+ * @param {Function} props.onBack - Callback invoked to return to the previous view
+ * @returns {JSX.Element}
+ */
 function SessionTurnsView({ sessionId, sessionTitle, onBack }) {
   const [turnsData, setTurnsData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -229,7 +200,7 @@ function SessionTurnsView({ sessionId, sessionTitle, onBack }) {
 
   if (loading) {
     return h('div', { style: { padding: 20, textAlign: 'center' } },
-      h('div', { style: { fontSize: 14, color: 'var(--dsw-alias-label-secondary)' } }, '加载中...')
+      h('div', { style: { fontSize: 'var(--rh-font-size-title)', color: 'var(--dsw-alias-label-secondary)' } }, '加载中...')
     );
   }
 
@@ -243,7 +214,7 @@ function SessionTurnsView({ sessionId, sessionTitle, onBack }) {
   if (!turnsData || !turnsData.turns || turnsData.turns.length === 0) {
     return h('div', { style: { padding: 20 } },
       h('button', { className: 'rh-btn', onClick: onBack, style: { marginBottom: 12 } }, '← 返回'),
-      h('div', { style: { fontSize: 13, color: 'var(--dsw-alias-label-secondary)', fontStyle: 'italic' } },
+      h('div', { style: { fontSize: 'var(--rh-font-size)', color: 'var(--dsw-alias-label-secondary)', fontStyle: 'italic' } },
         '该会话没有对话内容')
     );
   }
@@ -251,23 +222,23 @@ function SessionTurnsView({ sessionId, sessionTitle, onBack }) {
   return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%' } },
     // Header
     h('div', { style: {
-      padding: '12px 16px',
+      padding: '8px 12px',
       borderBottom: '1px solid var(--dsw-alias-border-l1)',
       background: 'var(--dsw-alias-bg-layer-2)',
       flexShrink: 0,
     }},
-      h('div', { style: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }},
-        h('button', { className: 'rh-btn', onClick: onBack, style: { fontSize: 12 } }, '← 返回'),
-        h('span', { style: { fontSize: 14, fontWeight: 600, flex: 1 } }, sessionTitle || '会话内容')
+      h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }},
+        h('button', { className: 'rh-btn', onClick: onBack, style: { fontSize: 'var(--rh-font-size-sm)', padding: '3px 8px' } }, '← 返回'),
+        h('span', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, flex: 1 } }, sessionTitle || '会话内容')
       ),
-      h('div', { style: { display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }},
+      h('div', { style: { display: 'flex', alignItems: 'center', gap: 12, fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)' }},
         h('span', null, `共 ${turnsData.turnCount || turnsData.turns?.length || 0} 个轮次`),
         h('span', null, `•`),
         h('span', null, `约 ${((turnsData.totalTokens || 0) / 1000).toFixed(1)}k tokens`),
         h('span', { style: { marginLeft: 'auto' }},
           expandedTurns.size === turnsData.turnCount
-            ? h('button', { className: 'rh-btn', onClick: collapseAll, style: { fontSize: 10, padding: '2px 8px' }}, '全部收起')
-            : h('button', { className: 'rh-btn', onClick: expandAll, style: { fontSize: 10, padding: '2px 8px' }}, '全部展开')
+            ? h('button', { className: 'rh-btn', onClick: collapseAll, style: { fontSize: 'var(--rh-font-size-sm)', padding: '2px 8px' }}, '全部收起')
+            : h('button', { className: 'rh-btn', onClick: expandAll, style: { fontSize: 'var(--rh-font-size-sm)', padding: '2px 8px' }}, '全部展开')
         )
       )
     ),
@@ -304,22 +275,22 @@ function SessionTurnsView({ sessionId, sessionTitle, onBack }) {
             }
           },
             h('span', { style: {
-              fontSize: 11,
+              fontSize: 'var(--rh-font-size-sm)',
               fontWeight: 600,
-              color: 'var(--dsw-alias-brand-primary)',
+              color: 'var(--rh-accent)',
               minWidth: 50,
             }}, `轮次 ${turn.turnNumber}`),
             h('span', { style: {
               flex: 1,
-              fontSize: 12,
+              fontSize: 'var(--rh-font-size)',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
               color: 'var(--dsw-alias-label-primary)',
             }}, (turn.userInput || turn.content || '').substring(0, 100)),
-            h('span', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)', flexShrink: 0 }}, time),
+            h('span', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', flexShrink: 0 }}, time),
             h('span', { style: {
-              fontSize: 10,
+              fontSize: 'var(--rh-font-size-sm)',
               color: 'var(--dsw-alias-label-secondary)',
               transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
               transition: 'transform 0.2s',
@@ -331,7 +302,7 @@ function SessionTurnsView({ sessionId, sessionTitle, onBack }) {
             // User input
             h('div', { style: { marginBottom: 12 }},
               h('div', { style: {
-                fontSize: 11,
+                fontSize: 'var(--rh-font-size-sm)',
                 fontWeight: 600,
                 color: 'var(--dsw-alias-label-secondary)',
                 marginBottom: 6,
@@ -339,19 +310,19 @@ function SessionTurnsView({ sessionId, sessionTitle, onBack }) {
                 alignItems: 'center',
                 gap: 6,
               }},
-                h('span', { style: { color: 'var(--dsw-alias-brand-primary)' }}, '●'),
+                h('span', { style: { color: 'var(--rh-accent)' }}, '●'),
                 '用户输入'
               ),
               h('div', {
                 style: {
-                  fontSize: 12,
+                  fontSize: 'var(--rh-font-size)',
                   lineHeight: 1.6,
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-word',
                   padding: '10px 12px',
                   background: 'var(--dsw-alias-bg-layer-2)',
                   borderRadius: 6,
-                  borderLeft: '3px solid var(--dsw-alias-brand-primary)',
+                  borderLeft: '3px solid var(--rh-accent)',
                 }
               }, turn.userInput || turn.content || '(无内容)')
             ),
@@ -359,7 +330,7 @@ function SessionTurnsView({ sessionId, sessionTitle, onBack }) {
             // Summary
             turn.summary && h('div', null,
               h('div', { style: {
-                fontSize: 11,
+                fontSize: 'var(--rh-font-size-sm)',
                 fontWeight: 600,
                 color: 'var(--dsw-alias-label-secondary)',
                 marginBottom: 6,
@@ -372,7 +343,7 @@ function SessionTurnsView({ sessionId, sessionTitle, onBack }) {
               ),
               h('div', {
                 style: {
-                  fontSize: 12,
+                  fontSize: 'var(--rh-font-size)',
                   lineHeight: 1.6,
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-word',
@@ -384,7 +355,7 @@ function SessionTurnsView({ sessionId, sessionTitle, onBack }) {
               }, turn.summary || '(无总结)'),
               endTime && h('div', {
                 style: {
-                  fontSize: 10,
+                  fontSize: 'var(--rh-font-size-sm)',
                   color: 'var(--dsw-alias-label-secondary)',
                   marginTop: 6,
                   textAlign: 'right',
@@ -400,8 +371,29 @@ function SessionTurnsView({ sessionId, sessionTitle, onBack }) {
 
 // ─── SyncStepList - Reusable step progress display ──────────────
 // Used by both active sync view and history detail view
+/**
+ * @component
+ * Reusable component that displays a list of sync steps with their status,
+ * progress indicators, generated files, processing chunks, and execution logs.
+ * Each step can be expanded to show detailed information.
+ * @param {Object} props - Component props
+ * @param {Array<Object>} props.steps - List of step objects with phase, label, status, text, files, chunks, and log properties
+ * @param {Array<Object>} [props.generatedFiles] - List of generated file objects with phase and fileName properties
+ * @param {string} props.workspaceId - The workspace ID
+ * @param {string} props.requirementId - The requirement ID
+ * @param {Function} props.onViewFile - Callback invoked when a generated file link is clicked
+ * @returns {JSX.Element}
+ */
 function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onViewFile }) {
+  const [expandedSteps, setExpandedSteps] = useState({});
   const [expandedChunks, setExpandedChunks] = useState({});
+
+  const toggleStep = (phase) => {
+    setExpandedSteps(prev => ({
+      ...prev,
+      [phase]: !prev[phase]
+    }));
+  };
 
   const toggleChunks = (phase) => {
     setExpandedChunks(prev => ({
@@ -423,7 +415,7 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
   const getStepColor = (status) => {
     switch (status) {
       case 'completed': return 'var(--dsw-alias-state-success-primary)';
-      case 'running': return 'var(--dsw-alias-brand-primary)';
+      case 'running': return 'var(--rh-accent)';
       case 'failed': return 'var(--dsw-alias-state-error-primary)';
       case 'skipped': return 'var(--dsw-alias-label-secondary)';
       default: return 'var(--dsw-alias-label-secondary)';
@@ -463,142 +455,197 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
     (steps || []).map((step, idx) => {
       const phaseFiles = filesByPhase[step.phase] || [];
       const hasChunks = step.chunks && step.chunks.length > 0;
-      const isExpanded = expandedChunks[step.phase];
+      const isChunksExpanded = expandedChunks[step.phase];
+      const isStepExpanded = expandedSteps[step.phase];
 
       return h('div', {
         key: idx,
+        className: 'rh-sync-step',
         style: {
-          padding: '10px 14px',
           background: step.status === 'running' ? 'var(--dsw-alias-bg-layer-2)' : 'var(--dsw-alias-bg-layer-1)',
-          borderRadius: 6,
-          border: step.status === 'running' ? '1px solid var(--dsw-alias-brand-primary)' : '1px solid var(--dsw-alias-border-l1)',
+          border: step.status === 'running' ? '1px solid var(--rh-accent)' : '1px solid var(--dsw-alias-border-l1)',
         }
       },
-        // Step header
-        h('div', { style: { display: 'flex', alignItems: 'center', gap: 10 }},
+        // Step header (clickable to expand)
+        h('div', {
+          className: 'rh-sync-step-header',
+          onClick: () => toggleStep(step.phase),
+        },
           getStepIcon(step.status),
-          h('span', { style: { fontSize: 13, fontWeight: 600, color: getStepColor(step.status), flex: 1 }}, step.label),
+          h('span', { className: 'rh-sync-step-label', style: { flex: 1 }}, step.label),
+          // Liveness indicator
+          step.status === 'running' && step.livenessStage && h('span', {
+            style: {
+              fontSize: 'var(--rh-font-size-sm)',
+              color: step.livenessStage === 'liveness_stale' ? 'var(--dsw-alias-state-warning-primary)' : 'var(--dsw-alias-state-success-primary)',
+              background: 'var(--dsw-alias-bg-layer-2)',
+              padding: '2px 6px',
+              borderRadius: 4,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+            }
+          }, step.livenessStage === 'liveness_stale' ? '⚠' : '●', ` ${step.lastActivityDesc || ''}`),
           // 分块次数标签
           hasChunks && h('span', {
-            onClick: () => toggleChunks(step.phase),
+            onClick: (e) => { e.stopPropagation(); toggleChunks(step.phase); },
             style: {
-              fontSize: 10,
-              color: 'var(--dsw-alias-brand-primary)',
+              fontSize: 'var(--rh-font-size-sm)',
+              color: 'var(--rh-accent)',
               background: 'var(--dsw-alias-bg-layer-2)',
               padding: '2px 6px',
               borderRadius: 4,
               cursor: 'pointer',
             }
-          }, `${step.chunks.length} 块 ▾`),
+          }, `${step.chunks.length} 块`),
           // Token 数标签
           step.totalTokens && h('span', {
             style: {
-              fontSize: 10,
+              fontSize: 'var(--rh-font-size-sm)',
               color: 'var(--dsw-alias-label-secondary)',
               background: 'var(--dsw-alias-bg-layer-2)',
               padding: '2px 6px',
               borderRadius: 4,
             }
           }, `${formatTokens(step.totalTokens)} tokens`),
+          // Expand arrow
+          h('span', { className: `rh-sync-step-arrow${isStepExpanded ? ' expanded' : ''}` }, '▾')
         ),
-        // Step text
+        // Step text (always visible)
         step.text && h('div', {
           style: {
-            fontSize: 11,
+            fontSize: 'var(--rh-font-size-sm)',
             color: 'var(--dsw-alias-label-secondary)',
-            marginTop: 4,
-            marginLeft: 26,
+            padding: '0 12px 8px 38px',
             lineHeight: 1.5,
           }
         }, step.text),
 
-        // Chunks 详情（可展开）
-        hasChunks && isExpanded && h('div', {
-          style: { marginTop: 8, marginLeft: 26, display: 'flex', flexDirection: 'column', gap: 6 }
-        },
-          // 分块总览
-          h('div', { style: {
-            fontSize: 10,
-            color: 'var(--dsw-alias-label-secondary)',
-            borderBottom: '1px solid var(--dsw-alias-border-l1)',
-            paddingBottom: 4,
-            marginBottom: 4,
-          }}, `共 ${step.chunks.length} 块，约 ${formatTokens(step.totalTokens)} tokens`),
+        // Expanded detail section
+        isStepExpanded && h('div', { className: 'rh-sync-step-detail' },
+          // Files section
+          phaseFiles.length > 0 && h('div', { className: 'rh-sync-step-files' },
+            h('div', { style: { fontSize: 'var(--rh-font-size-sm)', fontWeight: 600, marginBottom: 6, color: 'var(--dsw-alias-label-primary)' } }, '生成的文件：'),
+            phaseFiles.map((fileName, fi) =>
+              h('a', {
+                key: fi,
+                className: 'rh-sync-step-file-link',
+                href: '#',
+                onClick: (e) => { e.preventDefault(); onViewFile && onViewFile(fileName); },
+              }, `📄 ${fileName}`)
+            )
+          ),
 
-          // 每块详情
-          step.chunks.map((chunk, ci) =>
+          // Chunks 详情（可展开）
+          hasChunks && h('div', { style: { marginTop: 12 } },
             h('div', {
-              key: ci,
-              style: {
-                background: 'var(--dsw-alias-bg-layer-2)',
-                borderRadius: 4,
-                padding: '6px 8px',
-                fontSize: 10,
-              }
-            },
-              h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }},
-                h('span', { style: { fontWeight: 600 }}, `块 ${ci + 1}`),
-                h('span', { style: { color: 'var(--dsw-alias-label-secondary)' }}, `${formatTokens(chunk.tokens)} tokens`),
-              ),
-              // 文件列表
-              chunk.files && h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 4 }},
-                chunk.files.slice(0, 5).map((f, fi) =>
-                  h('span', {
-                    key: fi,
-                    style: {
-                      color: 'var(--dsw-alias-brand-primary)',
-                      background: 'var(--dsw-alias-bg-layer-1)',
-                      padding: '1px 4px',
-                      borderRadius: 2,
-                    }
-                  }, f.file || f)
-                ),
-                chunk.files.length > 5 && h('span', {
-                  style: { color: 'var(--dsw-alias-label-secondary)' }
-                }, `+${chunk.files.length - 5} 个文件`)
-              ),
-              // 消息列表
-              chunk.messages && h('div', { style: { display: 'flex', flexDirection: 'column', gap: 2 }},
-                chunk.messages.slice(0, 3).map((m, mi) =>
-                  h('div', {
-                    key: mi,
-                    style: {
-                      color: m.role === 'user' ? 'var(--dsw-alias-state-info-primary)' : 'var(--dsw-alias-brand-primary)',
-                    }
-                  }, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, m.role === 'user' ? h(IconUser, { size: 12 }) : h(IconRobot, { size: 12 }), ` ${m.preview?.substring(0, 30) || ''}...`))
-                ),
-                chunk.messages.length > 3 && h('span', {
-                  style: { color: 'var(--dsw-alias-label-secondary)' }
-                }, `+${chunk.messages.length - 3} 条消息`)
+              style: { fontSize: 'var(--rh-font-size-sm)', fontWeight: 600, marginBottom: 8, color: 'var(--dsw-alias-label-primary)', cursor: 'pointer' },
+              onClick: () => toggleChunks(step.phase)
+            }, `处理分块 (${step.chunks.length}) ${isChunksExpanded ? '▾' : '▸'}`),
+
+            isChunksExpanded && h('div', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+              // 分块总览
+              h('div', { style: {
+                fontSize: 'var(--rh-font-size-sm)',
+                color: 'var(--dsw-alias-label-secondary)',
+                borderBottom: '1px solid var(--dsw-alias-border-l1)',
+                paddingBottom: 4,
+                marginBottom: 4,
+              }}, `共 ${step.chunks.length} 块，约 ${formatTokens(step.totalTokens)} tokens`),
+
+              // 每块详情
+              step.chunks.map((chunk, ci) =>
+                h('div', {
+                  key: ci,
+                  style: {
+                    background: 'var(--dsw-alias-bg-layer-1)',
+                    borderRadius: 4,
+                    padding: '6px 8px',
+                    fontSize: 'var(--rh-font-size-sm)',
+                    borderLeft: chunk.status === 'running' ? '2px solid var(--rh-accent)'
+                      : chunk.status === 'failed' ? '2px solid var(--dsw-alias-state-error-primary)'
+                      : chunk.status === 'aborted' ? '2px solid var(--dsw-alias-state-warning-primary)'
+                      : chunk.status === 'completed' ? '2px solid var(--dsw-alias-state-success-primary)'
+                      : '2px solid transparent',
+                  }
+                },
+                  // 块头部：状态图标 + 块号 + 状态文字 + token 数
+                  h('div', { style: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: chunk.sessionId ? 3 : 4 }},
+                    // 状态图标
+                    chunk.status === 'queued' && h(IconHourglass, { size: 12, color: 'var(--dsw-alias-label-secondary)' }),
+                    chunk.status === 'running' && h(IconSync, { size: 12, color: 'var(--rh-accent)', className: 'rh-spin' }),
+                    chunk.status === 'completed' && h(IconCheck, { size: 12, color: 'var(--dsw-alias-state-success-primary)' }),
+                    chunk.status === 'failed' && h(IconError, { size: 12, color: 'var(--dsw-alias-state-error-primary)' }),
+                    chunk.status === 'aborted' && h(IconSkip, { size: 12, color: 'var(--dsw-alias-state-warning-primary)' }),
+                    // 块号 + 状态文字
+                    h('span', { style: { fontWeight: 600, fontSize: 'var(--rh-font-size-sm)' }},
+                      `块 ${ci + 1}`,
+                      chunk.status && chunk.status !== 'completed'
+                        ? h('span', { style: { fontWeight: 400, color:
+                            chunk.status === 'running' ? 'var(--rh-accent)'
+                            : chunk.status === 'failed' ? 'var(--dsw-alias-state-error-primary)'
+                            : chunk.status === 'aborted' ? 'var(--dsw-alias-state-warning-primary)'
+                            : 'var(--dsw-alias-label-secondary)',
+                            marginLeft: 6, fontSize: 'var(--rh-font-size-sm)' },
+                          }, chunk.status === 'queued' ? '排队中'
+                            : chunk.status === 'running' ? '处理中'
+                            : chunk.status === 'failed' ? '失败'
+                            : chunk.status === 'aborted' ? '已终止'
+                            : '')
+                        : null
+                    ),
+                    // token 数
+                    h('span', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', marginLeft: 'auto' }}, `${formatTokens(chunk.tokens)} tokens`),
+                  ),
+                  // sessionId（紧凑展示）
+                  chunk.sessionId && h('div', {
+                    style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-tertiary)', fontFamily: 'var(--rh-font-code)', marginBottom: 4 },
+                    title: `Subagent Session: ${chunk.sessionId}`,
+                  }, `🤖 ${chunk.sessionId.slice(0, 20)}...`),
+                  // 错误信息
+                  chunk.status === 'failed' && chunk.error && h('div', {
+                    style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-state-error-primary)', marginTop: 2 },
+                  }, `❌ ${chunk.error}`),
+                  // 文件列表
+                  chunk.files && h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 4 }},
+                    chunk.files.slice(0, 5).map((f, fi) =>
+                      h('span', {
+                        key: fi,
+                        style: {
+                          color: 'var(--rh-accent)',
+                          background: 'var(--dsw-alias-bg-layer-2)',
+                          padding: '1px 4px',
+                          borderRadius: 2,
+                        }
+                      }, f.file || f)
+                    ),
+                    chunk.files.length > 5 && h('span', {
+                      style: { color: 'var(--dsw-alias-label-secondary)' }
+                    }, `+${chunk.files.length - 5} 个文件`)
+                  ),
+                  // 消息列表
+                  chunk.messages && h('div', { style: { display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4 }},
+                    chunk.messages.slice(0, 3).map((m, mi) =>
+                      h('div', {
+                        key: mi,
+                        style: {
+                          color: m.role === 'user' ? 'var(--dsw-alias-state-info-primary)' : 'var(--rh-accent)',
+                        }
+                      }, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, m.role === 'user' ? h(IconUser, { size: 12 }) : h(IconRobot, { size: 12 }), ` ${m.preview?.substring(0, 30) || ''}...`))
+                    ),
+                    chunk.messages.length > 3 && h('span', {
+                      style: { color: 'var(--dsw-alias-label-secondary)' }
+                    }, `+${chunk.messages.length - 3} 条消息`)
+                  )
+                )
               )
             )
-          )
-        ),
+          ),
 
-        // Files
-        phaseFiles.length > 0 && h('div', {
-          style: { marginTop: 6, marginLeft: 26, display: 'flex', flexDirection: 'column', gap: 3 }
-        },
-          phaseFiles.map((fileName, fi) =>
-            h('div', {
-              key: fi,
-              onClick: () => onViewFile && onViewFile(fileName),
-              style: {
-                fontSize: 11,
-                color: 'var(--dsw-alias-brand-primary)',
-                cursor: onViewFile ? 'pointer' : 'default',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                padding: '3px 8px',
-                background: 'var(--dsw-alias-bg-layer-2)',
-                borderRadius: 4,
-                width: 'fit-content',
-              }
-            },
-              h('span', null, h(IconFile, { size: 14 })),
-              h('span', { style: { textDecoration: onViewFile ? 'underline' : 'none' }}, fileName)
-            )
+          // Log section (if available)
+          step.log && h('div', { style: { marginTop: 12 } },
+            h('div', { style: { fontSize: 'var(--rh-font-size-sm)', fontWeight: 600, marginBottom: 6, color: 'var(--dsw-alias-label-primary)' } }, '执行日志：'),
+            h('pre', { className: 'rh-sync-step-log' }, step.log)
           )
         )
       );
@@ -609,25 +656,112 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
 
 
 // ─── SyncProgressView - Active sync progress display ────────────
-function SyncProgressView({ sync, onBack, onViewFile }) {
+/**
+ * @component
+ * Displays the progress of an active sync operation including a progress bar,
+ * step list, estimated remaining time, and an abort button with confirmation dialog.
+ * @param {Object} props - Component props
+ * @param {Object} props.sync - The sync operation object with status, steps, and metadata
+ * @param {Function} props.onBack - Callback invoked to return to the previous view
+ * @param {Function} props.onViewFile - Callback invoked when a generated file is clicked
+ * @param {string} props.workspaceId - The workspace ID
+ * @param {string} props.requirementId - The requirement ID
+ * @param {Function} [props.onSyncAborted] - Callback invoked after a sync is successfully aborted
+ * @returns {JSX.Element}
+ */
+function SyncProgressView({ sync, onBack, onViewFile, workspaceId, requirementId, onSyncAborted }) {
+  const [showAbortConfirm, setShowAbortConfirm] = useState(false);
+  const [aborting, setAborting] = useState(false);
+
+  // Calculate progress — skipped steps are excluded from the count
+  const allSteps = sync.steps || [];
+  const skippedSteps = allSteps.filter(s => s.status === 'skipped');
+  const activeSteps = allSteps.filter(s => s.status !== 'skipped');
+  const totalSteps = activeSteps.length;
+  const completedSteps = activeSteps.filter(s => s.status === 'completed').length;
+  const failedSteps = activeSteps.filter(s => s.status === 'failed').length;
+  const runningSteps = activeSteps.filter(s => s.status === 'running').length;
+  const progress = totalSteps > 0 ? Math.round(((completedSteps + failedSteps) / totalSteps) * 100) : 0;
+
+  // Estimate remaining time (rough: 2 min per remaining step)
+  const remainingSteps = totalSteps - completedSteps - failedSteps;
+  const etaMinutes = Math.ceil(remainingSteps * 2);
+
+  const handleAbort = async () => {
+    setAborting(true);
+    try {
+      const res = await fetch(`${ROUTE}/sync-abort`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspaceId,
+          requirementId,
+          syncId: sync.id,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShowAbortConfirm(false);
+        showToast({ tone: 'warning', text: '同步任务已终止', holdMs: 3000 });
+        onSyncAborted?.();
+      } else {
+        showToast({ tone: 'error', text: data.error || '终止失败', holdMs: 3000 });
+      }
+    } catch (e) {
+      showToast({ tone: 'error', text: '终止请求失败: ' + e.message, holdMs: 3000 });
+    } finally {
+      setAborting(false);
+    }
+  };
+
   return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%' }},
     // Header
     h('div', { style: {
-      padding: '12px 16px',
+      padding: '8px 12px',
       borderBottom: '1px solid var(--dsw-alias-border-l1)',
       background: 'var(--dsw-alias-bg-layer-2)',
       flexShrink: 0,
     }},
-      h('div', { style: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }},
-        h('button', { className: 'rh-btn', onClick: onBack, style: { fontSize: 12 } }, '← 返回'),
-        h('span', { style: { fontSize: 14, fontWeight: 600, flex: 1, display: 'flex', alignItems: 'center', gap: 4 } },
-          sync.status === 'running' ? h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconSync, { size: 14 }), ' 同步进行中') : sync.status === 'completed' ? h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconCheck, { size: 14 }), ' 同步完成') : h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconError, { size: 14 }), ' 同步失败')
+      h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }},
+        h('button', { className: 'rh-btn', onClick: onBack, style: { fontSize: 'var(--rh-font-size-sm)', padding: '3px 8px' } }, '← 返回'),
+        h('span', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, flex: 1, display: 'flex', alignItems: 'center', gap: 4 } },
+          sync.status === 'running'
+            ? h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconSync, { size: 14 }), ' 同步进行中')
+            : sync.status === 'completed'
+              ? h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconCheck, { size: 14 }), ' 同步完成')
+              : sync.status === 'aborted'
+                ? h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--dsw-alias-state-warning-primary)' } }, '⬛', ' 已终止')
+                : h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconError, { size: 14 }), ' 同步失败')
         ),
       ),
-      h('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', display: 'flex', gap: 16 }},
+      h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', display: 'flex', gap: 16 }},
         h('span', null, '类型：', sync.docTypeName),
         h('span', null, '开始：', new Date(sync.startedAt).toLocaleString()),
         sync.completedAt && h('span', null, '完成：', new Date(sync.completedAt).toLocaleString()),
+        sync.abortedAt && h('span', null, '终止：', new Date(sync.abortedAt).toLocaleString()),
+      ),
+      // Progress bar
+      h('div', { className: 'rh-sync-progress', style: { marginTop: 12, padding: 0, background: 'transparent', borderBottom: 'none' } },
+        h('div', { className: 'rh-sync-progress-header' },
+          h('span', null, `同步进度 ${completedSteps}/${totalSteps} 阶段`),
+          h('span', { className: 'rh-sync-progress-percent' }, `${progress}%`)
+        ),
+        h('div', { className: 'rh-sync-progress-bar' },
+          h('div', {
+            className: 'rh-sync-progress-fill',
+            style: {
+              width: `${progress}%`,
+              background: sync.status === 'aborted' ? 'var(--dsw-alias-state-warning-primary)' : undefined,
+            },
+            role: 'progressbar',
+            'aria-valuenow': progress,
+            'aria-valuemin': 0,
+            'aria-valuemax': 100,
+          })
+        ),
+        sync.status === 'running' && remainingSteps > 0 && h('div', { className: 'rh-sync-progress-eta' },
+          `预计剩余时间：约 ${etaMinutes} 分钟`
+        )
       )
     ),
     // Steps
@@ -639,11 +773,76 @@ function SyncProgressView({ sync, onBack, onViewFile }) {
         requirementId: sync.requirementId,
         onViewFile: onViewFile,
       })
-    )
+    ),
+    // Abort button — only shown when sync is running
+    sync.status === 'running' && h('div', {
+      style: {
+        padding: '12px 16px',
+        borderTop: '1px solid var(--dsw-alias-border-l1)',
+        background: 'var(--dsw-alias-bg-layer-2)',
+        flexShrink: 0,
+      }
+    },
+      h('button', {
+        className: 'rh-btn rh-btn-danger-outline',
+        style: {
+          width: '100%',
+          padding: '10px 16px',
+          fontSize: 'var(--rh-font-size)',
+          fontWeight: 600,
+        },
+        onClick: () => setShowAbortConfirm(true),
+      }, '终止同步任务')
+    ),
+    // Abort confirmation dialog
+    showAbortConfirm && h('div', {
+      className: 'rh-confirm-overlay',
+      onClick: () => !aborting && setShowAbortConfirm(false),
+      role: 'dialog',
+      'aria-modal': 'true',
+      'aria-label': '确认终止同步',
+    },
+      h('div', {
+        className: 'rh-confirm-dialog',
+        onClick: e => e.stopPropagation(),
+      },
+        h('div', { className: 'rh-confirm-header' },
+          h('span', { className: 'rh-confirm-warning-icon', style: { fontSize: 18 } }, '⚠'),
+          h('h3', { className: 'rh-confirm-title' }, '确认终止同步？'),
+        ),
+        h('div', { className: 'rh-confirm-body' },
+          h('p', { className: 'rh-confirm-message' },
+            '终止后当前同步进度将丢失，已生成的文件不会被回滚。'),
+        ),
+        h('div', { className: 'rh-confirm-footer' },
+          h('button', {
+            className: 'rh-btn',
+            onClick: () => setShowAbortConfirm(false),
+            disabled: aborting,
+          }, '取消'),
+          h('button', {
+            className: 'rh-btn rh-btn-danger',
+            onClick: handleAbort,
+            disabled: aborting,
+          }, aborting ? '终止中...' : '确认终止'),
+        ),
+      ),
+    ),
   );
 }
 
 // ─── SyncHistoryView - List of past syncs ───────────────────────
+/**
+ * @component
+ * Displays a list of past sync operations for a given workspace and requirement.
+ * Each entry shows status, document type, timestamp, step progress, and file count.
+ * @param {Object} props - Component props
+ * @param {Function} props.onBack - Callback invoked to return to the previous view
+ * @param {Function} props.onSelectSync - Callback invoked when a sync history entry is clicked
+ * @param {string} props.workspaceId - The workspace ID
+ * @param {string} props.requirementId - The requirement ID
+ * @returns {JSX.Element}
+ */
 function SyncHistoryView({ onBack, onSelectSync, workspaceId, requirementId }) {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -659,14 +858,14 @@ function SyncHistoryView({ onBack, onSelectSync, workspaceId, requirementId }) {
   return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%' }},
     // Header
     h('div', { style: {
-      padding: '12px 16px',
+      padding: '8px 12px',
       borderBottom: '1px solid var(--dsw-alias-border-l1)',
       background: 'var(--dsw-alias-bg-layer-2)',
       flexShrink: 0,
     }},
-      h('div', { style: { display: 'flex', alignItems: 'center', gap: 12 }},
-        h('button', { className: 'rh-btn', onClick: onBack, style: { fontSize: 12 } }, '← 返回'),
-        h('span', { style: { fontSize: 14, fontWeight: 600, flex: 1 } }, '同步历史')
+      h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 }},
+        h('button', { className: 'rh-btn', onClick: onBack, style: { fontSize: 'var(--rh-font-size-sm)', padding: '3px 8px' } }, '← 返回'),
+        h('span', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, flex: 1 } }, '同步历史')
       )
     ),
     // List
@@ -690,15 +889,22 @@ function SyncHistoryView({ onBack, onSelectSync, workspaceId, requirementId }) {
                 },
                   h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }},
                     h('span', { style: { fontSize: 16, display: 'inline-flex' }},
-                      sync.status === 'completed' ? h(IconCheck, { size: 16, color: 'var(--dsw-alias-state-success-primary)' }) : sync.status === 'failed' ? h(IconError, { size: 16, color: 'var(--dsw-alias-state-error-primary)' }) : h(IconSync, { size: 16, color: 'var(--dsw-alias-brand-primary)' })
+                      sync.status === 'completed' ? h(IconCheck, { size: 16, color: 'var(--dsw-alias-state-success-primary)' })
+                        : sync.status === 'failed' ? h(IconError, { size: 16, color: 'var(--dsw-alias-state-error-primary)' })
+                        : sync.status === 'aborted' ? h('span', { style: { fontSize: 'var(--rh-font-size-title)', color: 'var(--dsw-alias-state-warning-primary)' } }, '⬛')
+                        : h(IconSync, { size: 16, color: 'var(--rh-accent)' })
                     ),
-                    h('span', { style: { fontSize: 13, fontWeight: 600, flex: 1 }}, sync.docTypeName),
-                    h('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }},
+                    h('span', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, flex: 1 }}, sync.docTypeName),
+                    h('span', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)' }},
                       new Date(sync.startedAt).toLocaleString()
                     )
                   ),
-                  h('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', display: 'flex', gap: 12 }},
-                    h('span', null, `步骤: ${(sync.steps || []).filter(s => s.status === 'completed').length}/${(sync.steps || []).length}`),
+                  h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', display: 'flex', gap: 12 }},
+                    h('span', null, (() => {
+                      const active = (sync.steps || []).filter(s => s.status !== 'skipped');
+                      const done = active.filter(s => s.status === 'completed').length;
+                      return `步骤: ${done}/${active.length}`;
+                    })()),
                     sync.generatedFiles && sync.generatedFiles.length > 0 && h('span', null, `文件: ${sync.generatedFiles.length} 个`),
                     sync.stats && h('span', null, `LLM: ${sync.stats.totalLLMCalls || 0} 次`),
                   )
@@ -710,20 +916,32 @@ function SyncHistoryView({ onBack, onSelectSync, workspaceId, requirementId }) {
 }
 
 // ─── SyncDetailView - View a specific sync's detail ─────────────
+/**
+ * @component
+ * Displays detailed information about a specific sync operation, including the ability
+ * to view generated files. Delegates to SyncProgressView for the main display and
+ * FilePreview for viewing individual files.
+ * @param {Object} props - Component props
+ * @param {Object} props.sync - The sync object to display details for
+ * @param {Function} props.onBack - Callback invoked to return to the previous view
+ * @param {string} props.workspaceId - The workspace ID
+ * @param {string} props.requirementPath - The requirement path for file preview
+ * @returns {JSX.Element}
+ */
 function SyncDetailView({ sync, onBack, workspaceId, requirementPath }) {
   const [viewingFile, setViewingFile] = useState(null);
 
   if (viewingFile) {
     return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%' }},
       h('div', { style: {
-        padding: '12px 16px',
+        padding: '8px 12px',
         borderBottom: '1px solid var(--dsw-alias-border-l1)',
         background: 'var(--dsw-alias-bg-layer-2)',
         flexShrink: 0,
       }},
-        h('div', { style: { display: 'flex', alignItems: 'center', gap: 12 }},
-          h('button', { className: 'rh-btn', onClick: () => setViewingFile(null), style: { fontSize: 12 } }, '← 返回'),
-          h('span', { style: { fontSize: 14, fontWeight: 600, flex: 1, display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconFile, { size: 14 }), ' ', viewingFile.split('/').pop())
+        h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 }},
+          h('button', { className: 'rh-btn', onClick: () => setViewingFile(null), style: { fontSize: 'var(--rh-font-size-sm)', padding: '3px 8px' } }, '← 返回'),
+          h('span', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, flex: 1, display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconFile, { size: 14 }), ' ', viewingFile.split('/').pop())
         )
       ),
       h('div', { style: { flex: 1, overflow: 'hidden' }},
@@ -739,12 +957,34 @@ function SyncDetailView({ sync, onBack, workspaceId, requirementPath }) {
 
   return h(SyncProgressView, {
     sync,
+    workspaceId: sync.workspaceId,
+    requirementId: sync.requirementId,
     onBack,
     onViewFile: (fileName) => setViewingFile(fileName),
+    onSyncAborted: () => {
+      // Reload to refresh history
+      window.location.reload();
+    },
   });
 }
 
 // ─── PhasedSyncUI - Main sync UI with session selector ──────────
+/**
+ * @component
+ * Main phased sync UI that provides session selection, branch info display,
+ * and multi-phase sync execution with real-time progress tracking via SSE.
+ * Supports viewing sync progress, history, detail, and generated files across
+ * multiple views. Allows optional post-sync operations like analysis and indexing.
+ * @param {Object} props - Component props
+ * @param {string} props.workspaceId - The workspace ID
+ * @param {Object} props.selectedReq - The selected requirement object
+ * @param {string} props.activeTab - The active document type ('requirement' or 'design')
+ * @param {boolean} props.syncing - Whether a sync is currently in progress
+ * @param {Function} props.setSyncing - State setter for the syncing flag
+ * @param {Function} props.onClose - Callback invoked to close the panel
+ * @param {Function} props.refreshTree - Callback to refresh the document tree after sync
+ * @returns {JSX.Element}
+ */
 function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing, onClose, refreshTree }) {
   const [sessions, setSessions] = useState([]);
   const [selectedSessions, setSelectedSessions] = useState([]);
@@ -757,6 +997,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
   const [selectedHistorySync, setSelectedHistorySync] = useState(null);
   const [viewingFile, setViewingFile] = useState(null);
   const [branchInfo, setBranchInfo] = useState({ targetBranch: null, baseBranch: null });
+  const [baseBranch, setBaseBranch] = useState('');
   const [runAnalysis, setRunAnalysis] = useState(false);
   const [runIndex, setRunIndex] = useState(false);
 
@@ -809,6 +1050,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
       }
     } catch (e) {
       console.error('Failed to load sessions:', e);
+      showToast({ tone: 'error', text: '加载会话列表失败', holdMs: 3000 });
     } finally {
       setLoadingSessions(false);
     }
@@ -836,6 +1078,17 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
               clearInterval(pollInterval);
               if (setSyncing) setSyncing(false);
               refreshTree();
+              // Toast 通知：同步完成/失败
+              if (data.sync.status === 'completed') {
+                showToast({
+                  tone: 'success',
+                  text: `${data.sync.docTypeName || '文档'}同步完成`,
+                  holdMs: 4000,
+                  actions: [{ label: '查看详情', onClick: () => {} }],
+                });
+              } else if (data.sync.status === 'failed') {
+                showToast({ tone: 'error', text: '同步失败，请检查日志', holdMs: 5000 });
+              }
             }
           } else {
             // Sync completed, fetch from history
@@ -864,14 +1117,17 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
     setView('progress');
     if (setSyncing) setSyncing(true);
 
-    // Initialize with pending steps (including optional ones)
+    // Initialize with pending steps — only include session-related steps when sessions are selected
+    const hasSessions = selectedSessions.length > 0;
     const steps = [
-      { phase: 'init', label: h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconWrench, { size: 14 }), ' 初始化'), status: 'running', text: '正在启动...', files: [], chunks: null },
-      { phase: 'session_extract', label: h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconComment, { size: 14 }), ' 会话提取'), status: 'pending', text: '', files: [], chunks: null },
+      { phase: 'init', label: h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconWrench, { size: 14 }), ' 同步检查'), status: 'running', text: '正在启动...', files: [], chunks: null },
       { phase: 'code_analysis', label: h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconCode, { size: 14 }), ' 代码差异分析'), status: 'pending', text: '', files: [], chunks: null },
-      { phase: 'discussion_analysis', label: h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconComment, { size: 14 }), ' 讨论差异分析'), status: 'pending', text: '', files: [], chunks: null },
+      ...(hasSessions ? [
+        { phase: 'discussion_analysis', label: h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconComment, { size: 14 }), ' 讨论差异分析'), status: 'pending', text: '', files: [], chunks: null },
+      ] : []),
       { phase: 'merge', label: h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconMerge, { size: 14 }), ' 增量合并'), status: 'pending', text: '', files: [], chunks: null },
-      { phase: 'save', label: h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconSave, { size: 14 }), ' 保存文件'), status: 'pending', text: '', files: [], chunks: null },
+      { phase: 'validate', label: '补丁与字节校验', status: 'pending', text: '', files: [], chunks: null },
+      { phase: 'publish', label: '一致性发布', status: 'pending', text: '', files: [], chunks: null },
     ];
     if (runAnalysis) steps.push({ phase: 'analysis', label: h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconBrain, { size: 14 }), ' 构建分析'), status: 'pending', text: '', files: [] });
     if (runIndex) steps.push({ phase: 'index', label: h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconChart, { size: 14 }), ' 构建索引'), status: 'pending', text: '', files: [] });
@@ -920,6 +1176,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
           workspaceId,
           requirementId: selectedReq.id,
           docType: activeTab,
+          baseBranch: baseBranch.trim(),
           sessionIds: selectedSessions,
           runAnalysis,
           runIndex,
@@ -932,6 +1189,13 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
       // 如果返回 JSON，说明有正在进行的任务
       if (contentType && contentType.includes('application/json')) {
         const data = await response.json();
+        if (data.skipped) {
+          showToast(data.message || '当前 commit 无需同步', 'info');
+          setCurrentSync(null);
+          setView('select');
+          if (setSyncing) setSyncing(false);
+          return;
+        }
         if (data.active && data.sync) {
           setCurrentSync(data.sync);
           setView('progress');
@@ -968,13 +1232,53 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
           try {
             const eventData = JSON.parse(line.slice(6));
 
-            if (eventData.type === 'step') {
+            if (eventData.type === 'sync_started') {
+              // Server confirms the actual syncId — update local state so abort uses the correct ID
+              setCurrentSync(prev => prev ? { ...prev, id: eventData.syncId } : prev);
+            } else if (eventData.type === 'chunk_status') {
+              // Chunk-level subagent status update
+              setCurrentSync(prev => {
+                if (!prev) return prev;
+                const newSteps = prev.steps.map(s => {
+                  if (s.phase !== eventData.phase || !s.chunks) return s;
+                  const newChunks = [...s.chunks];
+                  if (newChunks[eventData.chunkIndex]) {
+                    newChunks[eventData.chunkIndex] = {
+                      ...newChunks[eventData.chunkIndex],
+                      status: eventData.status,
+                      sessionId: eventData.sessionId || newChunks[eventData.chunkIndex].sessionId,
+                      error: eventData.error,
+                    };
+                  }
+                  return { ...s, chunks: newChunks };
+                });
+                return { ...prev, steps: newSteps };
+              });
+            } else if (eventData.type === 'step') {
               // Update step in current sync
               setCurrentSync(prev => {
                 if (!prev) return prev;
                 const newSteps = prev.steps.map(s => {
                   if (s.phase === eventData.phase) {
                     return { ...s, ...eventData };
+                  }
+                  return s;
+                });
+                return { ...prev, steps: newSteps };
+              });
+            } else if (eventData.type === 'liveness') {
+              // Liveness event — update the step's liveness info
+              setCurrentSync(prev => {
+                if (!prev) return prev;
+                const newSteps = prev.steps.map(s => {
+                  if (s.phase === eventData.phase) {
+                    return {
+                      ...s,
+                      livenessStage: eventData.livenessStage,
+                      lastActivityDesc: eventData.lastActivityDesc,
+                      staleCount: eventData.staleCount,
+                      stalenessDuration: eventData.stalenessDuration,
+                    };
                   }
                   return s;
                 });
@@ -1055,17 +1359,17 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
   if (view === 'file' && viewingFile) {
     return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%' }},
       h('div', { style: {
-        padding: '12px 16px',
+        padding: '8px 12px',
         borderBottom: '1px solid var(--dsw-alias-border-l1)',
         background: 'var(--dsw-alias-bg-layer-2)',
         flexShrink: 0,
       }},
-        h('div', { style: { display: 'flex', alignItems: 'center', gap: 12 }},
+        h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 }},
           h('button', { className: 'rh-btn', onClick: () => {
             setViewingFile(null);
             setView('progress');
-          }, style: { fontSize: 12 } }, '← 返回'),
-          h('span', { style: { fontSize: 14, fontWeight: 600, flex: 1, display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconFile, { size: 14 }), ' ', viewingFile.split('/').pop())
+          }, style: { fontSize: 'var(--rh-font-size-sm)', padding: '3px 8px' } }, '← 返回'),
+          h('span', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, flex: 1, display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconFile, { size: 14 }), ' ', viewingFile.split('/').pop())
         )
       ),
       h('div', { style: { flex: 1, overflow: 'hidden' }},
@@ -1107,6 +1411,8 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
   if (view === 'progress' && currentSync) {
     return h(SyncProgressView, {
       sync: currentSync,
+      workspaceId,
+      requirementId: selectedReq.id,
       onBack: () => {
         setView('select');
         setCurrentSync(null);
@@ -1115,14 +1421,27 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
         setViewingFile(fileName);
         setView('file');
       },
+      onSyncAborted: () => {
+        setSyncing(false);
+        setView('select');
+        setCurrentSync(null);
+      },
     });
   }
 
   // Main view: session selector + sync button
   return h('div', null,
+    // Back button
+    h('div', { className: 'rh-btn-stack', style: { marginBottom: 12 } },
+      h('button', {
+        className: 'rh-btn',
+        onClick: onClose,
+      }, '← 返回')
+    ),
+
     h('div', { className: 'rh-op-info', style: { marginBottom: 12 } },
       h('div', null, '需求目录：', h('code', null, `${selectedReq.developer}/${selectedReq.id}`)),
-      h('div', { style: { marginTop: 4, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } },
+      h('div', { style: { marginTop: 4, fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)' } },
         `同步${docTypeName}：代码差异分析 → 讨论差异分析 → 增量合并`)
     ),
 
@@ -1133,41 +1452,37 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
       background: 'var(--dsw-alias-bg-layer-2)',
       borderRadius: 6,
       border: '1px solid var(--dsw-alias-border-l1)',
-      fontSize: 12
+      fontSize: 'var(--rh-font-size)'
     }},
       h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }},
         h('span', { style: { fontWeight: 600, color: 'var(--dsw-alias-label-primary)', display: 'flex', alignItems: 'center', gap: 4 }}, h(IconMerge, { size: 14 }), ' 目标分支：'),
         h('code', { style: {
           flex: 1,
           color: branchInfo.targetBranch ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-error-primary)',
-          fontSize: 11
+          fontSize: 'var(--rh-font-size-sm)'
         }}, branchInfo.targetBranch || '未找到对应分支')
       ),
       h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 }},
         h('span', { style: { fontWeight: 600, color: 'var(--dsw-alias-label-primary)', display: 'flex', alignItems: 'center', gap: 4 }}, h(IconChart, { size: 14 }), ' 基准分支：'),
-        h('code', { style: {
-          flex: 1,
-          color: branchInfo.baseBranch ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-secondary)',
-          fontSize: 11
-        }}, branchInfo.baseBranch || '未找到基准分支')
+        h('input', { className: 'rh-search-input', 'aria-label': '同步基准分支', placeholder: '首次同步必填，如 main 或 origin/develop', value: baseBranch, disabled: syncing, onChange: event => setBaseBranch(event.target.value) })
       )
     ),
 
     // Session selector
     h('div', { style: { marginBottom: 12 } },
-      h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 6 } }, '选择相关会话（可选）'),
+      h('div', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, marginBottom: 6 } }, '选择相关会话（可选）'),
       h('input', {
         className: 'rh-search-input',
         type: 'text',
         placeholder: '搜索会话...',
         value: sessionSearch,
         onChange: (e) => setSessionSearch(e.target.value),
-        style: { marginBottom: 6, fontSize: 11 },
+        style: { marginBottom: 6, fontSize: 'var(--rh-font-size-sm)' },
       }),
       loadingSessions
-        ? h('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } }, '加载中...')
+        ? h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)' } }, '加载中...')
         : sessions.length === 0
-          ? h('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', fontStyle: 'italic' } }, '未找到相关会话')
+          ? h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', fontStyle: 'italic' } }, '未找到相关会话')
           : h('div', {
               style: {
                 maxHeight: 200,
@@ -1188,51 +1503,43 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
                   style: {
                     padding: '8px 12px',
                     cursor: 'pointer',
-                    fontSize: 12,
+                    fontSize: 'var(--rh-font-size)',
                     display: 'flex',
                     alignItems: 'center',
                     gap: 8,
-                    background: selectedSessions.includes(s.id) ? 'var(--dsw-alias-bg-layer-2)' : 'transparent',
+                    background: selectedSessions.includes(s.id) ? 'var(--rh-accent-bg)' : 'transparent',
+                    color: selectedSessions.includes(s.id) ? 'var(--rh-accent)' : 'var(--dsw-alias-label-primary)',
                   }
                 },
-                  h('span', { style: { fontSize: 14, display: 'inline-flex' } }, selectedSessions.includes(s.id) ? h(IconCheckboxOn, { size: 14 }) : h(IconCheckboxOff, { size: 14 })),
+                  h('span', { style: { fontSize: 'var(--rh-font-size-title)', display: 'inline-flex' } }, selectedSessions.includes(s.id) ? h(IconCheckboxOn, { size: 14 }) : h(IconCheckboxOff, { size: 14 })),
                   h('span', { style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 } }, s.title),
-                  h('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } },
+                  h('span', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)' } },
                     `${s.eventCount || 0} 事件`
                   ),
-                  h('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', flexShrink: 0 } },
+                  h('span', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', flexShrink: 0 } },
                     new Date(s.createdAt).toLocaleDateString()
                   ),
                   h('button', {
+                    className: 'rh-btn rh-btn-secondary rh-btn-sm',
                     onClick: (e) => {
                       e.stopPropagation();
                       setViewingSession(s);
                     },
-                    style: {
-                      padding: '4px 10px',
-                      fontSize: 11,
-                      background: 'var(--dsw-alias-bg-layer-2)',
-                      color: 'var(--dsw-alias-brand-primary)',
-                      border: '1px solid var(--dsw-alias-border-l1)',
-                      borderRadius: 4,
-                      cursor: 'pointer',
-                      fontWeight: 500,
-                    }
                   }, '查看内容')
                 )
               )
             )
           ),
-      selectedSessions.length > 0 && h('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', marginTop: 6 } },
+      selectedSessions.length > 0 && h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', marginTop: 6 } },
         `已选择 ${selectedSessions.length} 个会话`
       )
     ),
 
     // Post-sync options
     h('div', { style: { marginBottom: 12, padding: '10px', background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 6 } },
-      h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 8 } }, '同步后操作'),
+      h('div', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, marginBottom: 8 } }, '同步后操作'),
       h('label', {
-        style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, cursor: 'pointer', fontSize: 12 }
+        style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, cursor: 'pointer', fontSize: 'var(--rh-font-size)' }
       },
         h('input', {
           type: 'checkbox',
@@ -1243,7 +1550,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
         h('span', null, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconBrain, { size: 14 }), ' 构建分析（生成 .meta.json）'))
       ),
       h('label', {
-        style: { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12 }
+        style: { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 'var(--rh-font-size)' }
       },
         h('input', {
           type: 'checkbox',
@@ -1265,7 +1572,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
       }, syncing ? '同步中...' : h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconBrain, { size: 14 }), ` 开始同步${docTypeName}`))
     ),
 
-    error && h('div', { style: { color: 'var(--dsw-alias-state-error-primary)', fontSize: 12, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 } }, h(IconError, { size: 14 }), error),
+    error && h('div', { style: { color: 'var(--dsw-alias-state-error-primary)', fontSize: 'var(--rh-font-size)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 } }, h(IconError, { size: 14 }), error),
   );
 }
 

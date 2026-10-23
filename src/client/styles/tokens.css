@@ -1,5 +1,21 @@
 /* Plugin-specific CSS custom properties */
-:root {
+/* DSH semantic colors are declared on body, so aliases resolve at that scope. */
+body {
+  /* Use the platform's blue accent: brand-primary is neutral ink in DSH. */
+  --rh-accent: var(--dsw-alias-brand-primary-new-colorprimary-new-color);
+  --rh-accent-bg: color-mix(in srgb, var(--rh-accent) 12%, transparent);
+  --rh-accent-hover: color-mix(in srgb, var(--rh-accent) 18%, transparent);
+  --rh-accent-border: color-mix(in srgb, var(--rh-accent) 40%, transparent);
+  --rh-on-accent: var(--dsw-static-neutral-bluish-00);
+  --rh-font-family: var(--dsw-font-family);
+  --rh-font-code: var(--ds-font-family-code);
+  --rh-font-size: 13px;
+  --rh-font-size-sm: 12px;
+  --rh-font-size-title: 14px;
+  --rh-line-height: 20px;
+  --rh-header-height: 48px;
+  --rh-control-height: 32px;
+  --rh-panel-padding: 16px;
   /* Spacing scale (8px base) */
   --rh-space-xs: 4px;
   --rh-space-sm: 8px;
@@ -14,4 +30,13 @@
   /* Panel dimensions */
   --rh-tree-min-width: 180px;
   --rh-tree-max-width: 320px;
+
+  /* JSON syntax follows the host theme instead of a fixed dark palette. */
+  --rh-json-literal: var(--dsw-alias-state-warn-primary);
+  --rh-json-number: var(--rh-accent);
+  --rh-json-string: var(--dsw-alias-state-success-primary);
+  --rh-json-key: var(--dsw-alias-label-primary);
+  --rh-json-punctuation: var(--dsw-alias-label-primary);
+  --rh-json-muted: var(--dsw-alias-label-secondary);
+
 }

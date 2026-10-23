@@ -1,11 +1,13 @@
 /**
- * ReqHub - 需求中心
- * DSH 插件入口文件
+ * ReqHub - Requirements Hub
+ * DSH (Developer Service Hub) plugin entry file.
  *
- * 重构后：多文件架构，CJS 格式
- * - CSS 由 Rolldown 插件处理（styles/ 目录）
- * - 组件按需加载（components/ 目录）
- * - 不手动包裹 __ModuleLoader__.load()，由 tsdown banner/footer 自动处理
+ * Architecture: Multi-file, CommonJS format.
+ * - CSS handled by Rolldown plugin (styles/ directory)
+ * - Components loaded on demand (components/ directory)
+ * - Module wrapping handled automatically by tsdown banner/footer
+ *
+ * @module req-hub/client
  */
 
 'use strict';
@@ -33,8 +35,14 @@ const { TriggerButton } = require('./components/TriggerButton.js');
 // 创建图标组件
 const icons = createIconComponents(h);
 
-// 导出 Cordis Plugin Descriptor
-// inject 字段：声明插件需要的 Cordis DI 服务
+/**
+ * Cordis Plugin Descriptor for ReqHub.
+ *
+ * @constant {Object} pluginDescriptor
+ * @property {string[]} inject - List of Cordis DI services required by this plugin.
+ * @property {Function} apply - Plugin activation function that registers tabs, slots, and sidebar actions.
+ * @property {Function} apply.dispose - Cleanup function returned by apply that disposes all registrations.
+ */
 module.exports = {
   inject: ['slots', 'sidebarRightTabs', 'sidebarRight', 'layout'],
   apply(ctx) {

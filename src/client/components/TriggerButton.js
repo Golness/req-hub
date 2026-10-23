@@ -5,9 +5,20 @@ const h = React.createElement;
 const { useState, useEffect, useRef } = React;
 const { createIconComponents } = require('../icons.js');
 
-const { IconFile } = createIconComponents(h);
+const { IconReqHub } = createIconComponents(h);
 const { ROUTE } = require('../constants.js');
 
+/**
+ * @component
+ * Trigger button that serves as the entry point for opening the documentation panel.
+ * Displays a requirements hub icon with an optional "Req Hub" label (wide mode), and shows a tooltip
+ * on hover with workspace documentation statistics. Auto-adjusts tooltip position
+ * to stay within the viewport.
+ * @param {Object} props - Component props
+ * @param {Function} props.onClick - Callback invoked when the button is clicked
+ * @param {boolean} [props.wide] - Whether to display the button in wide mode with a label
+ * @returns {JSX.Element}
+ */
 function TriggerButton({ onClick, wide }) {
   const [hovered, setHovered] = useState(false);
   const [stats, setStats] = useState(null);
@@ -61,21 +72,21 @@ function TriggerButton({ onClick, wide }) {
   const handleMouseLeave = () => { setHovered(false); setTooltipPos(null); };
   const showTooltip = hovered && tooltipPos;
 
-  return h('div', { style: { position: 'relative', width: '100%' } },
+  return h('div', { className: 'rh-trigger-row' + (wide ? '' : ' rh-trigger-row-rail') },
     h('button', {
-      className: cls, onClick,
+      type: 'button', className: cls, onClick,
       onMouseEnter: handleMouseEnter, onMouseLeave: handleMouseLeave,
-      'aria-label': 'Project Documentation',
+      'aria-label': 'Req Hub',
     },
-      h(IconFile, { size: 16 }),
-      wide && h('span', { className: 'rh-trigger-label' }, 'Docs'),
+      h(IconReqHub, { size: 16, className: 'rh-trigger-icon', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round' }),
+      wide && h('span', { className: 'rh-trigger-label' }, 'Req Hub'),
     ),
     showTooltip && h('div', {
       ref: tooltipRef, className: 'rh-tooltip',
       style: { position: 'fixed', top: tooltipPos.top + 'px', left: tooltipPos.left + 'px', zIndex: 9999, maxHeight: 'calc(100vh - 16px)' },
       onMouseEnter: () => setHovered(true), onMouseLeave: () => setHovered(false),
     },
-      h('div', { className: 'rh-tooltip-title' }, `Documentation (${docsDir}/)`),
+      h('div', { className: 'rh-tooltip-title' }, `Req Hub (${docsDir}/)`),
       !stats
         ? h('div', { className: 'rh-tooltip-row' }, 'Loading...')
         : stats.length === 0

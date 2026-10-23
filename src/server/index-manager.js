@@ -1,6 +1,7 @@
 /**
- * 搜索索引管理模块
- * 负责搜索索引的构建、加载和保存
+ * Search index management module.
+ * Handles building, loading, and saving of search indices.
+ * @module index-manager
  */
 
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
@@ -8,18 +9,28 @@ import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 
 /**
- * 获取索引文件路径
- * @param {string} docsRoot - 文档根目录
- * @returns {string} 索引文件路径
+ * Get the index file path for a document root.
+ * @param {string} docsRoot - Document root directory
+ * @returns {string} Full path to search-index.json
  */
 function getIndexPath(docsRoot) {
   return join(docsRoot, '.index', 'search-index.json');
 }
 
 /**
- * 加载搜索索引
- * @param {string} docsRoot - 文档根目录
- * @returns {Promise<Object|null>} 索引对象或 null
+ * @typedef {Object} SearchIndex
+ * @property {number} version - Index version
+ * @property {string} builtAt - Build timestamp (ISO 8601)
+ * @property {Array} requirements - List of requirement entries
+ * @property {Object<string, string[]>} featureIndex - Feature to requirement ID mapping
+ * @property {Object<string, string[]>} fieldIndex - Field to requirement ID mapping
+ * @property {Object<string, string[]>} tagIndex - Tag to requirement ID mapping
+ */
+
+/**
+ * Load search index from disk.
+ * @param {string} docsRoot - Document root directory
+ * @returns {Promise<SearchIndex|null>} Index object or null if not found/invalid
  */
 export async function loadIndex(docsRoot) {
   const indexPath = getIndexPath(docsRoot);
@@ -32,9 +43,10 @@ export async function loadIndex(docsRoot) {
 }
 
 /**
- * 保存搜索索引
- * @param {string} docsRoot - 文档根目录
- * @param {Object} index - 索引对象
+ * Save search index to disk atomically.
+ * @param {string} docsRoot - Document root directory
+ * @param {SearchIndex} index - Index object to save
+ * @returns {Promise<void>}
  */
 export async function saveIndex(docsRoot, index) {
   const indexPath = getIndexPath(docsRoot);
@@ -47,10 +59,11 @@ export async function saveIndex(docsRoot, index) {
 }
 
 /**
- * 重建搜索索引
- * @param {string} docsRoot - 文档根目录
- * @param {Object} tree - 文档树
- * @returns {Promise<Object>} 新索引
+ * Rebuild search index from document tree.
+ * Scans all requirements with .meta.json and builds inverted indices.
+ * @param {string} docsRoot - Document root directory
+ * @param {Object} tree - Document tree from buildTree()
+ * @returns {Promise<SearchIndex>} Newly built index
  */
 export async function rebuildIndex(docsRoot, tree) {
   const index = {

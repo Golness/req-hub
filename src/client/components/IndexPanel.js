@@ -8,7 +8,18 @@ const { createIconComponents } = require('../icons.js');
 
 const { IconClipboard, IconChart, IconFile, IconSearch, IconCheck, IconTarget, IconDatabase, IconTag, IconWrench } = createIconComponents(h);
 
-// ─── IndexPanel (4.5, 4.17-4.19) ────────────────────────────────
+/**
+ * @component IndexPanel
+ * @description Panel for managing and viewing the search index. Displays index status, statistics
+ * (requirements, features, fields, tags), and provides options to rebuild the index,
+ * view structured index data, or view the raw index file. Covers features 4.5, 4.17-4.20.
+ * @param {Object} props - Component props
+ * @param {string} props.workspaceId - The unique identifier of the workspace
+ * @param {Object|null} props.indexStatus - The current index status with built flag, timestamp, and stats
+ * @param {Function} props.onRefresh - Callback invoked to refresh the index status after rebuild
+ * @param {Function} props.onClose - Callback invoked when the panel is closed
+ * @returns {JSX.Element} An index management panel with status, stats, and viewer options
+ */
 function IndexPanel({ workspaceId, indexStatus, onRefresh, onClose }) {
   const [rebuilding, setRebuilding] = useState(false);
   const [error, setError] = useState(null);
@@ -104,15 +115,15 @@ function IndexPanel({ workspaceId, indexStatus, onRefresh, onClose }) {
       h('div', { className: 'rh-op-header' },
         h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconChart, { size: 14 }), ' 索引详情')
       ),
-      indexData.builtAt && h('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', marginBottom: 12 } },
+      indexData.builtAt && h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', marginBottom: 12 } },
         '构建时间：', new Date(indexData.builtAt).toLocaleString()
       ),
 
       // Requirements list
       h('div', { style: { marginBottom: 16 } },
-        h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 8 } }, h(IconClipboard, { size: 14 }), ' 需求列表（', reqs.length, '）'),
+        h('div', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, marginBottom: 8 } }, h(IconClipboard, { size: 14 }), ' 需求列表（', reqs.length, '）'),
         h('div', { style: { maxHeight: 200, overflow: 'auto' } },
-          reqs.map((req, i) => h('div', { key: i, style: { marginBottom: 8, padding: 8, background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 4, fontSize: 11 } },
+          reqs.map((req, i) => h('div', { key: i, style: { marginBottom: 8, padding: 8, background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 4, fontSize: 'var(--rh-font-size-sm)' } },
             h('div', { style: { fontWeight: 600 } }, req.id, ' - ', req.title),
             h('div', { style: { color: 'var(--dsw-alias-label-secondary)' } },
               req.developer, ' | ', req.date, ' | ', req.type
@@ -124,12 +135,12 @@ function IndexPanel({ workspaceId, indexStatus, onRefresh, onClose }) {
 
       // Feature index
       Object.keys(featureIndex).length > 0 && h('div', { style: { marginBottom: 16 } },
-        h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 } }, h(IconTarget, { size: 14 }), ' 功能点索引（', Object.keys(featureIndex).length, '）'),
+        h('div', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 } }, h(IconTarget, { size: 14 }), ' 功能点索引（', Object.keys(featureIndex).length, '）'),
         h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } },
           Object.entries(featureIndex).map(([feature, reqIds]) =>
-            h('div', { key: feature, style: { padding: '4px 8px', background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 4, fontSize: 10 } },
+            h('div', { key: feature, style: { padding: '4px 8px', background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 4, fontSize: 'var(--rh-font-size-sm)' } },
               h('div', { style: { fontWeight: 600 } }, feature),
-              h('div', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 9 } }, reqIds.length, ' 个需求')
+              h('div', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 'var(--rh-font-size-sm)' } }, reqIds.length, ' 个需求')
             )
           )
         )
@@ -137,10 +148,10 @@ function IndexPanel({ workspaceId, indexStatus, onRefresh, onClose }) {
 
       // Field index
       Object.keys(fieldIndex).length > 0 && h('div', { style: { marginBottom: 16 } },
-        h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 } }, h(IconDatabase, { size: 14 }), ' 字段索引（', Object.keys(fieldIndex).length, '）'),
+        h('div', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 } }, h(IconDatabase, { size: 14 }), ' 字段索引（', Object.keys(fieldIndex).length, '）'),
         h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } },
           Object.entries(fieldIndex).map(([field, reqIds]) =>
-            h('code', { key: field, style: { padding: '4px 8px', background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 4, fontSize: 10 } },
+            h('code', { key: field, style: { padding: '4px 8px', background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 4, fontSize: 'var(--rh-font-size-sm)' } },
               field, ' (', reqIds.length, ')'
             )
           )
@@ -149,10 +160,10 @@ function IndexPanel({ workspaceId, indexStatus, onRefresh, onClose }) {
 
       // Tag index
       Object.keys(tagIndex).length > 0 && h('div', { style: { marginBottom: 16 } },
-        h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 } }, h(IconTag, { size: 14 }), ' 标签索引（', Object.keys(tagIndex).length, '）'),
+        h('div', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 } }, h(IconTag, { size: 14 }), ' 标签索引（', Object.keys(tagIndex).length, '）'),
         h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } },
           Object.entries(tagIndex).map(([tag, reqIds]) =>
-            h('span', { key: tag, className: 'rh-badge rh-badge-success', style: { fontSize: 10 } },
+            h('span', { key: tag, className: 'rh-badge rh-badge-success', style: { fontSize: 'var(--rh-font-size-sm)' } },
               tag, ' (', reqIds.length, ')'
             )
           )
@@ -176,10 +187,10 @@ function IndexPanel({ workspaceId, indexStatus, onRefresh, onClose }) {
           background: 'var(--dsw-alias-bg-layer-2)',
           padding: 12,
           borderRadius: 6,
-          fontSize: 11,
+          fontSize: 'var(--rh-font-size-sm)',
           maxHeight: 400,
           overflow: 'auto',
-          fontFamily: 'ui-monospace, monospace',
+          fontFamily: 'var(--rh-font-code)',
         }
       }, indexContent),
       h('div', { className: 'rh-btn-stack', style: { marginTop: 12 } },
@@ -227,8 +238,8 @@ function IndexPanel({ workspaceId, indexStatus, onRefresh, onClose }) {
       }, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconFile, { size: 14 }), ' 查看原始文件'))
     ),
 
-    error && h('div', { style: { color: 'var(--dsw-alias-state-error-primary)', fontSize: 12, marginBottom: 8 } }, error),
-    success && h('div', { style: { color: 'var(--dsw-alias-state-success-primary)', fontSize: 12, marginBottom: 8 } }, success)
+    error && h('div', { style: { color: 'var(--dsw-alias-state-error-primary)', fontSize: 'var(--rh-font-size)', marginBottom: 8 } }, error),
+    success && h('div', { style: { color: 'var(--dsw-alias-state-success-primary)', fontSize: 'var(--rh-font-size)', marginBottom: 8 } }, success)
   );
 }
 

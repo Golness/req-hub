@@ -1,6 +1,6 @@
 {
   "docsDir": "docs",
-  "workspaceId": "2ef06d7a-458c-4a5c-b69f-111150d37887",
+  "workspaceId": "9d01319b-ba20-45f8-ac9c-15c2fac3849c",
   "ai": {
     "prompts": {},
     "selectedModel": "glm-5",
@@ -8,6 +8,6 @@
       "phased-code-analysis-requirement": null
     }
   },
-  "developerName": "lihanping",
-  "requirementId": "2026-10-09-hrm同步到greatday"
+  "developerName": "golness",
+  "requirementId": "2026-10-15-功能优化"
 }

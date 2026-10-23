@@ -1,5 +1,42 @@
 /* Base styles and scrollbar customization */
 
+/* One typography and sizing baseline, scoped to ReqHub (including its portals). */
+:where(.rh-root, .rh-modal, .rh-event-detail-dialog, .rh-confirm-dialog, .rh-tooltip) {
+  font-family: var(--rh-font-family);
+  font-size: var(--rh-font-size);
+  line-height: var(--rh-line-height);
+  color: var(--dsw-alias-label-primary);
+}
+
+:where(.rh-root, .rh-modal, .rh-event-detail-dialog, .rh-confirm-dialog, .rh-tooltip),
+:where(.rh-root, .rh-modal, .rh-event-detail-dialog, .rh-confirm-dialog, .rh-tooltip) *,
+:where(.rh-root, .rh-modal, .rh-event-detail-dialog, .rh-confirm-dialog, .rh-tooltip) *::before,
+:where(.rh-root, .rh-modal, .rh-event-detail-dialog, .rh-confirm-dialog, .rh-tooltip) *::after {
+  box-sizing: border-box;
+}
+
+:where(.rh-root, .rh-modal, .rh-event-detail-dialog, .rh-confirm-dialog) :where(button, input, select, textarea) {
+  font: inherit;
+}
+
+:where(.rh-root, .rh-modal, .rh-event-detail-dialog, .rh-confirm-dialog) :where(input[type="checkbox"], input[type="radio"]) {
+  accent-color: var(--rh-accent);
+}
+
+:where(.rh-root, .rh-modal, .rh-event-detail-dialog, .rh-confirm-dialog) :where(button, [role="button"], input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--rh-accent);
+  outline-offset: 2px;
+}
+
+.rh-root :where(h1, h2, h3, h4) {
+  font-family: inherit;
+  font-size: var(--rh-font-size-title);
+  line-height: 24px;
+  font-weight: 600;
+}
+
+.rh-root :where(code, pre, kbd) { font-family: var(--rh-font-code); }
+
 /* Scrollbar styling */
 .rh-doc-tree::-webkit-scrollbar,
 .rh-right-body::-webkit-scrollbar,

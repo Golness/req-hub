@@ -1,17 +1,29 @@
 /**
- * 配置管理模块
- * 负责配置的加载、保存和自动默认值设置
+ * Configuration management module.
+ * Handles loading, saving, and auto-defaulting of plugin configuration.
+ * @module config
  */
 
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 
+/** @type {string} Path to the config.json file */
 const CONFIG_FILE = join(import.meta.dirname, '../../config.json');
 
 /**
- * 加载配置文件
- * @returns {Promise<Object>} 配置对象
+ * @typedef {Object} PluginConfig
+ * @property {string} docsDir - Relative path to requirement documents directory
+ * @property {string|null} workspaceId - Active workspace ID
+ * @property {string|null} developerName - Current developer name
+ * @property {string|null} requirementId - Active requirement ID
+ * @property {Object} [ai] - AI-related configuration
+ */
+
+/**
+ * Load configuration from config.json file.
+ * Returns default config if file does not exist or is invalid.
+ * @returns {Promise<PluginConfig>} Configuration object
  */
 export async function loadConfig() {
   try {
@@ -26,18 +38,20 @@ export async function loadConfig() {
 }
 
 /**
- * 保存配置文件
- * @param {Object} config - 配置对象
+ * Save configuration to config.json file.
+ * @param {PluginConfig} config - Configuration object to save
+ * @returns {Promise<void>}
  */
 export async function saveConfig(config) {
   await writeFile(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8');
 }
 
 /**
- * 自动设置默认配置
- * @param {Object} config - 当前配置
- * @param {Object} registry - 工作区注册表
- * @returns {Promise<Object>} 更新后的配置
+ * Auto-set default configuration values based on workspace structure.
+ * Automatically selects first workspace, developer, and requirement if not set.
+ * @param {PluginConfig} config - Current configuration
+ * @param {Object} registry - Workspace registry service
+ * @returns {Promise<PluginConfig>} Updated configuration with defaults
  */
 export async function autoDefaultConfig(config, registry) {
   const workspaces = registry.list();

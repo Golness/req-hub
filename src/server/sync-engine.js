@@ -1,385 +1,159 @@
-/**
- * 文档同步引擎模块
- * 负责从 Git 分支获取变更并生成同步文档
- */
-
-import { exec } from 'node:child_process';
+/** Commit-based document sync: branch resolution, code inputs, and task reservation. */
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { getPrompt } from './prompts.js';
-import { log } from './logger.js';
-import { validateBranchName, parseBranchName } from './utils.js';
+import { randomUUID } from 'node:crypto';
+import { readFile, lstat } from 'node:fs/promises';
+import { join } from 'node:path';
+import { hashBytes, decodeDocument } from './sync-artifacts.js';
+import { filterSyncCodeDiff, isSyncCodeFile, parseSyncCodeDiff } from './sync-code-files.js';
+import { parseBranchName } from './utils.js';
+import { loadState, getActiveSync, getSyncHistory, setActiveSync, getAbortController } from './sync-state.js';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+const reservations = new Map();
+const git = async (cwd, ...args) => (await execFileAsync('git', args, {
+  cwd, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024,
+})).stdout.trimEnd();
 
-/**
- * 根据需求目录名查找对应的 Git 分支
- * @param {string} repoPath - 仓库路径
- * @param {string} requirementId - 需求目录名（如 "2026-10-10-费用管理-门店租金"）
- * @returns {Promise<string|null>} 分支名称，如果未找到则返回 null
- */
-export async function findBranchByRequirement(repoPath, requirementId) {
+async function isAncestor(cwd, older, newer) {
   try {
-    // 获取所有分支（本地 + 远程）
-    const { stdout } = await execAsync('git branch -a --format="%(refname:short)"', { cwd: repoPath });
-    const branches = stdout.trim().split('\n').filter(Boolean);
-    
-    // 查找包含 requirementId 的分支
-    // 分支格式可能是: feature/developer/2026-10-10-xxx 或 feature/developer-2026-10-10-xxx 或 2026-10-10-xxx
-    for (const branch of branches) {
-      // 移除 origin/ 前缀
-      const cleanBranch = branch.replace(/^origin\//, '');
-      
-      // 使用统一的分支名解析
-      const parsed = parseBranchName(cleanBranch);
-      if (parsed && parsed.requirementId === requirementId) {
-        return cleanBranch;
-      }
-      
-      // 尝试更宽松的匹配：只匹配日期部分
-      const reqParsed = parseBranchName(requirementId);
-      if (reqParsed) {
-        const { date, title } = reqParsed;
-        // 检查分支是否包含日期和标题的一部分
-        if (cleanBranch.includes(date) && cleanBranch.includes(title.substring(0, 10))) {
-          return cleanBranch;
-        }
-      }
-    }
-    
-    return null;
-  } catch (e) {
-    log.syncEngine.error(`查找分支失败: ${e.message}`);
-    return null;
+    await git(cwd, 'merge-base', '--is-ancestor', older, newer);
+    return true;
+  } catch (error) {
+    if (error.code === 1) return false;
+    throw new Error('历史同步 commit 不可用，无法安全判断同步基准');
   }
 }
 
-/**
- * 检测仓库中存在的基准分支（main / master）
- * @param {string} repoPath - 仓库路径
- * @returns {Promise<string[]>} 存在的基准分支名称列表
- */
-async function detectBaseBranches(repoPath) {
-  const candidates = ['main', 'master'];
-  const existing = [];
-  for (const name of candidates) {
+/** Capture each working-tree layer without changing the index or working files. */
+async function readWorkingChanges(cwd) {
+  const paths = ['--', '.', ':(exclude)**/sync-logs/**'];
+  const staged = await git(cwd, 'diff', '--cached', '--no-renames', '--no-ext-diff', '--no-textconv', ...paths);
+  const unstaged = await git(cwd, 'diff', '--no-renames', '--no-ext-diff', '--no-textconv', ...paths);
+  const untracked = (await git(cwd, 'ls-files', '--others', '--exclude-standard', '-z', ...paths)).split('\0').filter(Boolean);
+  const patches = [];
+  for (const file of untracked.filter(isSyncCodeFile)) {
     try {
-      const { stdout } = await execAsync(`git rev-parse --verify "${name}"`, { cwd: repoPath });
-      if (stdout.trim()) existing.push(name);
-    } catch { /* branch does not exist */ }
+      patches.push(await git(cwd, 'diff', '--no-index', '--no-ext-diff', '--no-textconv', '--', '/dev/null', file));
+    } catch (error) {
+      // A nonempty --no-index diff exits with 1, including for binary files.
+      if (error.code !== 1 || typeof error.stdout !== 'string') throw error;
+      patches.push(error.stdout.trimEnd());
+    }
   }
-  return existing;
+  return { staged: filterSyncCodeDiff(staged), unstaged: filterSyncCodeDiff(unstaged), untracked: untracked.filter(isSyncCodeFile), untrackedDiff: filterSyncCodeDiff(patches.filter(Boolean).join('\n\n')),
+    hasChanges: !!(staged || unstaged || untracked.length) };
 }
 
-/**
- * 获取分支的提交记录
- * @param {string} repoPath - 仓库路径
- * @param {string} branchName - 分支名称
- * @returns {Promise<Array<{hash: string, subject: string, author: string, date: string}>>} 提交记录
- */
-export async function getBranchCommits(repoPath, branchName) {
-  validateBranchName(branchName);
-  
+/** Resolve the same local requirement branch for display and synchronization. */
+export async function findBranchByRequirement(cwd, requirementId, currentBranch) {
+  const current = currentBranch ?? await git(cwd, 'branch', '--show-current');
+  const branches = (await git(cwd, 'for-each-ref', '--format=%(refname:short)', 'refs/heads')).split('\n');
+  const matches = branches.filter(branch => branch === requirementId || parseBranchName(branch)?.requirementId === requirementId);
+  const branchName = matches.includes(current) ? current : matches.length === 1 ? matches[0] : null;
+  if (!branchName) throw new Error(matches.length ? '存在多个需求分支，请切换到目标需求分支' : '未找到需求对应的本地 Git 分支');
+  return branchName;
+}
+
+/** Freeze a local requirement branch tip. Git ancestry, never timestamps, orders versions. */
+export async function prepareCommitSync(cwd, requirementId, docType, history, options = {}) {
+  if (!['requirement', 'design'].includes(docType)) throw new Error('不支持的文档类型');
+  const current = await git(cwd, 'branch', '--show-current');
+  const branchName = await findBranchByRequirement(cwd, requirementId, current);
+  const commitHash = await git(cwd, 'rev-parse', '--verify', `refs/heads/${branchName}^{commit}`);
+  const successes = history.filter(item => item.schemaVersion === 2 && item.branchName === branchName && item.docType === docType && item.status === 'completed' && item.commitHash);
+  let baseline = null;
+  for (const item of successes) {
+    if (await isAncestor(cwd, commitHash, item.commitHash)) {
+      return { skipped: true, commitHash, branchName, message: '当前 commit 已同步，或早于历史成功同步版本' };
+    }
+    if (!(await isAncestor(cwd, item.commitHash, commitHash))) {
+      throw new Error('当前提交与历史同步提交已分叉，请先处理分支历史');
+    }
+    if (!baseline || await isAncestor(cwd, baseline, item.commitHash)) baseline = item.commitHash;
+  }
+  if (!baseline) {
+    const ref = options.baseBranch?.trim();
+    if (!ref || ref.startsWith('-') || /[\s\x00]/.test(ref)) throw new Error('BASE_BRANCH_REQUIRED: 请配置同步基准分支');
+    const sha = await git(cwd, 'rev-parse', '--verify', ref + '^{commit}').catch(() => { throw new Error('BASE_BRANCH_NOT_FOUND: ' + ref); });
+    const bases = (await git(cwd, 'merge-base', '--all', sha, commitHash).catch(() => '')).split('\n').filter(Boolean);
+    if (bases.length !== 1) throw new Error('BASE_ANCESTOR_AMBIGUOUS: 必须具有唯一最近共同祖先');
+    baseline = bases[0];
+  }
+  const range = baseline ? `${baseline}..${commitHash}` : commitHash;
+  const hashes = (await git(cwd, 'rev-list', '--reverse', range)).split('\n').filter(Boolean);
+  const commits = await Promise.all(hashes.map(async hash => {
+    const fields = (await git(cwd, 'show', '-s', '--format=%H%n%s%n%an%n%aI', hash)).split('\n');
+    return { hash: fields[0], subject: fields[1], author: fields[2], date: fields[3] };
+  }));
+  const committedDiff = filterSyncCodeDiff(await git(cwd, 'diff', '--no-renames', '--no-textconv', '--no-ext-diff', baseline, commitHash, '--'));
+  const indexBefore = await git(cwd, 'ls-files', '--stage', '-z');
+  const uncommittedChanges = await readWorkingChanges(cwd);
+  if (uncommittedChanges.hasChanges && current !== branchName) {
+    throw new Error('当前工作分支存在未提交改动，请切换到需求分支后同步');
+  }
+  const codeDiff = [
+    committedDiff && `# 已提交的变更\n\n${committedDiff}`,
+    uncommittedChanges.staged && `# 已暂存但未提交的变更\n\n${uncommittedChanges.staged}`,
+    uncommittedChanges.unstaged && `# 未暂存的变更\n\n${uncommittedChanges.unstaged}`,
+    uncommittedChanges.untrackedDiff && `# 未跟踪的新文件\n\n${uncommittedChanges.untrackedDiff}`,
+  ].filter(Boolean).join('\n\n');
+  const sourceSnapshots = [];
+  const casePaths = new Map();
+  for (const file of new Set(parseSyncCodeDiff(codeDiff).map(item => item.file))) {
+    const lower = file.toLowerCase();
+    if (casePaths.has(lower) && casePaths.get(lower) !== file) throw new Error('SOURCE_CASE_COLLISION');
+    casePaths.set(lower, file);
+    const at = async sha => {
+      const object = await git(cwd, 'ls-tree', '-z', sha, '--', file);
+      if (!object) return null;
+      if (!object.startsWith('100')) throw new Error('SOURCE_NOT_REGULAR: ' + file);
+      return decodeDocument((await execFileAsync('git', ['show', sha + ':' + file], { cwd, encoding: 'buffer', maxBuffer: 32 * 1024 * 1024 })).stdout);
+    };
+    const base = await at(baseline), target = await at(commitHash);
+    let final = target;
+    if (current === branchName) {
+      try {
+        if (!(await lstat(join(cwd, file))).isFile()) throw new Error('SOURCE_NOT_REGULAR: ' + file);
+        final = decodeDocument(await readFile(join(cwd, file)));
+      }
+      catch (e) { if (e.code === 'ENOENT') final = null; else throw e; }
+    }
+    sourceSnapshots.push({ file, base, target, final });
+  }
+  if ((await git(cwd, 'rev-parse', branchName)) !== commitHash || (await git(cwd, 'ls-files', '--stage', '-z')) !== indexBefore) throw new Error('INPUT_CHANGED: Git 状态在捕获期间变化');
+  if (JSON.stringify(await readWorkingChanges(cwd)) !== JSON.stringify(uncommittedChanges)) throw new Error('INPUT_CHANGED: 工作区在捕获期间变化');
+  return { schemaVersion: 2, commitHash, branchName, baselineCommit: baseline, commits, committedDiff, uncommittedChanges, codeDiff, sourceSnapshots };
+}
+
+/** Serialize preflight + reservation so two requests cannot both pass the history gate. */
+export async function beginCommitSync(cwd, reqDir, fields) {
+  const key = `${fields.workspaceId}:${fields.requirementId}`;
+  const previous = reservations.get(key) || Promise.resolve();
+  let release;
+  const lock = new Promise(resolve => { release = resolve; });
+  reservations.set(key, lock);
+  await previous;
   try {
-    // Check if branch exists locally
-    const { stdout: branchCheck } = await execAsync(`git branch --list "${branchName}"`, { cwd: repoPath });
-    let targetBranch = branchName;
-    
-    if (!branchCheck.trim()) {
-      // Try with origin/ prefix
-      const { stdout: remoteCheck } = await execAsync(`git branch -r --list "origin/${branchName}"`, { cwd: repoPath });
-      if (!remoteCheck.trim()) {
-        throw new Error(`Branch "${branchName}" does not exist`);
-      }
-      targetBranch = `origin/${branchName}`;
+    await loadState(fields.workspaceId, fields.requirementId, reqDir);
+    if (getAbortController(fields.workspaceId, fields.requirementId)?.controller.signal.aborted) {
+      throw new Error('上一个同步任务正在终止，请稍后重试');
     }
-
-    // Detect which base branches exist
-    const baseBranches = await detectBaseBranches(repoPath);
-    if (baseBranches.length === 0) {
-      // No base branch found, just list all commits on this branch
-      // --reverse 让结果按时间正序排列（最早的在前）
-      const { stdout } = await execAsync(
-        `git log ${targetBranch} --reverse --pretty=format:"%H|%s|%an|%ad" --date=short`,
-        { cwd: repoPath, maxBuffer: 1024 * 1024 * 10 }
-      );
-      if (!stdout.trim()) return [];
-      return stdout.trim().split('\n').map(line => {
-        const [hash, subject, author, date] = line.split('|');
-        return { hash, subject, author, date };
-      });
-    }
-
-    const notClause = baseBranches.map(b => `--not ${b}`).join(' ');
-    // --reverse 让结果按时间正序排列（最早的在前）
-    const { stdout } = await execAsync(
-      `git log ${targetBranch} ${notClause} --reverse --pretty=format:"%H|%s|%an|%ad" --date=short`,
-      { cwd: repoPath, maxBuffer: 1024 * 1024 * 10 }
-    );
-
-    if (!stdout.trim()) return [];
-
-    return stdout.trim().split('\n').map(line => {
-      const [hash, subject, author, date] = line.split('|');
-      return { hash, subject, author, date };
-    });
-  } catch (e) {
-    log.syncEngine.error(`获取提交失败: ${e.message}`);
-    throw new Error(`获取提交失败: ${e.message}`);
+    const active = await getActiveSync(fields.workspaceId, fields.requirementId);
+    if (active?.status === 'running') return { active: true, sync: active };
+    const prepared = await prepareCommitSync(cwd, fields.requirementId, fields.docType,
+      await getSyncHistory(fields.workspaceId, fields.requirementId), { baseBranch: fields.baseBranch });
+    if (prepared.skipped) return prepared;
+    const id = `${fields.docType}-${prepared.commitHash}-${hashBytes(Buffer.from(prepared.branchName)).slice(0, 12)}`;
+    const sync = { ...fields, schemaVersion: 2, id, commitHash: prepared.commitHash, branchName: prepared.branchName,
+      hasUncommitted: prepared.uncommittedChanges.hasChanges,
+      baselineCommit: prepared.baselineCommit, snapshotDir: `v2/${id}/${randomUUID()}`,
+      startedAt: Date.now(), status: 'running' };
+    await setActiveSync(sync, reqDir);
+    return { ...prepared, sync };
+  } finally {
+    release();
+    if (reservations.get(key) === lock) reservations.delete(key);
   }
 }
-
-/**
- * 获取分支的代码差异
- * @param {string} repoPath - 仓库路径
- * @param {string} branchName - 分支名称
- * @returns {Promise<string>} 差异内容
- */
-export async function getBranchCodeDiff(repoPath, branchName) {
-  validateBranchName(branchName);
-  
-  try {
-    // Check if branch exists locally or remotely
-    let targetBranch = branchName;
-    const { stdout: branchCheck } = await execAsync(`git branch --list "${branchName}"`, { cwd: repoPath });
-    
-    if (!branchCheck.trim()) {
-      const { stdout: remoteCheck } = await execAsync(`git branch -r --list "origin/${branchName}"`, { cwd: repoPath });
-      if (!remoteCheck.trim()) {
-        throw new Error(`Branch "${branchName}" does not exist`);
-      }
-      targetBranch = `origin/${branchName}`;
-    }
-
-    // Detect which base branches exist
-    const baseBranches = await detectBaseBranches(repoPath);
-    let baseBranch;
-    
-    if (baseBranches.length === 0) {
-      // No base branch found, use first commit as base
-      const { stdout: firstCommit } = await execAsync(
-        `git rev-list --max-parents=0 HEAD`,
-        { cwd: repoPath }
-      );
-      baseBranch = firstCommit.trim().split('\n')[0];
-      if (!baseBranch) {
-        throw new Error('No base branch or commits found');
-      }
-    } else {
-      // Use main if available, otherwise master
-      baseBranch = baseBranches.includes('main') ? 'main' : baseBranches[0];
-    }
-
-    // Get diff between base and this branch (committed changes)
-    const { stdout: committedDiff } = await execAsync(
-      `git diff ${baseBranch}...${targetBranch} --stat && echo "===DIFF===" && git diff ${baseBranch}...${targetBranch}`,
-      { cwd: repoPath, maxBuffer: 1024 * 1024 * 50 }
-    );
-
-    // Truncate if too large
-    let result = committedDiff;
-    if (result.length > 100000) {
-      result = result.substring(0, 100000) + '\n\n[... 内容已截断 ...]';
-    }
-    return result;
-  } catch (e) {
-    log.syncEngine.error(`获取代码差异失败: ${e.message}`);
-    throw new Error(`获取代码差异失败: ${e.message}`);
-  }
-}
-
-/**
- * 获取未提交的代码变更
- * @param {string} repoPath - 仓库路径
- * @returns {Promise<{staged: string, unstaged: string, untracked: string[], hasChanges: boolean}>} 未提交的变更
- */
-export async function getUncommittedChanges(repoPath) {
-  try {
-    // 获取已暂存的变更
-    let staged = '';
-    try {
-      const { stdout: stagedDiff } = await execAsync(
-        `git diff --cached --stat && echo "===DIFF===" && git diff --cached`,
-        { cwd: repoPath, maxBuffer: 1024 * 1024 * 50 }
-      );
-      staged = stagedDiff;
-    } catch { /* no staged changes */ }
-    
-    // 获取未暂存的变更
-    let unstaged = '';
-    try {
-      const { stdout: unstagedDiff } = await execAsync(
-        `git diff --stat && echo "===DIFF===" && git diff`,
-        { cwd: repoPath, maxBuffer: 1024 * 1024 * 50 }
-      );
-      unstaged = unstagedDiff;
-    } catch { /* no unstaged changes */ }
-    
-    // 获取未跟踪的文件
-    let untracked = [];
-    try {
-      const { stdout: untrackedFiles } = await execAsync(
-        `git ls-files --others --exclude-standard`,
-        { cwd: repoPath }
-      );
-      untracked = untrackedFiles.trim().split('\n').filter(Boolean);
-    } catch { /* no untracked files */ }
-    
-    const hasChanges = !!(staged || unstaged || untracked.length > 0);
-    
-    return { staged, unstaged, untracked, hasChanges };
-  } catch (e) {
-    log.syncEngine.error(`获取未提交变更失败: ${e.message}`);
-    return { staged: '', unstaged: '', untracked: [], hasChanges: false };
-  }
-}
-
-/**
- * 获取完整的代码差异（包括已提交和未提交的）
- * @param {string} repoPath - 仓库路径
- * @param {string} branchName - 分支名称
- * @returns {Promise<{committedDiff: string, uncommittedChanges: object, combined: string}>} 完整差异
- */
-export async function getFullCodeDiff(repoPath, branchName) {
-  const [committedDiff, uncommittedChanges] = await Promise.all([
-    getBranchCodeDiff(repoPath, branchName),
-    getUncommittedChanges(repoPath),
-  ]);
-  
-  let combined = '';
-  
-  // 添加已提交的变更
-  if (committedDiff) {
-    combined += `# 已提交的变更\n\n${committedDiff}\n\n`;
-  }
-  
-  // 添加未提交的变更
-  if (uncommittedChanges.hasChanges) {
-    combined += `# 未提交的变更\n\n`;
-    
-    if (uncommittedChanges.staged) {
-      combined += `## 已暂存（待提交）\n\n${uncommittedChanges.staged}\n\n`;
-    }
-    
-    if (uncommittedChanges.unstaged) {
-      combined += `## 未暂存（已修改未暂存）\n\n${uncommittedChanges.unstaged}\n\n`;
-    }
-    
-    if (uncommittedChanges.untracked.length > 0) {
-      combined += `## 未跟踪的新文件\n\n${uncommittedChanges.untracked.map(f => `- ${f}`).join('\n')}\n\n`;
-    }
-  }
-  
-  // Truncate if too large
-  if (combined.length > 200000) {
-    combined = combined.substring(0, 200000) + '\n\n[... 内容已截断 ...]';
-  }
-  
-  return {
-    committedDiff,
-    uncommittedChanges,
-    combined,
-  };
-}
-
-/**
- * 构建同步模板变量
- * @param {string} docType - 文档类型
- * @param {string} currentDoc - 当前文档内容
- * @param {Array} commits - 提交记录
- * @param {string} codeDiff - 代码差异
- * @param {Object} config - 配置对象
- * @returns {Object} 模板变量
- */
-export function buildSyncVariables(docType, currentDoc, commits, codeDiff, config) {
-  const docTypeName = docType === 'requirement' ? '需求文档' : '技术文档';
-  const commitList = commits.map(c => `- ${c.hash.substring(0, 7)} ${c.subject} (${c.author}, ${c.date})`).join('\n');
-  const date = new Date().toISOString().split('T')[0];
-  
-  return {
-    docTypeName,
-    currentDoc: currentDoc || '(空文档)',
-    commitList: commitList || '(无提交记录)',
-    codeDiff: codeDiff || '(无代码变更)',
-    date,
-    commitCount: String(commits.length),
-  };
-}
-
-/**
- * 解析同步响应
- * @param {string} content - AI 响应内容
- * @returns {{updatedDocument: string, changes: string[], additions: string[]}}
- */
-export function parseSyncResponse(content) {
-  // Extract the document content (everything before the sync log section)
-  const syncLogMatch = content.match(/---\s*\n\s*## 📝 同步记录/);
-  
-  let updatedDocument = content;
-  let changes = [];
-  let additions = [];
-
-  if (syncLogMatch) {
-    updatedDocument = content.substring(0, syncLogMatch.index + 3); // Include the ---
-    const syncLog = content.substring(syncLogMatch.index);
-    
-    // Parse changes from sync log
-    const changesMatch = syncLog.match(/### 本次同步内容：\s*\n([\s\S]*?)(?=###|$)/);
-    if (changesMatch) {
-      changes = changesMatch[1].split('\n')
-        .filter(line => line.trim().startsWith('-') || line.trim().match(/^\d+\./))
-        .map(line => line.replace(/^[\d.\-\s]+/, '').trim())
-        .filter(Boolean);
-    }
-
-    const additionsMatch = syncLog.match(/### 详细变更：\s*\n([\s\S]*?)$/);
-    if (additionsMatch) {
-      additions = additionsMatch[1].split('\n')
-        .filter(line => line.trim().startsWith('-'))
-        .map(line => line.replace(/^-\s*/, '').trim())
-        .filter(Boolean);
-    }
-  }
-
-  return {
-    updatedDocument,
-    changes,
-    additions,
-  };
-}
-
-/**
- * 构建同步日志
- * @param {string} docType - 文档类型
- * @param {Array} commits - 提交记录
- * @param {Object} syncResult - 同步结果
- * @returns {string} 日志内容
- */
-export function buildSyncLog(docType, commits, syncResult) {
-  const docTypeName = docType === 'requirement' ? '需求文档' : '技术文档';
-  const now = new Date().toISOString();
-  
-  return `# ${docTypeName}同步日志
-
-**同步时间**: ${now}
-**文档类型**: ${docTypeName}
-**提交数量**: ${commits.length} 个
-
-## 同步的提交
-
-${commits.map(c => `- \`${c.hash.substring(0, 7)}\` ${c.subject} (${c.author}, ${c.date})`).join('\n')}
-
-## 本次同步内容
-
-${syncResult.changes.map(c => `- ${c}`).join('\n') || '无变更'}
-
-## 详细变更
-
-${syncResult.additions.map(a => `- ${a}`).join('\n') || '无详细变更'}
-
----
-*此日志由 ReqHub 自动生成*
-`;
-}
-
-
 

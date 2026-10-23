@@ -240,6 +240,8 @@ export default {
 
   // Module resolution configuration
   inputOptions: {
+    // tsdown defaults CJS builds to Node; DSH's CJS loader runs in the browser.
+    platform: 'browser',
     resolve: {
       // Conditional resolution names (ensure dual-mode libraries resolve correctly)
       conditionNames: [

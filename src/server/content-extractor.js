@@ -1,15 +1,41 @@
 /**
- * 内容提取器模块
- * 从 DSH 会话中提取有用的上下文信息
+ * Content extractor module.
+ * Extracts useful context information from DSH sessions.
+ * @module content-extractor
  */
 
 import { log } from './logger.js';
 import { charsToTokens, estimateTextTokens, formatTokens, CHARS_PER_TOKEN } from './token-utils.js';
 
 /**
- * 从会话内容中提取文本
- * @param {string|Array} content - 会话内容（字符串或内容块数组）
- * @returns {string} 提取的文本
+ * @typedef {Object} ExtractedMessage
+ * @property {'user'|'assistant'} role - Message role
+ * @property {string} text - Message text content
+ * @property {string} time - Message timestamp
+ * @property {string} [sessionId] - Optional session ID
+ */
+
+/**
+ * @typedef {Object} ExtractedToolCall
+ * @property {string} name - Tool name
+ * @property {Object} arguments - Tool arguments
+ * @property {string} time - Call timestamp
+ */
+
+/**
+ * @typedef {Object} ExtractedContent
+ * @property {ExtractedMessage[]} messages - Extracted messages
+ * @property {ExtractedToolCall[]} toolCalls - Extracted tool calls
+ * @property {number} totalTokens - Estimated total token count
+ * @property {number} [totalLength] - Estimated total character count
+ * @property {number} [sessionCount] - Number of sessions processed
+ * @property {string} [error] - Error message if extraction failed
+ */
+
+/**
+ * Extract text from content (string or content block array).
+ * @param {string|Array<{type: string, text?: string}>} content - Content to extract from
+ * @returns {string} Extracted text
  */
 function extractText(content) {
   if (typeof content === 'string') {
@@ -25,13 +51,13 @@ function extractText(content) {
 }
 
 /**
- * 从 DSH 会话中提取有用的上下文信息
- * @param {Object} sessions - DSH sessions 服务
- * @param {string} sessionId - 会话 ID
- * @param {Object} options - 选项
- * @param {boolean} options.includeToolCalls - 是否包含工具调用
- * @param {number} options.maxContentTokens - 最大内容 token 数
- * @returns {Promise<Object>} 提取的内容
+ * Extract useful context information from a DSH session.
+ * @param {Object} sessions - DSH sessions service
+ * @param {string} sessionId - Session ID to extract from
+ * @param {Object} [options={}] - Extraction options
+ * @param {boolean} [options.includeToolCalls=false] - Whether to include tool calls
+ * @param {number} [options.maxContentTokens=12500] - Maximum content tokens (≈50k chars)
+ * @returns {Promise<ExtractedContent>} Extracted content
  */
 export async function extractSessionContent(sessions, sessionId, options = {}) {
   const {
@@ -133,11 +159,12 @@ export async function extractSessionContent(sessions, sessionId, options = {}) {
 }
 
 /**
- * 从多个会话中提取内容并合并
- * @param {Object} sessions - DSH sessions 服务
- * @param {Array<string>} sessionIds - 会话 ID 列表
- * @param {Object} options - 选项
- * @returns {Promise<Object>} 合并后的内容
+ * Extract and merge content from multiple sessions.
+ * Messages are sorted by time across all sessions.
+ * @param {Object} sessions - DSH sessions service
+ * @param {string[]} sessionIds - Array of session IDs
+ * @param {Object} [options={}] - Extraction options
+ * @returns {Promise<ExtractedContent>} Merged content from all sessions
  */
 export async function extractMultipleSessions(sessions, sessionIds, options = {}) {
   const {

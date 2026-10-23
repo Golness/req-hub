@@ -6,6 +6,13 @@ const { useState, useEffect } = React;
 const { ROUTE } = require('../constants.js');
 const { DocsViewerBody } = require('./DocsViewerBody.js');
 
+/**
+ * @component
+ * Top-level tab body wrapper that loads workspace list and configuration,
+ * then renders the DocsViewerBody with the selected workspace and docs directory.
+ * Manages workspace selection state and config loading on mount.
+ * @returns {JSX.Element}
+ */
 function TabBodyWrapper() {
   const [workspaces, setWorkspaces] = useState([]);
   const [docsDir, setDocsDir] = useState('docs');
@@ -73,6 +80,7 @@ function TabBodyWrapper() {
 
   return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%' }, role: 'main' },
     h(DocsViewerBody, {
+      key: `${selectedWs.id}:${docsDir}`,
       workspace: selectedWs,
       docsDir,
       onConfigChange: () => loadConfig(workspaces),

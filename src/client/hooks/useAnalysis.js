@@ -1,11 +1,33 @@
 'use strict';
 
+/**
+ * @module useAnalysis
+ * @description Custom React hook that encapsulates analysis logic for the AnalyzePanel component.
+ * Manages streaming analysis via Server-Sent Events (SSE), status tracking, cancellation, and state restoration.
+ */
+
 const React = require('react');
 const { useState, useRef, useEffect } = React;
 const { ROUTE } = require('../constants.js');
 const { DocsViewerContext } = require('../context.js');
 
-// useAnalysis - encapsulates analysis logic for AnalyzePanel
+/**
+ * @hook useAnalysis
+ * @description Manages the full lifecycle of document analysis including starting, streaming progress,
+ * cancelling, and restoring analysis state. Supports both single-requirement and full-workspace analysis modes.
+ * @param {string} workspaceId - The unique identifier of the workspace to analyze.
+ * @param {Object|null} selectedReq - The currently selected requirement object, or null for full-workspace analysis.
+ * @param {string} selectedReq.id - The unique identifier of the selected requirement.
+ * @returns {Object} An object containing analysis state and control functions:
+ * @returns {boolean} returns.analyzing - Whether an analysis is currently in progress.
+ * @returns {string|null} returns.analysisMode - The current analysis mode ('single' or 'full').
+ * @returns {Object} returns.analysisStatus - A map of file IDs to their analysis status objects.
+ * @returns {string|null} returns.error - Error message if an error occurred, or null.
+ * @returns {string|null} returns.success - Success message upon completion, or null.
+ * @returns {Function} returns.startAnalysis - Function to start a new analysis with a given mode.
+ * @returns {Function} returns.cancelAnalysis - Function to cancel the ongoing analysis.
+ * @returns {Function} returns.restoreAnalysis - Function to restore analysis state from server data.
+ */
 function useAnalysis(workspaceId, selectedReq) {
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisMode, setAnalysisMode] = useState(null);

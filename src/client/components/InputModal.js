@@ -4,6 +4,18 @@ const React = require('react');
 const h = React.createElement;
 const { useState, useEffect } = React;
 
+/**
+ * @component InputModal
+ * @description A modal dialog with a text input field for capturing user input. Supports Enter key
+ * to confirm and Escape key to cancel. The input is auto-focused on mount.
+ * @param {Object} props - Component props
+ * @param {string} props.title - The title displayed in the modal header and used as aria-label
+ * @param {string} [props.value=''] - The initial value for the input field
+ * @param {string} [props.placeholder='请输入...'] - Placeholder text for the input field
+ * @param {Function} props.onConfirm - Callback invoked with the trimmed input value when confirmed
+ * @param {Function} props.onCancel - Callback invoked when the modal is cancelled
+ * @returns {JSX.Element} A modal dialog with a text input and confirm/cancel buttons
+ */
 function InputModal({ title, value, placeholder, onConfirm, onCancel }) {
   const [inputValue, setInputValue] = useState(value || '');
 

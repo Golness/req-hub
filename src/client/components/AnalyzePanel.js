@@ -9,7 +9,17 @@ const { useAnalysis } = require('../hooks/useAnalysis.js');
 
 const { IconRobot, IconSync, IconChart, IconError, IconCheck, IconHourglass, IconSkip, IconPackage } = createIconComponents(h);
 
-// ─── AnalyzePanel (4.3, 4.4, 4.14-4.16) ─────────────────────────
+/**
+ * @component AnalyzePanel
+ * @description Panel for AI-powered document analysis. Supports analyzing a single requirement
+ * or performing full project analysis. Displays analysis status, preview files, meta information,
+ * and AI provider configuration. Covers features 4.3, 4.4, 4.14-4.16.
+ * @param {Object} props - Component props
+ * @param {string} props.workspaceId - The unique identifier of the workspace
+ * @param {Object|null} props.selectedReq - The currently selected requirement object, or null if none selected
+ * @param {Function} props.onClose - Callback invoked when the panel is closed
+ * @returns {JSX.Element} The analysis panel UI with analysis controls, status display, and meta viewer
+ */
 function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
   const [aiConfig, setAiConfig] = useState(null);
   const [previewFiles, setPreviewFiles] = useState([]);
@@ -112,7 +122,7 @@ function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
         h('div', { className: 'rh-op-header' },
           h('span', null, 'Meta 详情')
         ),
-        metaData.updatedAt && h('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', marginBottom: 12 } },
+        metaData.updatedAt && h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', marginBottom: 12 } },
           '更新时间：', new Date(metaData.updatedAt).toLocaleString()
         ),
         h('div', { className: 'rh-op-info' },
@@ -120,26 +130,26 @@ function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
           meta.summary && h('div', { style: { marginTop: 8 } }, '摘要：', meta.summary)
         ),
         meta.features && meta.features.length > 0 && h('div', { style: { marginTop: 12 } },
-          h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 6 } }, '功能点'),
+          h('div', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, marginBottom: 6 } }, '功能点'),
           h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } },
             meta.features.map((f, i) => h('span', { key: i, className: 'rh-badge' }, f))
           )
         ),
         meta.fields && meta.fields.length > 0 && h('div', { style: { marginTop: 12 } },
-          h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 6 } }, '字段'),
+          h('div', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, marginBottom: 6 } }, '字段'),
           h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } },
-            meta.fields.map((f, i) => h('code', { key: i, style: { padding: '2px 8px', fontSize: 11, background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 4 } }, f))
+            meta.fields.map((f, i) => h('code', { key: i, style: { padding: '2px 8px', fontSize: 'var(--rh-font-size-sm)', background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 4 } }, f))
           )
         ),
         meta.tags && meta.tags.length > 0 && h('div', { style: { marginTop: 12 } },
-          h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 6 } }, '标签'),
+          h('div', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, marginBottom: 6 } }, '标签'),
           h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } },
             meta.tags.map((t, i) => h('span', { key: i, className: 'rh-badge rh-badge-success' }, t))
           )
         ),
         meta.timeline && meta.timeline.length > 0 && h('div', { style: { marginTop: 12 } },
-          h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 6 } }, '时间线'),
-          h('div', { style: { fontSize: 11 } },
+          h('div', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, marginBottom: 6 } }, '时间线'),
+          h('div', { style: { fontSize: 'var(--rh-font-size-sm)' } },
             meta.timeline.map((t, i) => h('div', { key: i, style: { marginBottom: 8, paddingLeft: 12, borderLeft: '2px solid var(--dsw-alias-border-l1)' } },
               h('div', { style: { fontWeight: 600 } }, t.date, ' - ', t.title),
               t.description && h('div', { style: { color: 'var(--dsw-alias-label-secondary)', marginTop: 2 } }, t.description)
@@ -160,17 +170,17 @@ function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
         ),
         h('div', { style: { maxHeight: 500, overflow: 'auto' } },
           metaData.items.map((item, idx) => h('div', { key: idx, style: { marginBottom: 16, padding: 12, background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 6 } },
-            h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 6 } },
+            h('div', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, marginBottom: 6 } },
               item.id, ' - ', item.title
             ),
-            h('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', marginBottom: 6 } },
+            h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', marginBottom: 6 } },
               item.developer, ' | ', item.date
             ),
-            item.meta.summary && h('div', { style: { fontSize: 11, marginBottom: 6 } }, item.meta.summary),
-            h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 10 } },
+            item.meta.summary && h('div', { style: { fontSize: 'var(--rh-font-size-sm)', marginBottom: 6 } }, item.meta.summary),
+            h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 'var(--rh-font-size-sm)' } },
               item.meta.type && h('span', { className: 'rh-badge' }, item.meta.type),
               item.meta.features && item.meta.features.slice(0, 3).map((f, i) => h('span', { key: i, className: 'rh-badge' }, f)),
-              item.meta.features && item.meta.features.length > 3 && h('span', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)' } }, `+${item.meta.features.length - 3}`)
+              item.meta.features && item.meta.features.length > 3 && h('span', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)' } }, `+${item.meta.features.length - 3}`)
             )
           ))
         ),
@@ -200,7 +210,7 @@ function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
           : h('span', { className: 'rh-badge rh-badge-warn' }, '未分析')
       ),
       // 4.15: Analysis timestamp
-      selectedReq.metaUpdatedAt && h('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', marginTop: 4 } },
+      selectedReq.metaUpdatedAt && h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', marginTop: 4 } },
         '最后分析：', new Date(selectedReq.metaUpdatedAt).toLocaleString())
     ),
 
@@ -222,9 +232,8 @@ function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
         disabled: analyzing
       }, analyzing && analysisMode === 'all' ? '分析中...' : h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconSync, { size: 14 }), ' 项目全量分析')),
       analyzing && h('button', {
-        className: 'rh-btn',
+        className: 'rh-btn rh-btn-danger-outline',
         onClick: cancelAnalysis,
-        style: { color: 'var(--dsw-alias-state-error-primary)' }
       }, '⛔ 终止分析'),
       h('button', { className: 'rh-btn', onClick: onClose }, '关闭')
     ),
@@ -244,7 +253,7 @@ function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
 
     // Analysis file list with real-time status
     previewFiles.length > 0 && h('div', { className: 'rh-analysis-list' },
-      h('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', marginBottom: 8 } },
+      h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', marginBottom: 8 } },
         `共 ${previewFiles.length} 个文件待分析`),
       previewFiles.map(file => {
         const status = analysisStatus[file.id] || { status: 'pending' };
@@ -272,8 +281,8 @@ function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
       })
     ),
 
-    error && h('div', { style: { color: 'var(--dsw-alias-state-error-primary)', fontSize: 12, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 } }, h(IconError, { size: 14 }), error),
-    success && h('div', { style: { color: 'var(--dsw-alias-state-success-primary)', fontSize: 12, marginBottom: 8 } }, success)
+    error && h('div', { style: { color: 'var(--dsw-alias-state-error-primary)', fontSize: 'var(--rh-font-size)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 } }, h(IconError, { size: 14 }), error),
+    success && h('div', { style: { color: 'var(--dsw-alias-state-success-primary)', fontSize: 'var(--rh-font-size)', marginBottom: 8 } }, success)
   );
 }
 

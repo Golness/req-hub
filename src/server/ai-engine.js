@@ -1,23 +1,30 @@
 /**
- * AI 引擎模块
- * 负责 LLM 调用和响应解析
+ * AI engine module.
+ * Handles LLM invocation and response parsing.
+ * @module ai-engine
  */
 
 import { getPrompt, getPromptAsync } from './prompts.js';
 import { log } from './logger.js';
 
 /**
- * 调用 LLM 进行推理
- * @param {Object} llm - LLM 服务实例
- * @param {string} prompt - 用户提示
- * @param {Object} config - 配置对象
- * @param {Object} options - 选项
- * @param {string} options.systemPrompt - 系统提示（优先级最高）
- * @param {string} options.promptKey - Prompt 键名（用于从配置/skill 加载）
- * @param {string} options.cwd - 工作目录（用于 skill 查找）
- * @param {Object} options.scopedSkills - scoped skills 服务（优先级高于全局 skills）
- * @param {Function} options.onStream - 流式回调
- * @returns {Promise<string>} LLM 响应文本
+ * @typedef {Object} LLMPromptOptions
+ * @property {string} [systemPrompt] - Custom system prompt (highest priority)
+ * @property {string} [promptKey] - Prompt key for loading from config/skill
+ * @property {string} [cwd] - Working directory for skill lookup
+ * @property {Object} [scopedSkills] - Scoped skills service (priority over global)
+ * @property {Function} [onStream] - Streaming callback function
+ */
+
+/**
+ * Call LLM for inference.
+ * Automatically selects provider and model from DSH configuration.
+ * @param {Object} llm - LLM service instance
+ * @param {string} prompt - User prompt text
+ * @param {Object} config - Configuration object
+ * @param {LLMPromptOptions} [options={}] - Prompt options
+ * @returns {Promise<string>} LLM response text
+ * @throws {Error} If no providers available or LLM call fails
  */
 export async function callLLM(llm, prompt, config, options = {}) {
   const { systemPrompt: customSystemPrompt, promptKey, cwd, scopedSkills, onStream } = options;
@@ -220,9 +227,13 @@ export async function callLLM(llm, prompt, config, options = {}) {
 }
 
 /**
- * 解析 AI 响应（JSON 格式）
- * @param {string} text - AI 响应文本
- * @returns {Object|null} 解析后的对象或 null
+ * Parse AI response text as JSON.
+ * Attempts multiple parsing strategies:
+ * 1. Direct JSON.parse
+ * 2. Extract from ```json code block
+ * 3. Find any JSON object in text
+ * @param {string} text - AI response text
+ * @returns {Object|null} Parsed object or null if all strategies fail
  */
 export function parseAIResponse(text) {
   // Level 1: direct parse

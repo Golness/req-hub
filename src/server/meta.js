@@ -1,8 +1,28 @@
 /**
- * Meta 数据验证模块
- * 负责 .meta.json 文件的验证和标准化
+ * Meta data validation module.
+ * Handles validation and normalization of .meta.json files.
+ * @module meta
  */
 
+/**
+ * @typedef {Object} MetaData
+ * @property {string} type - Requirement type (large/medium/small/unknown)
+ * @property {string} summary - One-line summary
+ * @property {string[]} features - List of features
+ * @property {string[]} fields - List of database fields
+ * @property {string[]} tags - List of tags
+ * @property {TimelineEvent[]} timeline - List of timeline events
+ */
+
+/**
+ * @typedef {Object} TimelineEvent
+ * @property {string} date - Event date (YYYY-MM-DD)
+ * @property {string} title - Event title
+ * @property {string} type - Event type (requirement/design/cr/release/other)
+ * @property {string} description - Event description
+ */
+
+/** Default values for meta data fields */
 const META_DEFAULTS = {
   type: 'unknown',
   summary: '',
@@ -13,9 +33,10 @@ const META_DEFAULTS = {
 };
 
 /**
- * 验证并标准化 meta 数据
- * @param {Object} meta - 原始 meta 数据
- * @returns {Object} 验证后的 meta 数据
+ * Validate and normalize meta data.
+ * Ensures all required fields exist with proper types.
+ * @param {Object} meta - Raw meta data object
+ * @returns {MetaData} Validated and normalized meta data
  */
 export function validateMeta(meta) {
   const result = { ...META_DEFAULTS };

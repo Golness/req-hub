@@ -1,27 +1,33 @@
 /**
- * Token 计算工具
- * 使用 DSH 的 token 估算方法
+ * Token estimation utilities.
+ * Uses DSH's 4-chars-per-token estimation method.
+ * @module token-utils
  */
 
-/**
- * 每字符对应的 token 数（DSH 使用 4 字符/token）
- */
+/** @type {number} Characters per token ratio (DSH uses 4 chars/token) */
 export const CHARS_PER_TOKEN = 4;
 
-/**
- * 每个块的 JSON 结构开销
- */
-export const BLOCK_OVERHEAD = 4;
+/** Hard input budget used by document sync subagents. */
+export const MAX_SYNC_INPUT_TOKENS = 150000;
 
 /**
- * 角色 framing 开销
+ * Conservative, model-independent input budget: one token per UTF-8 byte plus framing.
+ * This is an upper-bound budgeting policy, not a model tokenizer or provider usage count.
  */
+export function estimateSubagentInputTokens(text) {
+  return Buffer.byteLength(text || '', 'utf8') + 8;
+}
+
+/** @type {number} JSON structure overhead per content block (in tokens) */
+export const BLOCK_OVERHEAD = 4;
+
+/** @type {number} Role framing overhead per message (in tokens) */
 export const ROLE_OVERHEAD = 4;
 
 /**
- * 估算文本的 token 数
- * @param {string} text - 文本内容
- * @returns {number} 估算的 token 数
+ * Estimate token count for a text string.
+ * @param {string} text - Input text
+ * @returns {number} Estimated token count
  */
 export function estimateTextTokens(text) {
   if (!text || typeof text !== 'string') return 0;
@@ -29,9 +35,10 @@ export function estimateTextTokens(text) {
 }
 
 /**
- * 估算内容块的 token 数
- * @param {Array} blocks - 内容块数组
- * @returns {number} 估算的 token 数
+ * Estimate token count for an array of content blocks.
+ * Handles text, reasoning, tool-call, and other block types.
+ * @param {Array<{type: string, text?: string, name?: string, arguments?: string}>} blocks - Content block array
+ * @returns {number} Estimated token count
  */
 export function estimateContentTokens(blocks) {
   if (!Array.isArray(blocks) || blocks.length === 0) return 0;
@@ -57,11 +64,11 @@ export function estimateContentTokens(blocks) {
 }
 
 /**
- * 估算消息的 token 数
- * @param {Object} message - 消息对象
- * @param {string} message.role - 消息角色
- * @param {Array| string} message.content - 消息内容
- * @returns {number} 估算的 token 数
+ * Estimate token count for a single message.
+ * @param {Object} message - Message object
+ * @param {string} message.role - Message role (user/assistant/system)
+ * @param {Array|string} message.content - Message content (string or content block array)
+ * @returns {number} Estimated token count
  */
 export function estimateMessageTokens(message) {
   if (!message) return 0;
@@ -79,9 +86,9 @@ export function estimateMessageTokens(message) {
 }
 
 /**
- * 估算多条消息的总 token 数
- * @param {Array} messages - 消息数组
- * @returns {number} 总 token 数
+ * Estimate total token count for an array of messages.
+ * @param {Array<Object>} messages - Array of message objects
+ * @returns {number} Total estimated token count
  */
 export function estimateMessagesTokens(messages) {
   if (!Array.isArray(messages)) return 0;
@@ -89,9 +96,9 @@ export function estimateMessagesTokens(messages) {
 }
 
 /**
- * 格式化 token 数为可读字符串
- * @param {number} tokens - token 数
- * @returns {string} 格式化后的字符串
+ * Format token count as a human-readable string.
+ * @param {number} tokens - Token count
+ * @returns {string} Formatted string (e.g., "1.5k", "2.3M")
  */
 export function formatTokens(tokens) {
   if (typeof tokens !== 'number' || isNaN(tokens)) return '0';
@@ -105,18 +112,18 @@ export function formatTokens(tokens) {
 }
 
 /**
- * 字符数转 token 数
- * @param {number} chars - 字符数
- * @returns {number} token 数
+ * Convert character count to token count.
+ * @param {number} chars - Character count
+ * @returns {number} Estimated token count
  */
 export function charsToTokens(chars) {
   return Math.ceil(chars / CHARS_PER_TOKEN);
 }
 
 /**
- * token 数转字符数（估算）
- * @param {number} tokens - token 数
- * @returns {number} 字符数
+ * Convert token count to character count (estimate).
+ * @param {number} tokens - Token count
+ * @returns {number} Estimated character count
  */
 export function tokensToChars(tokens) {
   return tokens * CHARS_PER_TOKEN;

@@ -1,6 +1,8 @@
 /**
- * 模板生成相关路由
- * 所有 LLM 调用统一委托给 DSH Subagent
+ * Template generation routes module.
+ * Handles document template generation HTTP endpoints.
+ * All LLM calls are delegated to DSH Subagent.
+ * @module routes/template-routes
  */
 
 import { resolve } from 'node:path';
@@ -13,7 +15,7 @@ import { executeTask } from '../task-executor.js';
 import { json, readBody } from '../utils.js';
 import { log } from '../logger.js';
 
-// 文档模板
+/** @type {string} Default requirement document template */
 const REQUIREMENT_TEMPLATE = `# 需求文档
 
 ## 功能描述
@@ -32,6 +34,7 @@ const REQUIREMENT_TEMPLATE = `# 需求文档
 [描述需要测试的关键点]
 `;
 
+/** @type {string} Default technical design template */
 const DESIGN_TEMPLATE = `# 技术方案
 
 ## 背景
@@ -53,6 +56,7 @@ const DESIGN_TEMPLATE = `# 技术方案
 [描述可能的风险和应对措施]
 `;
 
+/** @type {string} Default code review template */
 const CR_TEMPLATE = `# CR 记录
 
 ## 变更概述
@@ -71,12 +75,21 @@ const CR_TEMPLATE = `# CR 记录
 [描述需要特别注意的事项]
 `;
 
+/** @type {Object<string, string>} Template map by document type */
 const TEMPLATES = {
   requirement: REQUIREMENT_TEMPLATE,
   design: DESIGN_TEMPLATE,
   cr: CR_TEMPLATE
 };
 
+/**
+ * Create template generation routes.
+ * @param {Object} registry - Workspace registry service
+ * @param {Object} llm - LLM service
+ * @param {Object} agents - Agents service
+ * @param {Object} ctx - DSH context
+ * @returns {Array<Object>} Array of route definitions
+ */
 export function createTemplateRoutes(registry, llm, agents, ctx) {
   return [
     // GET /templates - 获取模板列表

@@ -14,6 +14,18 @@ const { IconLink } = createIconComponents(h);
 const { Spinner } = require('./Spinner.js');
 
 // ─── SkillPreview (Markdown + Mermaid) ───────────────
+/**
+ * @component
+ * Renders a skill's Markdown content with Mermaid diagram and syntax highlighting support.
+ * Fetches skill content from the server, parses Markdown using the marked library,
+ * renders Mermaid diagrams, and applies code highlighting via highlight.js.
+ * Includes a header with a back button and skill name/description.
+ * @param {Object} props - Component props
+ * @param {string} props.skillName - The name of the skill to load and display
+ * @param {string} props.workspaceId - The workspace ID for fetching skill content
+ * @param {Function} props.onBack - Callback invoked when the back button is clicked
+ * @returns {JSX.Element}
+ */
 function SkillPreview({ skillName, workspaceId, onBack }) {
   const [text, setText] = useState('');
   const [description, setDescription] = useState('');
@@ -149,19 +161,19 @@ function SkillPreview({ skillName, workspaceId, onBack }) {
   return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--dsw-alias-bg-base)' } },
     // Header with back button
     h('div', { style: {
-      display: 'flex', alignItems: 'center', gap: 12,
-      padding: '12px 16px',
+      display: 'flex', alignItems: 'center', gap: 8,
+      padding: '8px 12px',
       borderBottom: '1px solid var(--dsw-alias-border-l1)',
       background: 'var(--dsw-alias-bg-layer-1)'
     }},
       h('button', {
         className: 'rh-btn rh-btn-secondary',
         onClick: onBack,
-        style: { fontSize: 12, padding: '4px 10px' }
+        style: { fontSize: 'var(--rh-font-size-sm)', padding: '3px 8px' }
       }, '← 返回设置'),
       h('div', { style: { flex: 1 } },
-        h('div', { style: { fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 4 } }, h(IconLink, { size: 14 }), ` ${skillName}`),
-        description && h('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', marginTop: 2 } }, description)
+        h('div', { style: { fontWeight: 600, fontSize: 'var(--rh-font-size)', display: 'flex', alignItems: 'center', gap: 4 } }, h(IconLink, { size: 14 }), ` ${skillName}`),
+        description && h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', marginTop: 2 } }, description)
       )
     ),
     // Content

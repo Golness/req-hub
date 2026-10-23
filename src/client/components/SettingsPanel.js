@@ -9,10 +9,23 @@ const { useScript } = require('../hooks/useScript.js');
 const { getMermaidTheme } = require('../utils/getMermaidTheme.js');
 const { sanitizeHtml } = require('../utils/sanitizeHtml.js');
 const { Spinner } = require('./Spinner.js');
+const { PromptManager } = require('./PromptManager.js');
 
-const { IconRobot, IconClipboard, IconLink, IconEye, IconSave, IconCheck, IconSync, IconExpand } = createIconComponents(h);
+const { IconLink } = createIconComponents(h);
 
 // ─── SkillPreview (Markdown + Mermaid) ───────────────
+/**
+ * @component
+ * Renders a skill's Markdown content with Mermaid diagram and syntax highlighting support.
+ * Fetches skill content from the server, parses Markdown using the marked library,
+ * renders Mermaid diagrams, and applies code highlighting via highlight.js.
+ * Includes a header with a back button and skill name/description.
+ * @param {Object} props - Component props
+ * @param {string} props.skillName - The name of the skill to load and display
+ * @param {string} props.workspaceId - The workspace ID for fetching skill content
+ * @param {Function} props.onBack - Callback invoked when the back button is clicked
+ * @returns {JSX.Element}
+ */
 function SkillPreview({ skillName, workspaceId, onBack }) {
   const [text, setText] = useState('');
   const [description, setDescription] = useState('');
@@ -148,19 +161,19 @@ function SkillPreview({ skillName, workspaceId, onBack }) {
   return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--dsw-alias-bg-base)' } },
     // Header with back button
     h('div', { style: {
-      display: 'flex', alignItems: 'center', gap: 12,
-      padding: '12px 16px',
+      display: 'flex', alignItems: 'center', gap: 8,
+      padding: '8px 12px',
       borderBottom: '1px solid var(--dsw-alias-border-l1)',
       background: 'var(--dsw-alias-bg-layer-1)'
     }},
       h('button', {
         className: 'rh-btn rh-btn-secondary',
         onClick: onBack,
-        style: { fontSize: 12, padding: '4px 10px' }
+        style: { fontSize: 'var(--rh-font-size-sm)', padding: '3px 8px' }
       }, '← 返回设置'),
       h('div', { style: { flex: 1 } },
-        h('div', { style: { fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 4 } }, h(IconLink, { size: 14 }), ` ${skillName}`),
-        description && h('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', marginTop: 2 } }, description)
+        h('div', { style: { fontWeight: 600, fontSize: 'var(--rh-font-size)', display: 'flex', alignItems: 'center', gap: 4 } }, h(IconLink, { size: 14 }), ` ${skillName}`),
+        description && h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', marginTop: 2 } }, description)
       )
     ),
     // Content
@@ -176,6 +189,17 @@ function SkillPreview({ skillName, workspaceId, onBack }) {
 }
 
 // ─── SettingsPanel (4.10) ─────────────────────────────────────────
+/**
+ * @component
+ * Settings panel for configuring AI/LLM models, prompt templates, and skill bindings.
+ * Displays the current LLM configuration (provider, available models), allows model selection,
+ * and provides a prompt management section where prompts can be customized per category.
+ * Supports binding skills as instruction layers and previewing skill content.
+ * @param {Object} props - Component props
+ * @param {string} props.workspaceId - The workspace ID for fetching skills and configuration
+ * @param {Function} props.onClose - Callback invoked when the panel is closed or cancelled
+ * @returns {JSX.Element}
+ */
 function SettingsPanel({ workspaceId, onClose }) {
   const [settings, setSettings] = useState({
     ai: {
@@ -187,10 +211,22 @@ function SettingsPanel({ workspaceId, onClose }) {
   const [llmConfig, setLlmConfig] = useState(null);
   const [promptRegistry, setPromptRegistry] = useState(null);
   const [availableSkills, setAvailableSkills] = useState([]);
-  const [expandedPrompts, setExpandedPrompts] = useState({});
+  const [savedSettings, setSavedSettings] = useState(null);
+  const [promptError, setPromptError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
   const [previewingSkill, setPreviewingSkill] = useState(null); // 预览中的 skill 名称
+
+  const loadPromptRegistry = async () => {
+    setPromptError(false);
+    try {
+      const response = await fetch(`${ROUTE}/prompt-registry`);
+      if (!response.ok) throw new Error('load failed');
+      setPromptRegistry(await response.json());
+    } catch {
+      setPromptError(true);
+    }
+  };
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -199,15 +235,19 @@ function SettingsPanel({ workspaceId, onClose }) {
         const configRes = await fetch(`${ROUTE}/config`);
         if (configRes.ok) {
           const data = await configRes.json();
-          setSettings({
+          const nextSettings = {
             ai: {
               selectedModel: data.ai?.selectedModel || '',
-              prompts: data.ai?.prompts || {},
-              skillBindings: data.ai?.skillBindings || {}
+              prompts: { ...Object.fromEntries(Object.entries(data.ai?.prompts || {}).filter(([key]) => !key.startsWith('phased-'))), ...data.ai?.syncV2?.prompts },
+              skillBindings: { ...Object.fromEntries(Object.entries(data.ai?.skillBindings || {}).filter(([key]) => !key.startsWith('phased-'))), ...data.ai?.syncV2?.skillBindings }
             }
-          });
+          };
+          setSettings(nextSettings);
+          setSavedSettings(JSON.stringify(nextSettings));
+        } else {
+          setMessage({ type: 'error', text: '设置加载失败，请重新打开' });
         }
-      } catch (err) { console.error('Failed to fetch config:', err); }
+      } catch (err) { setMessage({ type: 'error', text: '设置加载失败，请重新打开' }); }
 
       try {
         const llmRes = await fetch(`${ROUTE}/llm-config`);
@@ -218,13 +258,7 @@ function SettingsPanel({ workspaceId, onClose }) {
         }
       } catch (err) { setLlmConfig({ error: err.message }); }
 
-      try {
-        const promptRes = await fetch(`${ROUTE}/prompt-registry`);
-        if (promptRes.ok) {
-          const data = await promptRes.json();
-          setPromptRegistry(data);
-        }
-      } catch (err) { console.error('Failed to fetch prompt registry:', err); }
+      await loadPromptRegistry();
 
       // Fetch available skills
       try {
@@ -280,19 +314,25 @@ function SettingsPanel({ workspaceId, onClose }) {
   }, [llmConfig, settings.ai.selectedModel]);
 
   const handleSave = async () => {
+    if (saving || savedSettings === null) return;
+    const snapshot = JSON.stringify(settings);
     setSaving(true);
     setMessage(null);
     try {
       const res = await fetch(`${ROUTE}/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings)
+        body: JSON.stringify({ ai: { selectedModel: settings.ai.selectedModel,
+          prompts: Object.fromEntries(Object.entries(settings.ai.prompts).filter(([key]) => !key.startsWith('phased-'))),
+          skillBindings: Object.fromEntries(Object.entries(settings.ai.skillBindings).filter(([key]) => !key.startsWith('phased-'))),
+          syncV2: { contractVersion: 2,
+            prompts: Object.fromEntries(Object.entries(settings.ai.prompts).filter(([key]) => key.startsWith('phased-'))),
+            skillBindings: Object.fromEntries(Object.entries(settings.ai.skillBindings).filter(([key]) => key.startsWith('phased-'))) }
+        } })
       });
       if (res.ok) {
-        setMessage({ type: 'success', text: h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconCheck, { size: 14 }), ' 设置已保存') });
-        // Refresh prompt registry to reflect saved state
-        const promptRes = await fetch(`${ROUTE}/prompt-registry`);
-        if (promptRes.ok) setPromptRegistry(await promptRes.json());
+        setSavedSettings(snapshot);
+        setMessage({ type: 'success', text: '已保存' });
       } else {
         setMessage({ type: 'error', text: '保存失败' });
       }
@@ -301,10 +341,6 @@ function SettingsPanel({ workspaceId, onClose }) {
     } finally {
       setSaving(false);
     }
-  };
-
-  const togglePrompt = (key) => {
-    setExpandedPrompts(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
   const handlePromptChange = (key, value) => {
@@ -333,9 +369,10 @@ function SettingsPanel({ workspaceId, onClose }) {
   const handleResetPrompt = (key) => {
     setSettings(prev => {
       const newPrompts = { ...prev.ai.prompts };
-      delete newPrompts[key];
+      // The config API merges prompt keys, so send an explicit empty override.
+      newPrompts[key] = '';
       const newSkillBindings = { ...prev.ai.skillBindings };
-      delete newSkillBindings[key];
+      newSkillBindings[key] = null;
       return {
         ...prev,
         ai: {
@@ -355,245 +392,47 @@ function SettingsPanel({ workspaceId, onClose }) {
     setPreviewingSkill(null);
   };
 
-  // 如果正在预览 skill，显示预览组件
-  if (previewingSkill) {
-    return h(SkillPreview, {
-      skillName: previewingSkill,
-      workspaceId,
-      onBack: handleBackFromPreview
-    });
-  }
+  const dirty = savedSettings !== null && JSON.stringify(settings) !== savedSettings;
 
-  return h('div', { className: 'rh-op-panel', style: { overflowY: 'auto' } },
-
-    message && h('div', {
-      className: `rh-alert rh-alert-${message.type}`,
-      style: { marginBottom: 16 }
-    }, message.text),
-
-    // ── LLM Config Section ──
-    h('div', {
-      style: {
-        padding: '12px', background: 'var(--dsw-alias-bg-layer-2)',
-        borderRadius: 6, marginBottom: 16, fontSize: 12,
-        border: '1px solid var(--dsw-alias-border-l1)'
-      }
-    },
-      h('div', { style: { fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 } }, h(IconRobot, { size: 16 }), ' LLM 配置（DSH 全局）'),
-      llmConfig
-        ? llmConfig.error
-          ? h('div', { style: { color: 'var(--dsw-alias-state-error-primary)' } }, '错误: ', llmConfig.error)
-          : h('div', null,
-              h('div', { style: { marginBottom: 4 } },
-                h('span', { style: { fontWeight: 500 } }, 'Provider: '),
-                h('code', { style: { background: 'var(--dsw-alias-bg-layer-3)', padding: '2px 6px', borderRadius: 3 } }, llmConfig.provider)
-              ),
-              h('div', null,
-                h('span', { style: { fontWeight: 500 } }, '可用模型: '),
-                h('span', { style: { fontSize: 11 } }, llmConfig.models?.join(', ') || '(无)')
+  return h(React.Fragment, null,
+    previewingSkill && h(SkillPreview, {
+      skillName: previewingSkill, workspaceId, onBack: handleBackFromPreview,
+    }),
+    h('div', { className: 'rh-op-panel rh-settings-panel', style: previewingSkill ? { display: 'none' } : undefined },
+      h('div', { className: 'rh-settings-model' },
+        h('label', { htmlFor: 'rh-settings-model', className: 'rh-form-label' }, '模型'),
+        llmConfig?.error
+          ? h('span', { className: 'rh-error', role: 'alert' }, '模型加载失败')
+          : !llmConfig
+            ? h('span', { className: 'rh-prompt-description' }, '加载中…')
+            : h(React.Fragment, null,
+                h('select', {
+                  id: 'rh-settings-model', className: 'rh-form-select',
+                  value: settings.ai.selectedModel, disabled: savedSettings === null,
+                  onChange: event => setSettings(prev => ({ ...prev, ai: { ...prev.ai, selectedModel: event.target.value } })),
+                },
+                  !llmConfig.models?.length && h('option', { value: '' }, '暂无模型'),
+                  settings.ai.selectedModel && !llmConfig.models?.includes(settings.ai.selectedModel) && h('option', { value: settings.ai.selectedModel }, settings.ai.selectedModel),
+                  (llmConfig.models || []).map(model => h('option', { key: model, value: model }, model))
+                ),
+                h('span', { className: 'rh-settings-provider', title: 'Provider' }, llmConfig.provider)
               )
-            )
-        : h('div', null, '加载中...')
-    ),
-
-    // ── Model Selection ──
-    llmConfig && !llmConfig.error && llmConfig.models?.length > 0 && h('div', { className: 'rh-form-group', style: { display: 'block', marginBottom: 16 } },
-      h('label', { className: 'rh-form-label', style: { display: 'block', marginBottom: 8 } }, '选择 LLM 模型'),
-      h('select', {
-        className: 'rh-form-select',
-        value: settings.ai.selectedModel,
-        onChange: (e) => setSettings(prev => ({ ...prev, ai: { ...prev.ai, selectedModel: e.target.value } }))
-      },
-        llmConfig.models.map(model => h('option', { key: model, value: model }, model))
+      ),
+      h(PromptManager, {
+        key: workspaceId,
+        registry: promptRegistry, error: promptError, onRetry: loadPromptRegistry,
+        prompts: settings.ai.prompts, skillBindings: settings.ai.skillBindings,
+        skills: availableSkills, disabled: savedSettings === null,
+        onChange: handlePromptChange, onBindSkill: handleSkillBindingChange,
+        onReset: handleResetPrompt, onPreviewSkill: handlePreviewSkill,
+      }),
+      h('div', { className: 'rh-op-actions rh-settings-actions' },
+        h('span', { className: message?.type === 'error' ? 'rh-error' : 'rh-prompt-description', role: 'status' },
+          saving ? '保存中…' : message?.type === 'error' ? message.text : dirty ? '未保存' : message?.text || ''
+        ),
+        h('button', { type: 'button', className: 'rh-btn rh-btn-secondary', onClick: onClose }, '关闭'),
+        h('button', { type: 'button', className: 'rh-btn rh-btn-primary', onClick: handleSave, disabled: saving || !dirty }, saving ? '保存中…' : '保存')
       )
-    ),
-
-    // ── Prompt Management Section ──
-    h('div', { style: { marginBottom: 16 } },
-      h('div', { style: { fontWeight: 600, marginBottom: 12, fontSize: 13 } }, 'Prompt 管理'),
-      !promptRegistry
-        ? h('div', { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } }, '加载 Prompt 列表...')
-        : (() => {
-            // Group prompts by category
-            const groups = {};
-            Object.entries(promptRegistry).forEach(([key, meta]) => {
-              const category = meta.category || 'default';
-              if (!groups[category]) groups[category] = [];
-              groups[category].push([key, meta]);
-            });
-
-            const categoryLabels = {
-              'default': h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconClipboard, { size: 12 }), ' 基础功能'),
-              'phased-sync': h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconSync, { size: 12 }), ' 分阶段同步')
-            };
-
-            return Object.entries(groups).map(([category, prompts]) =>
-              h('div', { key: category, style: { marginBottom: 20 } },
-                h('div', {
-                  style: {
-                    fontSize: 12,
-                    fontWeight: 600,
-                    marginBottom: 10,
-                    padding: '6px 10px',
-                    background: 'var(--dsw-alias-bg-layer-2)',
-                    borderRadius: 4,
-                    borderLeft: '3px solid var(--dsw-alias-color-brand)'
-                  }
-                }, categoryLabels[category] || category),
-                prompts.map(([key, meta]) => {
-                  const isExpanded = expandedPrompts[key];
-                  const currentCustom = settings.ai.prompts[key] || '';
-                  const isCustomized = currentCustom.trim().length > 0;
-                  const hasSkillBinding = !!settings.ai.skillBindings?.[key];
-
-                  return h('div', {
-                    key,
-                    style: {
-                      marginBottom: 8,
-                      border: '1px solid var(--dsw-alias-border-l1)',
-                      borderRadius: 6,
-                      overflow: 'hidden'
-                    }
-                  },
-                    // Header row (clickable to toggle)
-                    h('div', {
-                      onClick: () => togglePrompt(key),
-                      style: {
-                        display: 'flex', alignItems: 'center', gap: 8,
-                        padding: '10px 12px', cursor: 'pointer',
-                        background: 'var(--dsw-alias-bg-layer-2)',
-                        borderBottom: isExpanded ? '1px solid var(--dsw-alias-border-l1)' : 'none',
-                        fontSize: 12
-                      }
-                    },
-                      h('span', { style: { display: 'inline-flex', fontSize: 10, transition: 'transform 0.2s', transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' } }, h(IconExpand, { size: 12 })),
-                      h('span', { style: { fontWeight: 600 } }, meta.label),
-                      hasSkillBinding && h('span', {
-                        style: {
-                          fontSize: 10, padding: '1px 6px', borderRadius: 8,
-                          background: 'var(--dsw-alias-brand-primary-bg)',
-                          color: 'var(--dsw-alias-brand-primary)'
-                        }
-                      }, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconLink, { size: 10 }), ` ${settings.ai.skillBindings[key]}`)),
-                      isCustomized && h('span', {
-                        style: {
-                          fontSize: 10, padding: '1px 6px', borderRadius: 8,
-                          background: 'var(--dsw-alias-state-success-bg)',
-                          color: 'var(--dsw-alias-state-success-primary)'
-                        }
-                      }, '已自定义'),
-                      !isCustomized && !hasSkillBinding && h('span', {
-                        style: {
-                          fontSize: 10, padding: '1px 6px', borderRadius: 8,
-                          background: 'var(--dsw-alias-bg-layer-3)',
-                          color: 'var(--dsw-alias-label-secondary)'
-                        }
-                      }, '默认')
-                    ),
-
-                    // Expanded content
-                    isExpanded && h('div', { style: { padding: '12px' } },
-                      // 说明卡片
-                      h('div', { style: { marginBottom: 12, padding: '10px 12px', background: 'var(--dsw-alias-bg-layer-3)', borderRadius: 6, borderLeft: '3px solid var(--dsw-alias-color-brand)' } },
-                        h('div', { style: { fontSize: 11, fontWeight: 600, marginBottom: 8, color: 'var(--dsw-alias-label-primary)' } },
-                          'Prompt 结构说明'
-                        ),
-                        h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.6 } },
-                          h('div', { style: { marginBottom: 6 } },
-                            h('strong', null, 'Skill（指令层）'),
-                            '：来自 DSH skills 系统，定义"怎么做"，包含完整的执行流程和规则。'
-                          ),
-                          h('div', { style: { marginBottom: 6 } },
-                            h('strong', null, 'Prompt（数据层）'),
-                            '：本地定义的模板，包含业务数据变量（如 {currentDoc}、{codeDiff}），定义"处理什么数据"。'
-                          ),
-                          h('div', null,
-                            h('strong', null, '组合使用'),
-                            '：两者配合，Skill 作为 system prompt，Prompt 提供具体的业务数据模板。'
-                          )
-                        )
-                      ),
-
-                      // Skill 选择器
-                      h('div', { style: { marginBottom: 12, padding: '8px 10px', background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 6, border: hasSkillBinding ? '1px solid var(--dsw-alias-color-brand)' : '1px solid var(--dsw-alias-border-l2)' } },
-                        h('div', { style: { fontSize: 11, fontWeight: 600, marginBottom: 6, color: 'var(--dsw-alias-label-primary)' } },
-                          h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconLink, { size: 12 }), ' 绑定 Skill 作为指令层')
-                        ),
-                        h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)', marginBottom: 8, lineHeight: 1.5 } },
-                          '选择一个 Skill 作为执行指令。Skill 定义完整的任务流程，下方的 Prompt 提供业务数据模板。'
-                        ),
-                        h('div', { style: { display: 'flex', gap: 8 } },
-                          h('select', {
-                            value: settings.ai.skillBindings?.[key] || '',
-                            onChange: (e) => handleSkillBindingChange(key, e.target.value),
-                            style: {
-                              flex: 1,
-                              padding: '6px 8px',
-                              fontSize: 11,
-                              borderRadius: 4,
-                              border: '1px solid var(--dsw-alias-border-l2)',
-                              background: 'var(--dsw-alias-bg-layer-1)',
-                              color: 'var(--dsw-alias-label-primary)'
-                            }
-                          },
-                            h('option', { value: '' }, '不绑定 Skill（仅使用下方 Prompt）'),
-                            availableSkills.length === 0 && h('option', { value: '', disabled: true }, '加载中或无可用 Skill...'),
-                            availableSkills.map(skill =>
-                              h('option', { key: skill.name, value: skill.name },
-                                skill.name + (skill.description ? ` - ${skill.description.substring(0, 30)}...` : '')
-                              )
-                            )
-                          ),
-                          // 预览按钮
-                          settings.ai.skillBindings?.[key] && h('button', {
-                            className: 'rh-btn rh-btn-secondary',
-                            onClick: (e) => { e.stopPropagation(); handlePreviewSkill(settings.ai.skillBindings[key]); },
-                            style: { fontSize: 11, padding: '6px 12px', whiteSpace: 'nowrap' }
-                          }, '预览')
-                        )
-                      ),
-
-                      // Prompt 编辑区（数据模板）
-                      h('div', { style: { marginBottom: 8, padding: '6px 8px', background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 6 } },
-                        h('div', { style: { fontSize: 11, fontWeight: 600, marginBottom: 6, color: 'var(--dsw-alias-label-primary)' } },
-                          'Prompt 数据模板',
-                          hasSkillBinding && h('span', { style: { fontSize: 10, fontWeight: 400, marginLeft: 8, color: 'var(--dsw-alias-label-secondary)' } },
-                            '（配合 Skill 使用，提供业务数据）'
-                          )
-                        ),
-                        h('div', { style: { fontSize: 10, color: 'var(--dsw-alias-label-secondary)', marginBottom: 6, lineHeight: 1.4 } },
-                          '定义业务数据模板，使用 {变量名} 插入动态内容。如：{currentDoc}、{codeDiff}、{commitList}'
-                        ),
-                        h('textarea', {
-                          className: 'rh-form-textarea',
-                          rows: 10,
-                          value: currentCustom || meta.default,
-                          onChange: (e) => handlePromptChange(key, e.target.value),
-                          style: { fontFamily: 'monospace', fontSize: 11, lineHeight: 1.5 },
-                          placeholder: '定义业务数据模板，留空使用默认'
-                        })
-                      ),
-
-                      // 操作按钮
-                      (isCustomized || hasSkillBinding) && h('div', { style: { marginTop: 8, textAlign: 'right' } },
-                        h('button', {
-                          className: 'rh-btn',
-                          style: { fontSize: 11, padding: '4px 10px', color: 'var(--dsw-alias-state-warning-primary)' },
-                          onClick: (e) => { e.stopPropagation(); handleResetPrompt(key); }
-                        }, h(IconSync, { size: 12 }), ' 恢复默认')
-                      )
-                    )
-                  );
-                })
-              )
-            );
-          })()
-    ),
-
-    // ── Actions ──
-    h('div', { className: 'rh-op-actions' },
-      h('button', { className: 'rh-btn rh-btn-secondary', onClick: onClose }, '取消'),
-      h('button', { className: 'rh-btn rh-btn-primary', onClick: handleSave, disabled: saving }, saving ? '保存中...' : '保存')
     )
   );
 }

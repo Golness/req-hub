@@ -1,23 +1,37 @@
 /**
- * 通用工具模块
- * 提供路径安全、文件遍历、请求处理、分支校验等通用功能
+ * General utility module.
+ * Provides path safety, file traversal, request handling, and branch validation.
+ * @module utils
  */
 
 import { readdir, stat } from 'node:fs/promises';
 import { resolve, relative, isAbsolute } from 'node:path';
 
+/** @type {number} Maximum directory traversal depth */
 const MAX_DEPTH = 10;
-const MAX_BODY_SIZE = 1024 * 1024; // 1MB
-const MAX_DOC_CONTENT = 10000000; // 10MB
+
+/** @type {number} Maximum HTTP request body size (1MB) */
+const MAX_BODY_SIZE = 1024 * 1024;
+
+/** @type {number} Maximum document content size (10MB) */
+const MAX_DOC_CONTENT = 10000000;
 
 /**
- * 解析 Git 分支名，提取开发者、日期、标题等信息
- * 支持三种格式：
- * 1. feature/{developer}/{YYYY-MM-DD}-{title}  (新格式)
- * 2. feature/{developer}-{YYYY-MM-DD}-{title}  (旧格式)
- * 3. {YYYY-MM-DD}-{title}  (无开发者前缀)
- * @param {string} branch - 分支名称
- * @returns {{ developer: string|null, date: string, title: string, requirementId: string }|null} 解析结果
+ * @typedef {Object} BranchInfo
+ * @property {string|null} developer - Developer name extracted from branch
+ * @property {string} date - Date in YYYY-MM-DD format
+ * @property {string} title - Branch title/description
+ * @property {string} requirementId - Requirement ID (date-title format)
+ */
+
+/**
+ * Parse Git branch name to extract developer, date, title info.
+ * Supports three formats:
+ * 1. feature/{developer}/{YYYY-MM-DD}-{title} (new format)
+ * 2. feature/{developer}-{YYYY-MM-DD}-{title} (old format)
+ * 3. {YYYY-MM-DD}-{title} (no developer prefix)
+ * @param {string} branch - Branch name
+ * @returns {BranchInfo|null} Parsed info or null if no match
  */
 export function parseBranchName(branch) {
   if (!branch) return null;
@@ -40,10 +54,11 @@ export function parseBranchName(branch) {
 }
 
 /**
- * 验证 Git 分支名称
- * 支持 Unicode 字符（包括中文），拒绝危险的路径遍历模式
- * @param {string} branchName - 分支名称
- * @throws {Error} 如果分支名称无效
+ * Validate Git branch name for safety.
+ * Supports Unicode characters (including Chinese), rejects dangerous path traversal patterns.
+ * @param {string} branchName - Branch name to validate
+ * @throws {Error} If branch name is invalid or contains unsafe characters
+ * @returns {void}
  */
 export function validateBranchName(branchName) {
   if (!branchName || branchName.trim().length === 0) {
@@ -60,10 +75,11 @@ export function validateBranchName(branchName) {
 }
 
 /**
- * 检查子路径是否在父路径内
- * @param {string} parent - 父路径
- * @param {string} child - 子路径
- * @returns {boolean} 是否安全
+ * Check if a child path is safely inside a parent path.
+ * Prevents path traversal attacks by resolving both paths.
+ * @param {string} parent - Parent directory path
+ * @param {string} child - Child path to check
+ * @returns {boolean} True if child is safely inside parent
  */
 export function isInside(parent, child) {
   const resolvedParent = resolve(parent);
@@ -81,11 +97,20 @@ export function isInside(parent, child) {
 }
 
 /**
- * 遍历文档目录
- * @param {string} root - 根目录
- * @param {string} ext - 文件扩展名
- * @param {number} maxDepth - 最大深度
- * @returns {Promise<Array>} 文件列表
+ * @typedef {Object} DocFile
+ * @property {string} path - Full file path
+ * @property {string} relative - Relative path from root
+ * @property {string} name - File name
+ * @property {number} size - File size in bytes
+ */
+
+/**
+ * Walk document directory and collect files with specified extension.
+ * Performs cycle detection and depth limiting.
+ * @param {string} root - Root directory to walk
+ * @param {string} ext - File extension filter (e.g., '.md')
+ * @param {number} [maxDepth=MAX_DEPTH] - Maximum traversal depth
+ * @returns {Promise<DocFile[]>} Array of found files, sorted by relative path
  */
 export async function walkDocs(root, ext, maxDepth = MAX_DEPTH) {
   const results = [];
@@ -137,10 +162,11 @@ export async function walkDocs(root, ext, maxDepth = MAX_DEPTH) {
 }
 
 /**
- * 发送 JSON 响应
- * @param {Object} res - HTTP 响应对象
- * @param {any} data - 响应数据
- * @param {number} status - HTTP 状态码
+ * Send JSON response with proper headers.
+ * @param {Object} res - HTTP response object
+ * @param {any} data - Data to serialize as JSON
+ * @param {number} [status=200] - HTTP status code
+ * @returns {void}
  */
 export function json(res, data, status = 200) {
   const body = JSON.stringify(data);
@@ -152,10 +178,12 @@ export function json(res, data, status = 200) {
 }
 
 /**
- * 读取请求体
- * @param {Object} req - HTTP 请求对象
- * @param {number} maxSize - 最大大小
- * @returns {Promise<string>} 请求体字符串
+ * Read HTTP request body as string.
+ * Enforces size limit to prevent memory issues.
+ * @param {Object} req - HTTP request object
+ * @param {number} [maxSize=MAX_BODY_SIZE] - Maximum body size in bytes
+ * @returns {Promise<string>} Request body string
+ * @throws {Error} If body exceeds max size
  */
 export function readBody(req, maxSize = MAX_BODY_SIZE) {
   return new Promise((resolve, reject) => {
@@ -176,10 +204,11 @@ export function readBody(req, maxSize = MAX_BODY_SIZE) {
 }
 
 /**
- * 截断长文本
- * @param {string} text - 原始文本
- * @param {number} maxLength - 最大长度
- * @returns {string} 截断后的文本
+ * Truncate long text to specified maximum length.
+ * Adds Chinese truncation notice if text was cut.
+ * @param {string} text - Original text
+ * @param {number} [maxLength=MAX_DOC_CONTENT] - Maximum allowed length
+ * @returns {string} Truncated text with notice if needed
  */
 export function truncateText(text, maxLength = MAX_DOC_CONTENT) {
   if (text.length > maxLength) {

@@ -8,7 +8,16 @@ const { createIconComponents } = require('../icons.js');
 
 const { IconSearch, IconInfo, IconWarning, IconError } = createIconComponents(h);
 
-// ─── LogPanel (4.9, 4.26) ─────────────────────────────────────────
+/**
+ * @component LogPanel
+ * @description Panel for viewing and filtering application logs. Supports filtering by log level
+ * (debug, info, warn, error) and by functional module tags. Features auto-refresh capability,
+ * log level counts, and detailed log entry display with timestamps and attached data.
+ * Covers features 4.9, 4.26.
+ * @param {Object} props - Component props
+ * @param {Function} props.onClose - Callback invoked when the panel is closed
+ * @returns {JSX.Element} A log viewer panel with level/tag filters and a scrollable log list
+ */
 function LogPanel({ onClose }) {
   const [logs, setLogs] = useState([]);
   const [logMeta, setLogMeta] = useState({ levels: {}, tags: {} });
@@ -150,7 +159,7 @@ function LogPanel({ onClose }) {
     // 顶部工具栏
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, padding: '8px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)' } },
       h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
-        h('label', { style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 } },
+        h('label', { style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--rh-font-size)' } },
           h('input', {
             type: 'checkbox',
             checked: autoRefresh,
@@ -179,34 +188,18 @@ function LogPanel({ onClose }) {
     // 第一层：等级筛选器
     h('div', { style: { marginBottom: 12 } },
       h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 } },
-        h('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', fontWeight: 600 } },
+        h('span', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', fontWeight: 600 } },
           '日志等级：',
           selectedLevels.length > 0 ? `已选 ${selectedLevels.length}/${4}` : '请选择'
         ),
         h('div', { style: { display: 'flex', gap: 4 } },
           selectedLevels.length < 4 && h('button', {
+            className: 'rh-btn rh-btn-secondary rh-btn-xs',
             onClick: selectAllLevels,
-            style: {
-              padding: '2px 6px',
-              fontSize: 10,
-              borderRadius: 4,
-              border: 'none',
-              background: 'var(--dsw-alias-bg-layer-2)',
-              color: 'var(--dsw-alias-label-secondary)',
-              cursor: 'pointer'
-            }
           }, '全选'),
           selectedLevels.length > 0 && h('button', {
+            className: 'rh-btn rh-btn-secondary rh-btn-xs',
             onClick: clearAllLevels,
-            style: {
-              padding: '2px 6px',
-              fontSize: 10,
-              borderRadius: 4,
-              border: 'none',
-              background: 'var(--dsw-alias-bg-layer-2)',
-              color: 'var(--dsw-alias-label-secondary)',
-              cursor: 'pointer'
-            }
           }, '清除')
         )
       ),
@@ -216,18 +209,10 @@ function LogPanel({ onClose }) {
           const count = levelCounts[level] || 0;
           return h('button', {
             key: level,
+            className: 'rh-btn rh-btn-ghost rh-btn-pill',
+            'aria-pressed': isSelected,
             onClick: () => toggleLevel(level),
-            style: {
-              padding: '4px 12px',
-              fontSize: 11,
-              borderRadius: 12,
-              border: 'none',
-              background: isSelected ? 'var(--dsw-alias-bg-layer-2)' : 'transparent',
-              color: isSelected ? getLevelColor(level) : 'var(--dsw-alias-label-secondary)',
-              cursor: 'pointer',
-              transition: 'all 0.15s',
-              fontWeight: isSelected ? 600 : 400
-            }
+            style: { '--rh-filter-color': getLevelColor(level) },
           }, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
             getLevelIcon(level),
             h('span', null, `${getLevelLabel(level)} (${count})`)
@@ -239,21 +224,13 @@ function LogPanel({ onClose }) {
     // 第二层：标签筛选器
     h('div', { style: { marginBottom: 12 } },
       h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 } },
-        h('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', fontWeight: 600 } },
+        h('span', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', fontWeight: 600 } },
           '功能模块：',
           selectedTags.length > 0 ? `已选 ${selectedTags.length}/${Object.keys(tagCounts).length}` : '全部'
         ),
         selectedTags.length > 0 && h('button', {
+          className: 'rh-btn rh-btn-secondary rh-btn-xs',
           onClick: clearAllTags,
-          style: {
-            padding: '2px 6px',
-            fontSize: 10,
-            borderRadius: 4,
-            border: 'none',
-            background: 'var(--dsw-alias-bg-layer-2)',
-            color: 'var(--dsw-alias-label-secondary)',
-            cursor: 'pointer'
-          }
         }, '清除')
       ),
       h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
@@ -263,21 +240,12 @@ function LogPanel({ onClose }) {
           const tagLabel = logMeta.tags[tag] || tag;
           return h('button', {
             key: tag,
+            className: 'rh-btn rh-btn-ghost rh-btn-pill',
+            'aria-pressed': isSelected,
             onClick: () => toggleTag(tag),
-            style: {
-              padding: '4px 12px',
-              fontSize: 11,
-              borderRadius: 12,
-              border: 'none',
-              background: isSelected ? 'var(--dsw-alias-bg-layer-2)' : 'transparent',
-              color: isSelected ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-secondary)',
-              cursor: 'pointer',
-              transition: 'all 0.15s',
-              fontWeight: isSelected ? 600 : 400
-            }
           }, `${tagLabel} (${count})`);
         }),
-        Object.keys(tagCounts).length === 0 && h('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } }, '暂无标签')
+        Object.keys(tagCounts).length === 0 && h('span', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)' } }, '暂无标签')
       )
     ),
 
@@ -318,8 +286,8 @@ function LogPanel({ onClose }) {
                   padding: '6px 8px',
                   background: 'var(--dsw-alias-bg-layer-3)',
                   borderRadius: 4,
-                  fontSize: 10,
-                  fontFamily: 'ui-monospace, monospace',
+                  fontSize: 'var(--rh-font-size-sm)',
+                  fontFamily: 'var(--rh-font-code)',
                   color: 'var(--dsw-alias-label-secondary)',
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-all',

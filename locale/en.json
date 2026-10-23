@@ -1,0 +1,39 @@
+{
+  "meta": {
+    "title": "ReqHub",
+    "description": "Requirement document management with AI analysis, code synchronization, and semantic search"
+  },
+  "ui": {
+    "tab": {
+      "title": "Req Hub",
+      "tooltip": "Open requirement management panel"
+    },
+    "panels": {
+      "sync": "Document Sync",
+      "analyze": "AI Analysis",
+      "search": "Search",
+      "index": "Index Management",
+      "templates": "Templates",
+      "trace": "Traceability",
+      "logs": "Logs",
+      "settings": "Settings",
+      "skills": "Skills"
+    },
+    "actions": {
+      "analyze": "Analyze",
+      "sync": "Sync",
+      "search": "Search",
+      "cancel": "Cancel",
+      "save": "Save",
+      "delete": "Delete",
+      "create": "Create"
+    },
+    "status": {
+      "loading": "Loading...",
+      "processing": "Processing...",
+      "complete": "Complete",
+      "error": "Error",
+      "cancelled": "Cancelled"
+    }
+  }
+}

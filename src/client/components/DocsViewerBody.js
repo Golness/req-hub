@@ -23,13 +23,38 @@ const { SettingsPanel } = require('./SettingsPanel.js');
 const { WorkspaceModal } = require('./WorkspaceModal.js');
 const { RequirementDirModal } = require('./RequirementDirModal.js');
 const { FileTreeSidebar } = require('./FileTreeSidebar.js');
-const { ConfirmModal } = require('./ConfirmModal.js');
-const { AnalyzePanel } = require('./AnalyzePanel.js');
+const { ConfirmModal } = require('./ConfirmModal.js');  // 保留兼容，新代码使用 showConfirm()
+const { KnowledgePanel } = require('./KnowledgePanel.js');
+const { useKnowledge } = require('../hooks/useKnowledge.js');
 const { IndexPanel } = require('./IndexPanel.js');
 const { SearchPanel } = require('./SearchPanel.js');
+const { EmptyState } = require('./shared/EmptyState.js');
+const { Breadcrumb } = require('./shared/Breadcrumb.js');
+const { ToastContainer, showToast } = require('./shared/ToastContainer.js');
+const { ConfirmDialogContainer, showConfirm } = require('./shared/ConfirmDialog.js');
+const { Skeleton } = require('./shared/Skeleton.js');
+const { setupKeyboardShortcuts } = require('../utils/keyboardShortcuts.js');
 
+/**
+ * @component DocsViewerBody
+ * @description Main container component for the document viewer. Manages workspace state, requirement selection,
+ * file preview, and multiple operation panels (create, sync, trace, workbench, templates, log, settings).
+ * Provides context for child components and handles cross-component communication.
+ * @param {Object} props - Component props
+ * @param {Object} props.workspace - The current workspace object with id, path, and title
+ * @param {string} props.docsDir - The path to the documents directory
+ * @param {Function} props.onConfigChange - Callback invoked when configuration changes
+ * @param {Array<Object>} props.workspaces - Array of available workspace objects
+ * @param {Function} props.onSelectWorkspace - Callback invoked when a workspace is selected
+ * @param {string} [props.initialReqId] - Initial requirement ID to restore selection from config
+ * @returns {JSX.Element} The complete document viewer interface with rail toolbar, panels, and modals
+ */
 function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSelectWorkspace, initialReqId }) {
   const [activePanel, setActivePanel] = useState(null);
+  const knowledge = useKnowledge(workspace.id);
+  useEffect(() => { setSelectedFile(null); setShowFileTree(false); }, [workspace.id]);
+  const [templatesTab, setTemplatesTab] = useState('requirement');
+  const [previewToolbarTarget, setPreviewToolbarTarget] = useState(null);
   const [selectedReq, setSelectedReq] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [totalReqs, setTotalReqs] = useState(0);
@@ -37,7 +62,9 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
   const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
   const [showReqDirModal, setShowReqDirModal] = useState(false);
   const [showFileTree, setShowFileTree] = useState(false);
+  const [showToc, setShowToc] = useState(false);
   const [expandedGroup, setExpandedGroup] = useState(null); // 'workbench' | 'templates' | null
+  const [initialCreateBranch, setInitialCreateBranch] = useState(false); // 新建面板是否默认勾选"新建分支"
   const threeZoneRef = useRef(null);
 
   // Refs for cross-component communication
@@ -116,6 +143,32 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
     })();
     return () => { cancelled = true; };
   }, [workspace.id]);
+
+  // Setup keyboard shortcuts
+  useEffect(() => {
+    const cleanup = setupKeyboardShortcuts({
+      focusSearch: () => {
+        setActivePanel('search');
+        setShowFileTree(false);
+        setExpandedGroup(null);
+        setTimeout(() => document.querySelector('.rh-search-input')?.focus(), 0);
+      },
+      createDir: () => { setActivePanel('create'); setShowFileTree(false); },
+      sync: () => { setActivePanel('sync'); setShowFileTree(false); },
+      toggleFileTree: () => {
+        setShowFileTree(prev => !prev);
+        if (!showFileTree && activePanel !== 'knowledge') setActivePanel(null);
+      },
+      closePanel: () => {
+        if (activePanel) {
+          setActivePanel(null);
+        } else if (showFileTree) {
+          setShowFileTree(false);
+        }
+      },
+    });
+    return cleanup;
+  }, [activePanel, showFileTree]);
 
   const refreshIndexStatus = () => {
     fetch(`${ROUTE}/index-status?workspaceId=${encodeURIComponent(workspace.id)}`)
@@ -198,9 +251,11 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
 
       const createData = await createRes.json();
       if (!createRes.ok) {
+        showToast({ tone: 'error', text: `创建需求目录失败：${createData.error || '未知错误'}`, holdMs: 5000 });
         return;
       }
 
+      showToast({ tone: 'success', text: `需求目录 ${developer}/${requirementId} 创建成功`, holdMs: 3000 });
       await refreshTree();
       await new Promise(resolve => setTimeout(resolve, 300));
 
@@ -361,11 +416,31 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
       // 6. 解析分支名（支持三种格式）
       const branch = branchData.branch;
       const parsed = parseBranchName(branch);
+      console.log('[定位会话需求] 当前分支:', branch);
       console.log('[定位会话需求] 分支解析结果:', parsed);
-      if (!parsed) {
-        console.error('[定位会话需求] 分支名格式不匹配:', branch);
+
+      // parseBranchName 总是返回对象，需要检查 developer 和 date 是否存在
+      const isValidBranch = parsed && parsed.developer && parsed.date;
+      console.log('[定位会话需求] 是否符合规范:', isValidBranch);
+
+      if (!isValidBranch) {
+        // 分支名不符合规范 → 跳转到新建功能，默认勾选新建分支
+        console.warn('[定位会话需求] ❌ 分支名不符合规范，跳转到新建功能:', branch);
+        if (targetWorkspace.id !== workspace.id) {
+          // 等待工作区切换完成
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+        setActivePanel('create');
+        setInitialCreateBranch(true);
+        showToast({
+          tone: 'warning',
+          text: `当前分支 "${branch}" 不符合命名规范，请新建分支和需求目录`,
+          holdMs: 5000,
+        });
         return;
       }
+
+      console.log('[定位会话需求] ✅ 分支名符合规范，继续查找需求目录');
 
       const { developer, date, title, requirementId } = parsed;
       console.log('[定位会话需求] 解析结果 - 开发者:', developer, '日期:', date, '标题:', title, '需求ID:', requirementId);
@@ -444,6 +519,8 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
     { id: 'create', icon: h(IconFolder, { size: 18 }), label: '新建' },
     { id: 'sync', icon: h(IconSync, { size: 18 }), label: '同步' },
     { id: 'view', icon: h(IconFile, { size: 18 }), label: '查看' },
+    { id: 'knowledge', icon: h(IconFolder, { size: 18 }), label: '知识库' },
+    { id: 'search', icon: h(IconSearch, { size: 18 }), label: '搜索' },
     { id: 'trace', icon: h(IconSearch, { size: 18 }), label: '追溯' },
     { id: 'workbench', icon: h(IconWrench, { size: 18 }), label: '工作台' },
     { id: 'templates', icon: h(IconClipboard, { size: 18 }), label: '模板' },
@@ -456,8 +533,39 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
   const renderPanel = () => {
     if (!activePanel) return null;
     if (activePanel === 'create') {
-      return h(CreateDirForm, { workspaceId: workspace.id, docsDir, onClose: handlePanelClose });
+      return h(CreateDirForm, {
+        workspaceId: workspace.id,
+        docsDir,
+        onClose: handlePanelClose,
+        initialCreateBranch,
+        onCreated: async (info) => {
+          // 创建成功后：自动选中新需求、保存配置、刷新分支显示
+          setInitialCreateBranch(false);
+          // 等待 tree 刷新后选中新需求
+          await new Promise(resolve => setTimeout(resolve, 500));
+          const treeRes = await fetch(`${ROUTE}/tree?workspaceId=${encodeURIComponent(workspace.id)}&t=${Date.now()}`);
+          if (treeRes.ok) {
+            const treeData = await treeRes.json();
+            if (treeData.tree?.developers) {
+              for (const dev of treeData.tree.developers) {
+                if (dev.name === info.developer) {
+                  for (const req of dev.requirements) {
+                    if (req.id === info.requirementId) {
+                      await handleSelectReq({ ...req, developer: dev.name });
+                      return;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+      });
     }
+    if (activePanel === 'knowledge') {
+      return h(KnowledgePanel, { key: workspace.id, workspaceId: workspace.id, knowledge, selectedFile, onPreviewClose: () => setSelectedFile(null) });
+    }
+    if (activePanel === 'search') return null;
     if (activePanel === 'trace') {
       return h(TracePanel, { selectedReq, workspaceId: workspace.id });
     }
@@ -468,9 +576,7 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
         indexStatus,
         onRefreshIndex: refreshIndexStatus,
         onClose: handlePanelClose,
-        AnalyzePanel,
         IndexPanel,
-        SearchPanel,
       });
     }
     if (activePanel === 'templates') {
@@ -478,6 +584,7 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
         workspaceId: workspace.id,
         docsDir,
         selectedReq,
+        activeTab: templatesTab,
         onClose: handlePanelClose
       });
     }
@@ -504,19 +611,31 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
     // Show file preview when no panel is active but a file is selected
     if (selectedFile) {
       return h(FilePreview, {
-        workspaceId: workspace.id,
-        relPath: `${selectedFile.path || selectedReq?.path || ''}/${selectedFile.name}`,
+        workspaceId: selectedFile.workspaceId || workspace.id,
+        relPath: selectedFile.path,
         name: selectedFile.name,
-        requirement: selectedReq ? { title: selectedReq.title, date: selectedReq.date, type: selectedFile.type } : null,
+        requirement: selectedFile.requirement || (selectedReq ? { title: selectedReq.title, date: selectedReq.date, type: selectedFile.type } : null),
         onBack: () => setSelectedFile(null),
+        showToc,
+        onToggleToc: () => setShowToc(!showToc),
+        toolbarTarget: previewToolbarTarget,
       });
     }
     // No panel selected - show empty state
-    return h('div', null);
+    return h(EmptyState, {
+      icon: h(IconFolder, { size: 48 }),
+      title: '暂无选中的需求文档',
+      description: '请在左侧目录树中选择一个需求，或点击「新建」创建第一个需求目录',
+      actions: [
+        { label: '新建需求', variant: 'primary', onClick: () => setActivePanel('create') },
+      ],
+    });
   };
 
   const rightHeaderTitle = activePanel
     ? (activePanel === 'create' ? '创建需求目录'
+      : activePanel === 'knowledge' ? '知识库'
+      : activePanel === 'search' ? '搜索'
       : activePanel === 'trace' ? '需求追溯'
       : activePanel === 'workbench' ? '工作台'
       : activePanel === 'templates' ? '模板'
@@ -524,9 +643,14 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
       : activePanel === 'log' ? '操作日志'
       : activePanel === 'settings' ? '设置'
       : '')
-    : selectedFile
-      ? selectedFile.name
-      : '';
+    : '';
+
+  // Build breadcrumb items for file preview (shown in header instead of FilePreview)
+  const filePreviewBreadcrumb = selectedFile && !activePanel ? [
+    { label: selectedFile.workspaceTitle || '工作区', onClick: () => setSelectedFile(null) },
+    ...((selectedFile.requirement || selectedReq) ? [{ label: (selectedFile.requirement || selectedReq).title || '需求' }] : []),
+    { label: selectedFile.name },
+  ] : null;
 
   return h(DocsViewerContext.Provider, { value: contextValue },
     h('div', { className: 'rh-root' },
@@ -581,21 +705,22 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
             // Regular button
             return h('button', {
               key: btn.id,
-              className: `rh-rail-btn${btn.id === 'view' && showFileTree ? ' active' : ''}${btn.id !== 'view' && activePanel === btn.id ? ' active' : ''}`,
+              className: `rh-rail-btn${btn.id === 'view' && showFileTree && activePanel !== 'knowledge' ? ' active' : ''}${btn.id !== 'view' && activePanel === btn.id ? ' active' : ''}`,
               onClick: () => {
                 if (btn.id === 'view') {
                   // Toggle file tree sidebar
-                  if (showFileTree) {
-                    setShowFileTree(false);
-                  } else {
-                    setShowFileTree(true);
-                    setActivePanel(null);
-                  }
+                  setShowFileTree(prev => activePanel === 'knowledge' ? true : !prev);
+                  setActivePanel(null);
                 } else {
                   setExpandedGroup(null);
-                  // Close file tree, open this panel (always, no toggle)
-                  if (showFileTree) setShowFileTree(false);
-                  setActivePanel(btn.id);
+                  // Toggle: if already active, close everything
+                  if (activePanel === btn.id) {
+                    setActivePanel(null);
+                    setShowFileTree(false);
+                  } else {
+                    setShowFileTree(btn.id === 'knowledge');
+                    setActivePanel(btn.id);
+                  }
                 }
               },
             },
@@ -610,9 +735,14 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
                 className: `rh-rail-btn${activePanel === btn.id ? ' active' : ''}`,
                 onClick: () => {
                   setExpandedGroup(null);
-                  // Close file tree, open this panel (always, no toggle)
-                  if (showFileTree) setShowFileTree(false);
-                  setActivePanel(btn.id);
+                  // Toggle: if already active, close everything
+                  if (activePanel === btn.id) {
+                    setActivePanel(null);
+                    setShowFileTree(false);
+                  } else {
+                    setShowFileTree(btn.id === 'knowledge');
+                    setActivePanel(btn.id);
+                  }
                 },
               },
                 h('span', null, btn.icon),
@@ -626,9 +756,13 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
         showFileTree && h(FileTreeSidebar, {
           workspaceId: workspace.id,
           selectedReq,
+          key: `${workspace.id}:${activePanel === 'knowledge' ? 'knowledge' : 'view'}`,
+          multiSelect: activePanel === 'knowledge',
+          selectedPaths: knowledge.selected,
+          onSelectionChange: knowledge.setSelected,
           onSelectFile: (file) => {
             setSelectedFile(file);
-            setActivePanel(null);
+            if (activePanel !== 'knowledge') setActivePanel(null);
           },
         }),
 
@@ -638,10 +772,48 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
           style: { flex: 1 }
         },
           h('div', { className: 'rh-right-header' },
-            h('span', null, rightHeaderTitle),
-            (activePanel || selectedFile) && h('span', { className: 'rh-right-close', onClick: handlePanelClose, role: 'button', 'aria-label': '关闭面板' }, h(IconClose, { size: 14 }), ' 关闭')
+            h('div', { className: 'rh-right-header-main' },
+              filePreviewBreadcrumb
+                ? h(Breadcrumb, { items: filePreviewBreadcrumb })
+                : h('span', { className: 'rh-right-header-title' }, rightHeaderTitle || '需求文档'),
+              filePreviewBreadcrumb && h('div', { className: 'rh-preview-actions', ref: setPreviewToolbarTarget }),
+              activePanel === 'knowledge' && h('button', { className: 'rh-btn rh-btn-primary',
+                disabled: !knowledge.selected.length || knowledge.running,
+                onClick: () => knowledge.start(),
+              }, knowledge.running ? '分析中…' : `分析（${knowledge.selected.length}）`),
+              activePanel === 'templates' && h('div', { className: 'rh-workbench-tabs', role: 'tablist', 'aria-label': '模板类型' },
+                [
+                  { id: 'requirement', label: '需求' },
+                  { id: 'design', label: '方案' },
+                  { id: 'cr', label: 'CR' },
+                ].map(tab => h('button', {
+                  key: tab.id,
+                  type: 'button',
+                  role: 'tab',
+                  className: 'rh-workbench-tab',
+                  'aria-selected': templatesTab === tab.id,
+                  tabIndex: templatesTab === tab.id ? 0 : -1,
+                  onClick: () => setTemplatesTab(tab.id),
+                }, tab.label))
+              )
+            ),
+            (activePanel || selectedFile) && h('button', { type: 'button', className: 'rh-right-close', onClick: handlePanelClose, 'aria-label': '关闭面板' }, h(IconClose, { size: 14 }), '关闭')
           ),
-          h('div', { className: 'rh-right-body' }, renderRightContent())
+          // Skip rh-right-body wrapper for file preview to avoid extra layer
+          h('div', { key: 'knowledge-search', style: { display: activePanel === 'search' ? 'flex' : 'none', flex: 1, minHeight: 0 } },
+            h(SearchPanel, { active: activePanel === 'search',
+              onOpenKnowledge: () => { setActivePanel('knowledge'); setShowFileTree(true); },
+              onOpenSource: source => {
+                const parts = source.relativePath.split('/');
+                const requirement = { id: parts[1], path: parts.slice(0, 2).join('/'), developer: parts[0], title: parts[1].slice(11), date: parts[1].slice(0, 10) };
+                const local = !source.workspaceId || source.workspaceId === workspace.id;
+                if (local) setSelectedReq(requirement);
+                setSelectedFile({ path: source.relativePath, name: parts.at(-1), workspaceId: source.workspaceId, workspaceTitle: source.workspaceTitle, requirement });
+                setActivePanel(null); setShowFileTree(local);
+              } })),
+          activePanel !== 'search' && (selectedFile && !activePanel
+            ? renderRightContent()
+            : h('div', { className: 'rh-right-body' }, renderRightContent()))
         )
       ),
 
@@ -689,7 +861,8 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
         onClose: () => setShowReqDirModal(false),
       }),
 
-      // ─ Create requirement confirm modal ──
+      // ─ Create requirement confirm modal (使用全局 showConfirm) ──
+      // 注意：showCreateConfirm 状态仍保留用于兼容，新流程直接调用 showConfirm()
       showCreateConfirm && pendingCreateReq && h(ConfirmModal, {
         title: '创建需求目录',
         message: `需求目录不存在: ${pendingCreateReq.developer}/${pendingCreateReq.requirementId}\n\n是否创建该目录？`,
@@ -703,7 +876,11 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
           setShowCreateConfirm(false);
           setPendingCreateReq(null);
         },
-      })
+      }),
+
+      // ── Global Toast and Confirm containers ──
+      h(ToastContainer, null),
+      h(ConfirmDialogContainer, null)
     )
   );
 }

@@ -1,19 +1,23 @@
 /**
- * 文档读写模块
- * 负责文档文件的读取和写入
+ * Document reader/writer module.
+ * Handles reading and writing of document files.
+ * @module doc-reader
  */
 
 import { readdir, readFile, writeFile, stat, mkdir, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { log } from './logger.js';
 
-const MAX_DOC_CONTENT = 10000000; // 10MB
+/** @type {number} Maximum document content size (10MB) */
+const MAX_DOC_CONTENT = 10000000;
+
+/** @type {string[]} Supported document file extensions */
 const SUPPORTED_DOC_EXTS = ['.md', '.html', '.htm', '.txt', '.text', '.markdown'];
 
 /**
- * 检查文件是否为支持的文档类型
- * @param {string} filename - 文件名
- * @returns {boolean}
+ * Check if a filename has a supported document extension.
+ * @param {string} filename - File name to check
+ * @returns {boolean} True if the file is a supported document type
  */
 export function isSupportedDocFile(filename) {
   const lower = filename.toLowerCase();
@@ -21,9 +25,11 @@ export function isSupportedDocFile(filename) {
 }
 
 /**
- * 读取需求目录下的所有文档
- * @param {string} reqPath - 需求目录路径
- * @returns {Promise<string>} 合并后的文档内容
+ * Read all documents in a requirement directory.
+ * Supports .md, .html, .txt files. HTML files have tags stripped.
+ * Content is truncated if it exceeds MAX_DOC_CONTENT.
+ * @param {string} reqPath - Requirement directory path
+ * @returns {Promise<string>} Merged document content, empty string if no docs found
  */
 export async function readRequirementDocs(reqPath) {
   let files;
@@ -67,9 +73,11 @@ export async function readRequirementDocs(reqPath) {
 }
 
 /**
- * 原子写入 .meta.json 文件
- * @param {string} metaPath - 目标路径
- * @param {Object} meta - meta 数据
+ * Atomically write .meta.json file.
+ * Uses temp file + rename for crash safety.
+ * @param {string} metaPath - Target file path
+ * @param {Object} meta - Meta data object to write
+ * @returns {Promise<void>}
  */
 export async function writeMetaJson(metaPath, meta) {
   const tmpPath = metaPath + '.tmp';
@@ -78,10 +86,11 @@ export async function writeMetaJson(metaPath, meta) {
 }
 
 /**
- * 查找需求目录
- * @param {string} docsRoot - 文档根目录
- * @param {string} requirementId - 需求 ID
- * @returns {Promise<string|null>} 需求目录路径或 null
+ * Find a requirement directory by ID.
+ * Searches through all developer directories.
+ * @param {string} docsRoot - Document root directory
+ * @param {string} requirementId - Requirement ID to find
+ * @returns {Promise<string|null>} Full path to requirement directory, or null if not found
  */
 export async function findRequirementDir(docsRoot, requirementId) {
   try {

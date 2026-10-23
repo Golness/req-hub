@@ -3,6 +3,17 @@
 const React = require('react');
 const h = React.createElement;
 
+/**
+ * @component ConfirmModal
+ * @description A modal dialog for confirming user actions. Displays a title and message
+ * with confirm/cancel buttons. Clicking the overlay cancels the action.
+ * @param {Object} props - Component props
+ * @param {string} props.title - The title displayed in the modal header
+ * @param {string} props.message - The confirmation message to display
+ * @param {Function} props.onConfirm - Callback invoked when the user confirms the action
+ * @param {Function} props.onCancel - Callback invoked when the user cancels the action
+ * @returns {JSX.Element} A modal dialog with confirm and cancel buttons
+ */
 function ConfirmModal({ title, message, onConfirm, onCancel }) {
   return h('div', { className: 'rh-modal-overlay', onClick: onCancel, role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
     h('div', { className: 'rh-modal', onClick: e => e.stopPropagation() },

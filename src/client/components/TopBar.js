@@ -7,8 +7,24 @@ const { ROUTE } = require('../constants.js');
 const { InputModal } = require('./InputModal.js');
 const { createIconComponents } = require('../icons.js');
 
-const { IconFolderOpen } = createIconComponents(h);
+const { IconFolderOpen, IconTarget } = createIconComponents(h);
 
+/**
+ * @component
+ * Top navigation bar displaying workspace selector, project docs path, and current
+ * requirement. Provides actions to switch workspaces, modify the docs directory path,
+ * select a requirement directory, locate the current session's requirement, and open
+ * the requirement folder in the system file explorer.
+ * @param {Object} props - Component props
+ * @param {string} props.docsDir - Current project docs directory path
+ * @param {Object|null} props.currentWorkspace - Currently active workspace object
+ * @param {Object|null} props.currentReq - Currently selected requirement object
+ * @param {Function} props.onEditDocsDir - Callback invoked after the docs directory is modified
+ * @param {Function} props.onChangeWorkspace - Callback invoked to open the workspace selector
+ * @param {Function} props.onChangeReq - Callback invoked to open the requirement directory selector
+ * @param {Function} props.onLocateSessionReq - Callback invoked to auto-locate the current session's requirement
+ * @returns {JSX.Element}
+ */
 function TopBar({ docsDir, currentWorkspace, currentReq, onEditDocsDir, onChangeWorkspace, onChangeReq, onLocateSessionReq }) {
   const [showPathModal, setShowPathModal] = useState(false);
 
@@ -48,16 +64,20 @@ function TopBar({ docsDir, currentWorkspace, currentReq, onEditDocsDir, onChange
   };
 
   return h('div', { className: 'rh-topbar' },
-    h('div', { className: 'rh-topbar-left' },
+    h('div', { className: 'rh-topbar-locate' },
       // 定位到当前会话需求目录按钮
       h('button', {
-        className: 'rh-btn rh-btn-primary',
+        className: 'rh-rail-btn',
+        type: 'button',
         onClick: onLocateSessionReq,
         title: '自动定位到当前 DSH 会话对应的需求文档目录',
         'aria-label': '定位到当前会话需求',
-        style: { marginRight: 12, padding: '4px 12px', fontSize: 12 }
-      }, '定位会话需求'),
-
+      },
+        h('span', null, h(IconTarget, { size: 18 })),
+        h('span', { className: 'rh-rail-label' }, '定位')
+      )
+    ),
+    h('div', { className: 'rh-topbar-left' },
       // 工作区
       h('span', { className: 'rh-topbar-label' }, '工作区:'),
       h('span', {
@@ -91,7 +111,7 @@ function TopBar({ docsDir, currentWorkspace, currentReq, onEditDocsDir, onChange
         className: 'rh-btn',
         onClick: handleOpenInExplorer,
         title: '在文件资源管理器中打开此需求目录',
-        style: { marginLeft: 8, padding: '2px 8px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }
+        style: { marginLeft: 8, padding: '2px 8px', fontSize: 'var(--rh-font-size-sm)', display: 'flex', alignItems: 'center', gap: 4 }
       }, h(IconFolderOpen, { size: 14 }))
     ),
 

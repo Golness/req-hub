@@ -1,17 +1,32 @@
 /**
- * 日志管理模块
- * 提供操作日志的记录和查询功能
- * 
- * 日志等级: debug < info < warn < error
- * 日志标签: 标识日志来源的功能模块
+ * Logging management module.
+ * Provides operation logging and querying capabilities.
+ *
+ * Log levels: debug < info < warn < error
+ * Log tags: identify the source module of the log
+ * @module logger
  */
 
+/** @type {Array<LogEntry>} In-memory operation log storage */
 const operationLogs = [];
+
+/** @type {number} Maximum number of log entries to keep */
 const MAX_LOGS = 200;
 
 /**
- * 日志等级定义
- * 数值越大，优先级越高
+ * @typedef {Object} LogEntry
+ * @property {number} ts - Unix timestamp in milliseconds
+ * @property {string} timestamp - ISO 8601 timestamp string
+ * @property {'debug'|'info'|'warn'|'error'} level - Log level
+ * @property {string} tag - Log tag identifying source module
+ * @property {string} message - Log message
+ * @property {any} [data] - Optional additional data
+ */
+
+/**
+ * Log level definitions.
+ * Higher numeric value = higher priority.
+ * @type {Object<string, number>}
  */
 const LOG_LEVELS = {
   debug: 0,
@@ -21,9 +36,9 @@ const LOG_LEVELS = {
 };
 
 /**
- * 日志标签定义
- * key: 标签ID
- * value: 显示名称
+ * Log tag definitions.
+ * key: tag ID, value: display name
+ * @type {Object<string, string>}
  */
 const LOG_TAGS = {
   startup: '启动',
@@ -44,11 +59,13 @@ const LOG_TAGS = {
 };
 
 /**
- * 内部添加日志记录
- * @param {string} level - 日志等级 (debug/info/warn/error)
- * @param {string} tag - 日志标签
- * @param {string} message - 日志消息
- * @param {any} data - 附加数据
+ * Internal function to add a log entry.
+ * Maintains log buffer size by removing oldest entries.
+ * @param {'debug'|'info'|'warn'|'error'} level - Log level
+ * @param {string} tag - Log tag
+ * @param {string} message - Log message
+ * @param {any} [data=null] - Optional additional data
+ * @returns {void}
  */
 function _addLog(level, tag, message, data = null) {
   const entry = {
@@ -66,44 +83,60 @@ function _addLog(level, tag, message, data = null) {
 }
 
 /**
- * 创建带标签的日志记录器
- * @param {string} tag - 日志标签
- * @returns {Object} 包含各等级日志方法的对象
+ * @typedef {Object} Logger
+ * @property {function(string, any=): void} debug - Log debug level message
+ * @property {function(string, any=): void} info - Log info level message
+ * @property {function(string, any=): void} warn - Log warning level message
+ * @property {function(string, any=): void} error - Log error level message
+ */
+
+/**
+ * Create a tagged logger instance.
+ * @param {string} tag - Log tag identifying the source module
+ * @returns {Logger} Logger object with debug/info/warn/error methods
  */
 export function createLogger(tag) {
   return {
     /**
-     * 记录 debug 级别日志
-     * 用于详细的调试信息，生产环境通常不显示
+     * Log debug level message.
+     * Used for detailed debugging info, typically not shown in production.
+     * @param {string} message - Log message
+     * @param {any} [data=null] - Optional additional data
      */
     debug: (message, data = null) => _addLog('debug', tag, message, data),
     
     /**
-     * 记录 info 级别日志
-     * 用于常规操作信息，如启动、完成、进度等
+     * Log info level message.
+     * Used for routine operation info like startup, completion, progress.
+     * @param {string} message - Log message
+     * @param {any} [data=null] - Optional additional data
      */
     info: (message, data = null) => _addLog('info', tag, message, data),
     
     /**
-     * 记录 warn 级别日志
-     * 用于警告信息，如降级处理、非致命错误等
+     * Log warning level message.
+     * Used for warnings like degraded operation, non-fatal errors.
+     * @param {string} message - Log message
+     * @param {any} [data=null] - Optional additional data
      */
     warn: (message, data = null) => _addLog('warn', tag, message, data),
     
     /**
-     * 记录 error 级别日志
-     * 用于错误信息，如操作失败、异常等
+     * Log error level message.
+     * Used for errors like operation failures, exceptions.
+     * @param {string} message - Log message
+     * @param {any} [data=null] - Optional additional data
      */
     error: (message, data = null) => _addLog('error', tag, message, data),
   };
 }
 
 /**
- * 获取所有日志
- * @param {Object} options - 筛选选项
- * @param {string[]} options.levels - 日志等级过滤
- * @param {string[]} options.tags - 日志标签过滤
- * @returns {Array} 日志数组
+ * Get all logs with optional filtering.
+ * @param {Object} [options={}] - Filter options
+ * @param {string[]} [options.levels=[]] - Filter by log levels
+ * @param {string[]} [options.tags=[]] - Filter by log tags
+ * @returns {LogEntry[]} Filtered log entries
  */
 export function getLogs(options = {}) {
   const { levels = [], tags = [] } = options;
@@ -124,34 +157,36 @@ export function getLogs(options = {}) {
 }
 
 /**
- * 获取所有可用的日志等级
- * @returns {Object} 日志等级映射
+ * Get all available log levels.
+ * @returns {Object<string, number>} Copy of log levels mapping
  */
 export function getLogLevels() {
   return { ...LOG_LEVELS };
 }
 
 /**
- * 获取所有可用的日志标签
- * @returns {Object} 日志标签映射
+ * Get all available log tags.
+ * @returns {Object<string, string>} Copy of log tags mapping
  */
 export function getLogTags() {
   return { ...LOG_TAGS };
 }
 
 /**
- * 清空日志
+ * Clear all log entries.
+ * @returns {void}
  */
 export function clearLogs() {
   operationLogs.length = 0;
 }
 
 /**
- * 兼容旧版 addLog 函数
- * @deprecated 请使用 createLogger(tag) 创建的日志记录器
- * @param {'info'|'success'|'warning'|'error'} type - 日志类型
- * @param {string} message - 日志消息
- * @param {any} data - 附加数据
+ * Legacy addLog function for backward compatibility.
+ * @deprecated Use createLogger(tag) instead
+ * @param {'info'|'success'|'warning'|'error'} type - Legacy log type
+ * @param {string} message - Log message
+ * @param {any} [data=null] - Optional additional data
+ * @returns {void}
  */
 export function addLog(type, message, data = null) {
   // 旧类型映射到新等级
@@ -188,13 +223,16 @@ export function addLog(type, message, data = null) {
   _addLog(level, tag, message, data);
 }
 
-// 导出预定义的日志记录器，方便直接使用
+/**
+ * Pre-defined logger instances for convenience.
+ * Each property is a tagged logger for a specific module.
+ * @type {Object<string, Logger>}
+ */
 export const log = {
   startup: createLogger('startup'),
   config: createLogger('config'),
   tree: createLogger('tree'),
   sync: createLogger('sync'),
-  syncEngine: createLogger('sync-engine'),
   phasedSync: createLogger('phased-sync'),
   analysis: createLogger('analysis'),
   aiEngine: createLogger('ai-engine'),
@@ -205,4 +243,5 @@ export const log = {
   index: createLogger('index'),
   doc: createLogger('doc'),
   state: createLogger('state'),
+  concurrency: createLogger('concurrency'),
 };

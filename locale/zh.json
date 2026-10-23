@@ -1,0 +1,39 @@
+{
+  "meta": {
+    "title": "需求中心",
+    "description": "需求文档管理、AI 分析、代码同步、语义搜索"
+  },
+  "ui": {
+    "tab": {
+      "title": "需求中心",
+      "tooltip": "打开需求管理面板"
+    },
+    "panels": {
+      "sync": "文档同步",
+      "analyze": "AI 分析",
+      "search": "搜索",
+      "index": "索引管理",
+      "templates": "模板生成",
+      "trace": "需求追溯",
+      "logs": "日志",
+      "settings": "设置",
+      "skills": "技能"
+    },
+    "actions": {
+      "analyze": "分析",
+      "sync": "同步",
+      "search": "搜索",
+      "cancel": "取消",
+      "save": "保存",
+      "delete": "删除",
+      "create": "创建"
+    },
+    "status": {
+      "loading": "加载中...",
+      "processing": "处理中...",
+      "complete": "完成",
+      "error": "错误",
+      "cancelled": "已取消"
+    }
+  }
+}

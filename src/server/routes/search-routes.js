@@ -1,6 +1,8 @@
 /**
- * 搜索相关路由
- * 所有 LLM 调用统一委托给 DSH Subagent
+ * Search routes module.
+ * Handles search-related HTTP endpoints.
+ * All LLM calls are delegated to DSH Subagent.
+ * @module routes/search-routes
  */
 
 import { resolve } from 'node:path';
@@ -12,6 +14,14 @@ import { parseAIResponse } from '../ai-engine.js';
 import { json, readBody } from '../utils.js';
 import { log } from '../logger.js';
 
+/**
+ * Create search routes.
+ * @param {Object} registry - Workspace registry service
+ * @param {Object} llm - LLM service
+ * @param {Object} agents - Agents service
+ * @param {Object} ctx - DSH context
+ * @returns {Array<Object>} Array of route definitions
+ */
 export function createSearchRoutes(registry, llm, agents, ctx) {
   return [
     // GET /search - 精确搜索

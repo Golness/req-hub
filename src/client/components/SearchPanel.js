@@ -1,320 +1,55 @@
 'use strict';
-
 const React = require('react');
 const h = React.createElement;
-const { useState } = React;
 const { useSearch } = require('../hooks/useSearch.js');
-const { createIconComponents } = require('../icons.js');
+const { knowledgeRequest } = require('../hooks/useKnowledge.js');
+const { EmptyState } = require('./shared/EmptyState.js');
+const { Skeleton } = require('./shared/Skeleton.js');
 
-const { IconSearch, IconChart, IconRobot, IconLightbulb, IconTag, IconWarning, IconError } = createIconComponents(h);
-
-// ─── SearchBar (3.1, 3.2) ───────────────────────────────────────
-function SearchBar({ onSearch, searchType, onTypeChange, searchMode, onModeChange, loading }) {
-  const [query, setQuery] = useState('');
-
-  const handleSearch = () => {
-    if (onSearch && query.trim()) onSearch(query);
+function SearchPanel({ onOpenKnowledge, onOpenSource, active = true }) {
+  const [query, setQuery] = React.useState('');
+  const [limit, setLimit] = React.useState(20);
+  const [detail, setDetail] = React.useState(null);
+  const [detailError, setDetailError] = React.useState(null);
+  const [detailId, setDetailId] = React.useState(null);
+  const inputRef = React.useRef(null);
+  const search = useSearch();
+  React.useEffect(() => { if (active) inputRef.current?.focus(); }, [active]);
+  React.useEffect(() => {
+    setDetail(null); setDetailError(null);
+    if (!detailId) return;
+    const controller = new AbortController();
+    knowledgeRequest(`/entries/${encodeURIComponent(detailId.id)}`, detailId.workspaceId, null, controller.signal).then(result => {
+      if (!controller.signal.aborted) setDetail({ ...result, workspaceTitle: detailId.workspaceTitle, sources: result.sources.map(source => ({ ...source, workspaceId: detailId.workspaceId, workspaceTitle: detailId.workspaceTitle })) });
+    }).catch(e => { if (!controller.signal.aborted) setDetailError(e.message); });
+    return () => controller.abort();
+  }, [detailId]);
+  const submit = event => {
+    event?.preventDefault();
+    if (!query.trim() || search.loading) return;
+    setDetailId(null); setLimit(20); search.handleSearch(query, 20);
   };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter') handleSearch();
-  };
-
-  const types = [
-    { id: 'all', label: '全部' },
-    { id: 'feature', label: '功能点' },
-    { id: 'field', label: '字段' },
-    { id: 'tag', label: '标签' },
-  ];
-
-  return h('div', { className: 'rh-search-bar', role: 'search' },
-    h('div', { style: { display: 'flex', gap: 8, marginBottom: 6 } },
-      h('input', {
-        className: 'rh-search-input',
-        type: 'text',
-        placeholder: searchMode === 'ai' ? 'AI 智能搜索：输入自然语言描述...' : '搜索功能点、字段、标签...',
-        value: query,
-        onChange: e => setQuery(e.target.value),
-        onKeyDown: handleKeyDown,
-        disabled: loading,
-        'aria-label': '搜索',
-        style: { flex: 1, marginBottom: 0 },
-      }),
-      h('button', {
-        className: 'rh-btn rh-btn-primary',
-        onClick: handleSearch,
-        disabled: loading || !query.trim(),
-        style: {
-          padding: '7px 16px',
-          whiteSpace: 'nowrap',
-        }
-      }, loading ? '搜索中...' : h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconSearch, { size: 14 }), ' 搜索'))
-    ),
-    // 3.14: Search mode toggle (segmented control)
-    searchMode !== undefined && onModeChange && h('div', { style: { display: 'flex', gap: 8, marginBottom: 8 } },
-      h('div', {
-        style: {
-          display: 'flex',
-          gap: 4,
-          border: '1px solid var(--dsw-alias-border-l1)',
-          borderRadius: 6,
-          padding: 2,
-          background: 'var(--dsw-alias-bg-layer-2)'
-        }
-      },
-        h('button', {
-          className: 'rh-btn',
-          onClick: () => onModeChange('exact'),
-          style: {
-            padding: '4px 12px',
-            fontSize: 11,
-            margin: 0,
-            border: 'none',
-            background: searchMode === 'exact' ? 'var(--dsw-alias-brand-primary)' : 'transparent',
-            color: searchMode === 'exact' ? 'var(--dsw-alias-label-primary-foreground)' : 'var(--dsw-alias-label-secondary)',
-          }
-        }, '精确搜索'),
-        h('button', {
-          className: 'rh-btn',
-          onClick: () => onModeChange('ai'),
-          style: {
-            padding: '4px 12px',
-            fontSize: 11,
-            margin: 0,
-            border: 'none',
-            background: searchMode === 'ai' ? 'var(--dsw-alias-brand-primary)' : 'transparent',
-            color: searchMode === 'ai' ? 'var(--dsw-alias-label-primary-foreground)' : 'var(--dsw-alias-label-secondary)',
-          }
-        }, 'AI 智能搜索')
-      )
-    ),
-    h('div', { className: 'rh-search-tags' },
-      types.map(t =>
-        h('button', {
-          key: t.id,
-          className: `rh-search-tag${searchType === t.id ? ' active' : ''}`,
-          onClick: () => onTypeChange && onTypeChange(t.id),
-        }, t.label)
-      )
-    )
-  );
+  return h('div', { className: 'rh-knowledge-panel' },
+    h('form', { className: 'rh-search-bar', role: 'search', onSubmit: submit },
+      h('div', { className: 'rh-knowledge-toolbar' },
+        h('input', { ref: inputRef, className: 'rh-search-input', type: 'search', 'aria-label': '搜索整个知识库', placeholder: '搜索整个知识库的内容…', value: query, onChange: e => setQuery(e.target.value), onKeyDown: e => { if (e.key === 'Enter' && (e.nativeEvent.isComposing || e.keyCode === 229)) e.preventDefault(); } }),
+        h('button', { className: 'rh-btn rh-btn-primary', type: 'submit', disabled: search.loading || !query.trim() }, '搜索'))),
+    search.error && h('div', { role: 'alert', className: 'rh-knowledge-error' }, search.error, h('button', { className: 'rh-btn rh-btn-ghost rh-btn-sm', onClick: submit }, '重试')),
+    search.warnings?.length > 0 && h('div', { role: 'alert', className: 'rh-knowledge-error' }, `部分知识库暂时无法检索：${search.warnings.map(w => `${w.workspaceTitle}（${w.message}）`).join('；')}`),
+    search.knowledgeReady === false && h(EmptyState, { title: '知识库尚无已入库内容', description: '先在知识库勾选文件并分析，再搜索知识内容。', actions: [{ label: '进入知识库', onClick: onOpenKnowledge }] }),
+    h('div', { className: 'rh-knowledge-results' },
+      search.loading ? h(Skeleton, { lines: 4 }) : detailId
+        ? h('section', { 'aria-label': '知识详情' },
+          h('button', { className: 'rh-btn rh-btn-ghost rh-btn-sm', onClick: () => setDetailId(null) }, '返回搜索结果'),
+          detailError && h('p', { role: 'alert' }, detailError),
+          !detail && !detailError && h(Skeleton, { lines: 3 }),
+          detail && h(React.Fragment, null, h('h3', null, detail.title), h('p', null, `${detail.workspaceTitle} · 版本 v${detail.version} · ${detail.tags.join(' · ')}`), h('div', { className: 'rh-knowledge-text' }, detail.body),
+            h('h4', null, '来源文件'), detail.sources.map((source, i) => h('div', { key: i }, h('button', { className: 'rh-btn rh-btn-ghost rh-btn-sm', onClick: () => onOpenSource?.(source), disabled: ['missing', 'unavailable'].includes(source.status), title: source.relativePath }, `${source.relativePath} · ${source.coordinate === 'extracted' ? '提取正文行' : '行'} ${source.startLine}–${source.endLine}`), ['missing', 'unavailable'].includes(source.status) && h('span', null, '来源不存在或无法读取'), source.status === 'stale' && h('span', null, '来源已更新，请重新分析'))),
+            h('details', null, h('summary', null, '版本历史'), detail.versions?.map(version => h('div', { key: version.version }, h('strong', null, `v${version.version}`), h('div', { className: 'rh-knowledge-text' }, version.body))))))
+        : search.searched && !search.error && search.knowledgeReady !== false
+          ? h(React.Fragment, null, h('div', { className: 'rh-search-count' }, `找到 ${search.results.length} 条知识${search.hasMore ? '（还有更多）' : ''}`),
+            search.results.length ? search.results.map(entry => h('button', { key: `${entry.workspaceId}:${entry.id}`,  type: 'button', className: 'rh-result-card rh-knowledge-hit', onClick: () => setDetailId({ id: entry.id, workspaceId: entry.workspaceId, workspaceTitle: entry.workspaceTitle }) }, h('strong', { className: 'rh-result-title' }, entry.title), h('div', { className: 'rh-result-summary' }, entry.snippet), h('div', { className: 'rh-result-meta' }, `${entry.workspaceTitle} · ${entry.sources.map(s => s.relativePath).join(' · ')}`))) : h(EmptyState, { title: '无匹配知识', description: '请尝试其他关键词，或分析更多来源文件。' }),
+            search.hasMore && (limit < 100 ? h('button', { className: 'rh-btn rh-btn-ghost', onClick: () => { const next = Math.min(100, limit + 20); setLimit(next); search.handleSearch(query, next); } }, '显示更多') : h('p', null, '已显示前 100 条，请收窄查询。')))
+          : search.knowledgeReady !== false && !search.error && h(EmptyState, { title: '搜索整个知识库', description: '输入关键词搜索所有工作区已入库的文档内容。' })));
 }
-
-// ─── FieldAssociationsPanel (3.6, 3.16) ───────────────────────────
-function FieldAssociationsPanel({ field, associations, onSelectReq }) {
-  if (!associations || associations.length === 0) return null;
-
-  return h('div', {
-    style: {
-      margin: '8px 14px',
-      border: '1px solid var(--dsw-alias-border-l1)',
-      borderRadius: 8,
-      overflow: 'hidden',
-    }
-  },
-    h('div', {
-      style: {
-        padding: '8px 12px',
-        background: 'var(--dsw-alias-bg-layer-2)',
-        fontSize: 12,
-        fontWeight: 700,
-        borderBottom: '1px solid var(--dsw-alias-border-l1)',
-        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-        color: 'var(--dsw-alias-brand-primary)',
-      }
-    }, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconChart, { size: 14 }), ` ${field} — 跨需求关联`)),
-    associations.map((assoc, idx) =>
-      h('div', {
-        key: assoc.id,
-        style: {
-          padding: '8px 12px',
-          fontSize: 12,
-          borderBottom: idx < associations.length - 1 ? '1px solid var(--dsw-alias-border-l1)' : 'none',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          cursor: 'pointer',
-        },
-        onClick: () => onSelectReq && onSelectReq(assoc),
-      },
-        h('span', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 11, flexShrink: 0 } }, assoc.date),
-        h('strong', null, assoc.title),
-        h('span', { style: { color: 'var(--dsw-alias-label-secondary)' } }, `— ${assoc.changeDescription}`)
-      )
-    )
-  );
-}
-
-// ─── SearchResults (3.3, 3.9-3.11, 3.13) ────────────────────────
-function SearchResults({ results, onSelectReq, searchMode }) {
-  if (!results || results.length === 0) {
-    return h('div', { className: 'rh-empty', style: { padding: 20 } },
-      h('span', { className: 'rh-empty-icon' }, h(IconSearch, { size: 32 })),
-      '未找到匹配的需求'
-    );
-  }
-
-  return h('div', null,
-    // 3.12: AI search header
-    searchMode === 'ai' && h('div', {
-      style: {
-        padding: '8px 14px',
-        fontSize: 12,
-        fontWeight: 700,
-        color: 'var(--dsw-alias-brand-primary)',
-        borderBottom: '1px solid var(--dsw-alias-border-l1)'
-      }
-    }, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconRobot, { size: 14 }), ' AI 搜索结果 ', h('span', { style: { fontWeight: 400, color: 'var(--dsw-alias-label-secondary)' } }, '（语义匹配）'))),
-    results.map(r =>
-      h('div', {
-        key: r.id,
-        className: 'rh-result-card',
-        onClick: () => onSelectReq && onSelectReq(r),
-      },
-        h('div', { className: 'rh-result-card-head' },
-          h('span', { className: 'rh-result-title' }, r.title),
-          // 3.11: Scale badge
-          r.type && r.type !== 'unknown' && h('span', {
-            className: `rh-badge rh-scale-${r.type}`
-          }, r.type === 'large' ? '大需求' : r.type === 'small' ? '小需求' : '中需求'),
-          // 3.13: AI relevance badge
-          searchMode === 'ai' && r.relevance !== undefined && h('span', {
-            style: {
-              padding: '2px 8px',
-              borderRadius: 10,
-              fontSize: 10,
-              fontWeight: 600,
-              background: 'var(--dsw-alias-state-info-bg)',
-              color: 'var(--dsw-alias-state-info-primary)',
-            }
-          }, `语义匹配 ${r.relevance}%`),
-          h('span', { className: 'rh-result-meta' }, `${r.date} · ${r.developer}`)
-        ),
-        // 3.10: Summary
-        r.summary && h('div', { className: 'rh-result-summary' }, r.summary),
-        // Tags
-        (r.matchedFeatures?.length > 0 || r.matchedFields?.length > 0 || r.matchedTags?.length > 0) &&
-          h('div', { className: 'rh-result-tags' },
-            r.matchedFeatures?.map(f => h('span', { key: f, className: 'rh-result-tag' }, f)),
-            r.matchedFields?.map(f => h('span', { key: f, className: 'rh-result-tag', style: { display: 'inline-flex', alignItems: 'center', gap: 2 } }, h(IconChart, { size: 10 }), f)),
-            r.matchedTags?.map(t => h('span', { key: t, className: 'rh-result-tag', style: { display: 'inline-flex', alignItems: 'center', gap: 2 } }, h(IconTag, { size: 10 }), t))
-          ),
-        // 3.13: AI match reason
-        searchMode === 'ai' && r.reason && h('div', {
-          style: {
-            fontSize: 11,
-            color: 'var(--dsw-alias-brand-primary)',
-            marginTop: 6,
-            padding: '6px 10px',
-            background: 'var(--dsw-alias-state-info-bg)',
-            borderRadius: 4,
-          }
-        }, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconLightbulb, { size: 12 }), ' AI 分析：'), ' ', r.reason)
-      )
-    )
-  );
-}
-
-// ─── SearchPanel (3.1-3.5, 3.7, 3.9-3.11, 3.15) ────────────────
-function SearchPanel({ workspaceId, onSelectReq }) {
-  const [searchType, setSearchType] = useState('all');
-  const {
-    searchMode, setSearchMode, results, loading, error: searchError,
-    aiProgress, aiStreamContent, indexBuilt, searched, fieldAssociations,
-    handleSearch
-  } = useSearch(workspaceId);
-
-  const handleSelectReq = (r) => {
-    if (onSelectReq) {
-      onSelectReq({
-        id: r.id,
-        date: r.date,
-        title: r.title,
-        developer: r.developer,
-        path: `${r.developer}/${r.id}`,
-        fileCount: 0,
-        hasMeta: !!r.meta,
-        meta: r.meta,
-      });
-    }
-  };
-
-  return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%' } },
-    h(SearchBar, {
-      onSearch: handleSearch,
-      searchType,
-      onTypeChange: setSearchType,
-      searchMode,
-      onModeChange: setSearchMode,
-      loading,
-    }),
-    // Only show index warning for exact search, not AI search
-    !indexBuilt && searched && searchMode === 'exact' && h('div', {
-      style: {
-        padding: '8px 14px', fontSize: 12, color: 'var(--dsw-alias-state-warning-primary)',
-        background: 'var(--dsw-alias-state-warning-bg)', borderBottom: '1px solid var(--dsw-alias-border-l1)',
-      }
-    }, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconWarning, { size: 14 }), ' 索引未构建，请先点击「索引」按钮重建索引')),
-    // Show error message if search failed
-    searchError && searched && !loading && h('div', {
-      style: {
-        padding: '8px 14px', fontSize: 12, color: 'var(--dsw-alias-state-error-primary)',
-        background: 'var(--dsw-alias-state-error-bg)', borderBottom: '1px solid var(--dsw-alias-border-l1)',
-      }
-    }, h(IconError, { size: 14 }), ' ', searchError),
-    searched && !loading && !searchError && h('div', { className: 'rh-search-count' },
-      `找到 `, h('strong', null, results.length), ` 个需求`
-    ),
-    // Field associations panel (3.6, 3.16)
-    fieldAssociations && h(FieldAssociationsPanel, {
-      field: fieldAssociations.field,
-      associations: fieldAssociations.associations,
-      onSelectReq: handleSelectReq,
-    }),
-    h('div', { style: { flex: 1, overflowY: 'auto' } },
-      loading
-        ? h('div', { style: { padding: 20 } },
-            // Status text
-            aiProgress && h('div', {
-              style: {
-                fontSize: 13,
-                fontWeight: 600,
-                color: 'var(--dsw-alias-brand-primary)',
-                marginBottom: 12,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-              }
-            },
-              h('div', { className: 'rh-spinner', style: { width: 14, height: 14, margin: 0 } }),
-              aiProgress
-            ),
-            // Streaming content preview
-            aiStreamContent && h('div', {
-              style: {
-                background: 'var(--dsw-alias-bg-layer-2)',
-                border: '1px solid var(--dsw-alias-border-l1)',
-                borderRadius: 6,
-                padding: 12,
-                fontSize: 11,
-                fontFamily: 'ui-monospace, monospace',
-                color: 'var(--dsw-alias-label-secondary)',
-                maxHeight: 300,
-                overflow: 'auto',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-all',
-                lineHeight: 1.5,
-              }
-            }, aiStreamContent)
-          )
-        : searched
-          ? h(SearchResults, { results, onSelectReq: handleSelectReq, searchMode })
-          : h('div', { className: 'rh-empty', style: { padding: 20 } },
-              h('span', { className: 'rh-empty-icon' }, h(IconSearch, { size: 32 })),
-              '输入关键词搜索需求'
-            )
-    )
-  );
-}
-
 module.exports = { SearchPanel };

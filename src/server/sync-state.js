@@ -1,35 +1,82 @@
 /**
- * Sync state manager
- * Persists active sync tasks and sync history per requirement directory
- * Stored in requirement's sync-logs directory alongside sync-generated files
+ * Sync state manager.
+ * Persists active sync tasks and sync history per requirement directory.
+ * Stored in requirement's sync-logs directory alongside sync-generated files.
+ * @module sync-state
  */
 
-import { readFile, writeFile, mkdir } from 'fs/promises';
+import { readFile, writeFile, mkdir, rename } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { log } from './logger.js';
+import { buildSyncTimeline } from './sync-timeline.js';
+import { readSyncSnapshot } from './sync-snapshots.js';
+import { readDocumentVersion } from './sync-document-validator.js';
+import { hashBytes } from './sync-artifacts.js';
 
-// In-memory cache: requirementKey -> state
+/** @type {Map<string, SyncState>} In-memory state cache: requirementKey -> state */
 const stateCache = new Map();
-// Requirement path cache: requirementKey -> requirementPath
+
+/** @type {Map<string, string>} Requirement path cache: requirementKey -> requirementPath */
 const requirementPathCache = new Map();
 
+/** @type {Map<string, Promise<void>>} Per-key write locks to prevent concurrent saves */
+const saveLocks = new Map();
+
+/** @type {Map<string, {controller: AbortController, syncId: string}>} Abort controllers for running sync tasks */
+const activeSyncControllers = new Map();
+
 /**
- * Generate a unique key for a requirement
+ * @typedef {Object} SyncState
+ * @property {ActiveSync|null} activeSync - Currently running sync task
+ * @property {SyncHistoryItem[]} history - Commit-scoped sync history
+ * @property {Object[]} [timeline] - Traceability events derived from sync records
+ */
+
+/**
+ * @typedef {Object} ActiveSync
+ * @property {string} id - Sync task ID
+ * @property {string} workspaceId - Workspace ID
+ * @property {string} requirementId - Requirement ID
+ * @property {string} status - Sync status (running/completed/aborted)
+ * @property {number} [completedAt] - Completion timestamp
+ * @property {number} [abortedAt] - Abort timestamp
+ * @property {string} [currentSubagentSessionId] - Current subagent session ID
+ */
+
+/**
+ * @typedef {Object} SyncHistoryItem
+ * @property {string} id - Sync task ID
+ * @property {string} status - Final status
+ * @property {number} completedAt - Completion timestamp
+ */
+
+/**
+ * Generate a unique key for a requirement.
+ * @param {string} workspaceId - Workspace ID
+ * @param {string} requirementId - Requirement ID
+ * @returns {string} Unique key
  */
 function getRequirementKey(workspaceId, requirementId) {
   return `${workspaceId}:${requirementId}`;
 }
 
 /**
- * Get state file path for a requirement
+ * Get state file path for a requirement.
+ * @param {string} requirementPath - Requirement directory path
+ * @returns {string} Full path to .sync-state.json
  */
 function getStateFile(requirementPath) {
-  return join(requirementPath, 'sync-logs', '.sync-state.json');
+  return join(requirementPath, 'sync-logs', 'v2', '.sync-state.json');
 }
 
 /**
- * Load state from disk for a specific requirement
+ * Load sync state from disk for a specific requirement.
+ * Caches result in memory for subsequent reads.
+ * @param {string} workspaceId - Workspace ID
+ * @param {string} requirementId - Requirement ID
+ * @param {string} requirementPath - Full path to requirement directory
+ * @returns {Promise<SyncState|undefined>} Loaded state or undefined on error
  */
 export async function loadState(workspaceId, requirementId, requirementPath) {
   if (!workspaceId || !requirementId || !requirementPath) {
@@ -52,58 +99,114 @@ export async function loadState(workspaceId, requirementId, requirementPath) {
     if (existsSync(stateFile)) {
       const content = await readFile(stateFile, 'utf8');
       const state = JSON.parse(content);
+      if (state.schemaVersion !== 2) throw new Error('不支持旧版同步状态');
+      state.history = (state.history || []).filter(item => item.schemaVersion === 2);
+      state.history ||= [];
+      const needsRecovery = !!state.activeSync;
+      // Recover every active record, including a completed publication not yet archived.
+      if (needsRecovery) {
+        let published = false;
+        const active = state.activeSync;
+        if (active.schemaVersion === 2 && active.candidateHash && active.snapshotDir?.startsWith('v2/')) {
+          try {
+            const snapshot = await readSyncSnapshot(requirementPath, active);
+            const fileName = active.docType === 'design' ? 'design.md' : 'requirement.md';
+            const live = await readDocumentVersion(join(requirementPath, fileName));
+            const journal = JSON.parse(await readFile(join(requirementPath, 'sync-logs', active.snapshotDir, 'publish-journal.json'), 'utf8'));
+            const validation = JSON.parse(await readFile(join(requirementPath, 'sync-logs', active.snapshotDir, 'validation.json'), 'utf8'));
+            if (journal.schemaVersion !== 2 || journal.candidateHash !== active.candidateHash || journal.originalHash !== active.originalHash || validation.candidateHash !== active.candidateHash || validation.originalHash !== active.originalHash) throw new Error('PUBLISH_RECOVERY_HASH');
+            published = live.exists && hashBytes(live.bytes) === active.candidateHash && hashBytes(Buffer.from(snapshot)) === active.candidateHash;
+          } catch { /* Missing or changed artifacts must never be promoted to success. */ }
+        }
+        const interrupted = { ...active, status: published ? 'completed' : 'failed', completedAt: Date.now(),
+          publishState: published ? 'state_committed' : active.publishState,
+          error: published ? undefined : '服务重启，同步已中断或发布冲突，可重试当前 commit' };
+        state.history = [interrupted, ...state.history.filter(item => item.id !== interrupted.id)];
+        state.activeSync = null;
+      }
+      state.timeline = buildSyncTimeline(state.history || []);
       stateCache.set(key, state);
+      if (needsRecovery) await saveState(key);
       log.state.info(`Loaded sync state for ${key}: ${state.history.length} history items`);
     } else {
       // Initialize empty state
-      stateCache.set(key, { activeSync: null, history: [] });
+      stateCache.set(key, { schemaVersion: 2, activeSync: null, history: [] });
     }
   } catch (e) {
+    stateCache.delete(key);
     log.state.warn(`Failed to load sync state for ${key}: ${e.message}`);
-    stateCache.set(key, { activeSync: null, history: [] });
+    throw new Error(`无法读取同步状态，已停止同步以保护历史基准: ${e.message}`);
   }
   
   return stateCache.get(key);
 }
 
 /**
- * Save state to disk for a specific requirement
+ * Save sync state to disk for a specific requirement.
+ * Uses per-key lock to prevent concurrent writes.
+ * Performs atomic write via temp file + rename.
+ * @param {string} key - Requirement key
+ * @returns {Promise<void>}
  */
 async function saveState(key) {
   if (!key) return;
 
-  const requirementPath = requirementPathCache.get(key);
-  if (!requirementPath) {
-    log.state.warn(`Cannot save state: requirement path not cached for ${key}`);
-    return;
+  // Queue behind any in-flight save for this key
+  while (saveLocks.has(key)) {
+    await saveLocks.get(key);
   }
 
-  try {
-    const state = stateCache.get(key);
-    if (!state) return;
-
-    // Ensure sync-logs directory exists
-    const syncLogsDir = join(requirementPath, 'sync-logs');
-    if (!existsSync(syncLogsDir)) {
-      await mkdir(syncLogsDir, { recursive: true });
+  const run = (async () => {
+    const requirementPath = requirementPathCache.get(key);
+    if (!requirementPath) {
+      log.state.warn(`Cannot save state: requirement path not cached for ${key}`);
+      return;
     }
 
-    const stateFile = getStateFile(requirementPath);
-    const tempFile = stateFile + '.tmp';
-    
-    // Atomic write: write to temp file first, then rename
-    await writeFile(tempFile, JSON.stringify(state, null, 2), 'utf8');
-    
-    // Rename is atomic on most filesystems
-    const { rename } = await import('fs/promises');
-    await rename(tempFile, stateFile);
-  } catch (e) {
-    log.state.error(`Failed to save sync state for ${key}: ${e.message}`);
+    try {
+      const state = stateCache.get(key);
+      if (!state) return;
+
+      // Ensure sync-logs directory exists
+      const syncLogsDir = join(requirementPath, 'sync-logs', 'v2');
+      if (!existsSync(syncLogsDir)) {
+        await mkdir(syncLogsDir, { recursive: true });
+      }
+
+      const stateFile = getStateFile(requirementPath);
+      const tempFile = stateFile + '.tmp';
+
+      // Atomic write: write to temp file first, then rename
+      await writeFile(tempFile, JSON.stringify(state, null, 2), 'utf8');
+
+      // Verify temp file exists before rename (guards against antivirus/file-lock deletion)
+      if (!existsSync(tempFile)) {
+        log.state.warn(`Temp file disappeared before rename for ${key}, retrying`);
+        await writeFile(tempFile, JSON.stringify(state, null, 2), 'utf8');
+      }
+
+      await rename(tempFile, stateFile);
+    } catch (e) {
+      log.state.error(`Failed to save sync state for ${key}: ${e.message}`);
+      throw e;
+    }
+  })();
+
+  saveLocks.set(key, run);
+  try {
+    await run;
+  } finally {
+    // Only clear the lock entry if it still points to this run
+    if (saveLocks.get(key) === run) {
+      saveLocks.delete(key);
+    }
   }
 }
 
 /**
- * Get state for a requirement (loads if not cached)
+ * Get state for a requirement (loads from disk if not cached).
+ * @param {string} key - Requirement key
+ * @returns {Promise<SyncState>} Current sync state
  */
 async function getState(key) {
   if (!stateCache.has(key)) {
@@ -121,8 +224,11 @@ async function getState(key) {
 }
 
 /**
- * Get active sync task
- * This function will attempt to load state from disk if not cached
+ * Get active sync task for a requirement.
+ * Attempts to load state from disk if not cached.
+ * @param {string} workspaceId - Workspace ID
+ * @param {string} requirementId - Requirement ID
+ * @returns {Promise<ActiveSync|null>} Active sync task or null
  */
 export async function getActiveSync(workspaceId, requirementId) {
   const key = getRequirementKey(workspaceId, requirementId);
@@ -145,7 +251,10 @@ export async function getActiveSync(workspaceId, requirementId) {
 }
 
 /**
- * Set active sync task
+ * Set active sync task for a requirement.
+ * @param {ActiveSync} sync - Sync task to set as active
+ * @param {string} [requirementPath] - Optional requirement path for caching
+ * @returns {Promise<void>}
  */
 export async function setActiveSync(sync, requirementPath) {
   if (!sync?.workspaceId || !sync?.requirementId) {
@@ -162,18 +271,27 @@ export async function setActiveSync(sync, requirementPath) {
 
   const state = await getState(key);
   state.activeSync = sync;
-  await saveState(key);
+  try {
+    await saveState(key);
+  } catch (error) {
+    state.activeSync = null;
+    throw error;
+  }
 }
 
 /**
- * Clear active sync and add to history
+ * Complete an active sync and move it to history.
+ * Keeps the latest outcome for each document and commit without pruning baselines.
+ * @param {string} syncId - Sync task ID to complete
+ * @returns {Promise<void>}
  */
-export async function completeSync(syncId) {
+export async function completeSync(syncId, workspaceId, requirementId) {
   // Find which requirement this sync belongs to
   let targetKey = null;
   let completedSync = null;
 
   for (const [key, state] of stateCache.entries()) {
+    if (workspaceId && requirementId && key !== getRequirementKey(workspaceId, requirementId)) continue;
     if (state.activeSync && state.activeSync.id === syncId) {
       targetKey = key;
       completedSync = { ...state.activeSync };
@@ -188,27 +306,47 @@ export async function completeSync(syncId) {
   completedSync.completedAt = Date.now();
   
   const state = stateCache.get(targetKey);
-  // Add to history (keep last 50)
+  const previousActive = state.activeSync;
+  const previousHistory = state.history;
+  const previousTimeline = state.timeline;
+  // One record per document and commit; failed attempts may be retried.
+  state.history = state.history.filter(item => item.id !== syncId);
   state.history.unshift(completedSync);
-  if (state.history.length > 50) {
-    state.history = state.history.slice(0, 50);
-  }
+  state.timeline = buildSyncTimeline(state.history);
   
   // Clear active
   state.activeSync = null;
   
-  await saveState(targetKey);
+  try {
+    await saveState(targetKey);
+  } catch (error) {
+    state.history = previousHistory;
+    state.timeline = previousTimeline;
+    state.activeSync = previousActive;
+    throw error;
+  }
   log.state.info(`Sync ${syncId} completed and added to history for ${targetKey}`);
 }
 
 /**
- * Update active sync progress
+ * Update active sync progress fields.
+ * @param {string} syncId - Sync task ID
+ * @param {Object} updates - Fields to update via Object.assign
+ * @returns {Promise<void>}
  */
-export async function updateSyncProgress(syncId, updates) {
+export async function updateSyncProgress(syncId, updates, workspaceId, requirementId) {
   // Find which requirement this sync belongs to
   for (const [key, state] of stateCache.entries()) {
+    if (workspaceId && requirementId && key !== getRequirementKey(workspaceId, requirementId)) continue;
     if (state.activeSync && state.activeSync.id === syncId) {
       Object.assign(state.activeSync, updates);
+      await saveState(key);
+      return;
+    }
+    const completed = state.history.find(item => item.schemaVersion === 2 && item.id === syncId);
+    if (completed) {
+      Object.assign(completed, updates);
+      state.timeline = buildSyncTimeline(state.history);
       await saveState(key);
       return;
     }
@@ -216,7 +354,10 @@ export async function updateSyncProgress(syncId, updates) {
 }
 
 /**
- * Get sync history for a requirement
+ * Get sync history for a requirement.
+ * @param {string} workspaceId - Workspace ID
+ * @param {string} requirementId - Requirement ID
+ * @returns {Promise<SyncHistoryItem[]>} Sync history array
  */
 export async function getSyncHistory(workspaceId, requirementId) {
   const key = getRequirementKey(workspaceId, requirementId);
@@ -225,7 +366,11 @@ export async function getSyncHistory(workspaceId, requirementId) {
 }
 
 /**
- * Get specific sync from history
+ * Get a specific sync entry by ID (checks active first, then history).
+ * @param {string} syncId - Sync task ID
+ * @param {string} workspaceId - Workspace ID
+ * @param {string} requirementId - Requirement ID
+ * @returns {Promise<ActiveSync|SyncHistoryItem|undefined>} Sync entry or undefined
  */
 export async function getSyncById(syncId, workspaceId, requirementId) {
   const key = getRequirementKey(workspaceId, requirementId);
@@ -240,12 +385,115 @@ export async function getSyncById(syncId, workspaceId, requirementId) {
 }
 
 /**
- * Delete sync from history
+ * Delete a sync entry from history.
+ * @param {string} syncId - Sync task ID to delete
+ * @param {string} workspaceId - Workspace ID
+ * @param {string} requirementId - Requirement ID
+ * @returns {Promise<void>}
  */
 export async function deleteSyncFromHistory(syncId, workspaceId, requirementId) {
   const key = getRequirementKey(workspaceId, requirementId);
   const state = await getState(key);
   state.history = state.history.filter(s => s.id !== syncId);
+  state.timeline = buildSyncTimeline(state.history);
   await saveState(key);
+}
+
+// ─── Abort Controller Management ──────────────────────────────────
+
+/**
+ * Set abort controller for a running sync task.
+ * @param {string} workspaceId - Workspace ID
+ * @param {string} requirementId - Requirement ID
+ * @param {AbortController} controller - Abort controller instance
+ * @param {string} syncId - Sync task ID
+ * @returns {void}
+ */
+export function setAbortController(workspaceId, requirementId, controller, syncId) {
+  const key = getRequirementKey(workspaceId, requirementId);
+  activeSyncControllers.set(key, { controller, syncId });
+}
+
+/**
+ * Get abort controller for a running sync task.
+ * @param {string} workspaceId - Workspace ID
+ * @param {string} requirementId - Requirement ID
+ * @returns {{controller: AbortController, syncId: string}|undefined} Controller info or undefined
+ */
+export function getAbortController(workspaceId, requirementId) {
+  const key = getRequirementKey(workspaceId, requirementId);
+  return activeSyncControllers.get(key);
+}
+
+/**
+ * Delete abort controller entry.
+ * @param {string} workspaceId - Workspace ID
+ * @param {string} requirementId - Requirement ID
+ * @returns {void}
+ */
+export function deleteAbortController(workspaceId, requirementId) {
+  const key = getRequirementKey(workspaceId, requirementId);
+  activeSyncControllers.delete(key);
+}
+
+/**
+ * Abort a running sync task.
+ * Triggers abort signal, interrupts subagent if running, moves to history.
+ * @param {string} syncId - Sync task ID
+ * @param {string} workspaceId - Workspace ID
+ * @param {string} requirementId - Requirement ID
+ * @param {Object} ctx - DSH Context (for interrupting subagent)
+ * @param {Object} parentAgent - Parent agent for interrupt authority
+ * @returns {Promise<{success: boolean, error?: string}>} Abort result
+ */
+export async function abortSync(syncId, workspaceId, requirementId, ctx, parentAgent) {
+  const key = getRequirementKey(workspaceId, requirementId);
+  const state = await getState(key);
+
+  log.state.info(`abortSync 调用`, { syncId, workspaceId, requirementId, key, hasState: !!state, hasActiveSync: !!state?.activeSync, activeSyncId: state?.activeSync?.id });
+
+  // Check if there's a running sync task
+  if (!state?.activeSync || state.activeSync.id !== syncId) {
+    log.state.warn(`abortSync 失败: 没有正在运行的同步任务`, { syncId, activeSyncId: state?.activeSync?.id });
+    return { success: false, error: '没有正在运行的同步任务' };
+  }
+
+  // Get abort controller
+  const controllerInfo = activeSyncControllers.get(key);
+
+  // 1. Trigger abort signal (prevents new subagent launches)
+  controllerInfo?.controller?.abort();
+
+  // 2. Interrupt running subagent (if any)
+  // ⚠️ 注意：ctx.subagents.interrupt() 对 one-shot subagent 是静默空操作
+  // 因为 interrupt() 只作用于 continuable 类型的 subagent（ContinuableActivationRegistry.resident）
+  // One-shot subagent 通过 SpawnInProcessProvider.start() 直接启动，不注册到 resident Map
+  // 因此取消 one-shot subagent 的唯一有效机制是 AbortSignal（已在上面调用 controller.abort()）
+  // 如果未来切换到 continuable subagent，可以恢复 interrupt() 调用
+  // 保留 currentSubagentSessionId 的读取仅用于日志记录
+  if (state.activeSync.currentSubagentSessionId) {
+    log.state.info(`One-shot subagent ${state.activeSync.currentSubagentSessionId} 将通过 AbortSignal 取消`);
+  }
+
+  // 3. Mark status as aborted
+  state.activeSync.status = 'aborted';
+  state.activeSync.abortedAt = Date.now();
+
+  // 4. Move to commit-scoped history and refresh the timeline.
+  state.history = state.history.filter(item => item.id !== syncId);
+  state.history.unshift({ ...state.activeSync });
+  state.timeline = buildSyncTimeline(state.history);
+
+  // 5. Clean up activeSync and controller
+  state.activeSync = null;
+  // Keep the controller until the engine settles, preventing an overlapping retry.
+
+  // 异步保存状态，不等待（避免死锁：同步引擎可能还在运行并触发 saveState）
+  saveState(key).catch(err => {
+    log.state.error(`Failed to save aborted state for ${key}: ${err.message}`);
+  });
+
+  log.state.info(`Sync ${syncId} aborted for ${key}`);
+  return { success: true };
 }
 

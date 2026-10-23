@@ -9,6 +9,18 @@ const { createIconComponents } = require('../icons.js');
 
 const { IconFile } = createIconComponents(h);
 
+/**
+ * @component DocumentDropdown
+ * @description A modal dropdown for viewing documents within a selected requirement directory.
+ * Fetches the document tree and displays files from the selected requirement with
+ * document type labels and metadata.
+ * @param {Object} props - Component props
+ * @param {string} props.workspaceId - The unique identifier of the workspace
+ * @param {Object|null} props.selectedReq - The currently selected requirement object
+ * @param {Function} props.onSelectFile - Callback invoked when a file is selected
+ * @param {Function} props.onClose - Callback invoked when the modal is closed
+ * @returns {JSX.Element} A modal with a list of documents from the selected requirement
+ */
 function DocumentDropdown({ workspaceId, selectedReq, onSelectFile, onClose }) {
   const [tree, setTree] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -72,7 +84,7 @@ function DocumentDropdown({ workspaceId, selectedReq, onSelectFile, onClose }) {
                     h('span', { className: 'rh-modal-item-name' },
                       h('span', { style: { fontWeight: 600 } }, file.name),
                       h('span', { className: `rh-doctype-tag ${file.type}` }, docTypeLabels[file.type] || '文档'),
-                      h('span', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 11, marginLeft: 8 } },
+                      h('span', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 'var(--rh-font-size-sm)', marginLeft: 8 } },
                         `${file.developer} / ${file.reqDate.slice(5)} ${file.reqTitle}`)
                     )
                   );

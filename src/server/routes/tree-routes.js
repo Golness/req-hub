@@ -1,8 +1,11 @@
+import { withDocumentLock } from '../sync-document-validator.js';
 /**
- * 文档树相关路由
+ * Document tree routes module.
+ * Handles document tree and workspace-related HTTP endpoints.
+ * @module routes/tree-routes
  */
 
-import { readdir, stat, mkdir } from 'node:fs/promises';
+import { readdir, stat, mkdir, writeFile } from 'node:fs/promises';
 import { resolve, relative, join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { loadConfig } from '../config.js';
@@ -13,6 +16,11 @@ import { log } from '../logger.js';
 import { SUPPORTED_DOC_EXTS } from '../tree.js';
 import { rebuildIndex, loadIndex } from '../index-manager.js';
 
+/**
+ * Create document tree routes.
+ * @param {Object} registry - Workspace registry service
+ * @returns {Array<Object>} Array of route definitions
+ */
 export function createTreeRoutes(registry) {
   return [
     // GET /workspaces - 获取工作区列表
@@ -452,6 +460,73 @@ export function createTreeRoutes(registry) {
       }
     },
 
+    // POST /write - 写入/更新文件内容
+    {
+      kind: 'exact',
+      path: '/req-hub/write',
+      async handler(req, res) {
+        if (req.method !== 'POST') {
+          res.writeHead(405);
+          res.end();
+          return;
+        }
+
+        try {
+          const raw = await readBody(req);
+          const { workspaceId, path: filePath, content } = JSON.parse(raw);
+
+          // 参数校验
+          if (!workspaceId || !filePath || content === undefined) {
+            json(res, { error: 'missing workspaceId, path or content' }, 400);
+            return;
+          }
+
+          // 文件类型限制
+          const ext = filePath.toLowerCase().match(/\.[^.]+$/)?.[0] || '';
+          const allowedExts = ['.md', '.txt', '.text', '.json'];
+          if (!allowedExts.includes(ext)) {
+            json(res, { error: `文件类型 ${ext} 不支持编辑` }, 400);
+            return;
+          }
+
+          // 内容大小限制 (10MB)
+          if (content.length > 10 * 1024 * 1024) {
+            json(res, { error: '文件内容超过 10MB 限制' }, 400);
+            return;
+          }
+
+          // 工作区校验
+          const workspaces = registry.list();
+          const workspace = workspaces.find(w => w.id === workspaceId);
+          if (!workspace) {
+            json(res, { error: 'workspace not found' }, 404);
+            return;
+          }
+
+          // 路径解析 + 安全校验
+          const config = await loadConfig();
+          const docsRoot = resolve(workspace.path, config.docsDir);
+          const fullPath = resolve(docsRoot, filePath);
+
+          if (!isInside(docsRoot, fullPath)) {
+            json(res, { error: 'path outside docs root' }, 403);
+            return;
+          }
+
+          // 写入文件
+          await withDocumentLock(fullPath, () => writeFile(fullPath, content, 'utf8'));
+
+          // 获取修改时间
+          const fileStat = await stat(fullPath);
+
+          json(res, { success: true, mtime: fileStat.mtime.toISOString() });
+        } catch (e) {
+          log.tree.error(`文件写入失败: ${e.message}`);
+          json(res, { success: false, error: e.message }, 500);
+        }
+      }
+    },
+
     // GET /requirements/:id - 获取需求详情
     {
       kind: 'prefix',
@@ -494,7 +569,7 @@ export function createTreeRoutes(registry) {
       }
     },
 
-    // POST /create-dir - 创建需求目录
+    // POST /create-dir - 创建需求目录（可选同时新建 Git 分支）
     {
       kind: 'exact',
       path: '/req-hub/create-dir',
@@ -507,7 +582,7 @@ export function createTreeRoutes(registry) {
 
         try {
           const raw = await readBody(req);
-          const { workspaceId, developer, date, title } = JSON.parse(raw);
+          const { workspaceId, developer, date, title, createBranch, branchName } = JSON.parse(raw);
 
           if (!workspaceId || !developer || !date || !title) {
             json(res, { error: 'missing required fields: workspaceId, developer, date, title' }, 400);
@@ -531,6 +606,52 @@ export function createTreeRoutes(registry) {
             return;
           }
 
+          // ── 新建 Git 分支（在创建目录之前）──
+          let branchResult = null;
+          if (createBranch && branchName) {
+            // 校验分支名格式（允许字母、数字、中文、点、横线、下划线和斜杠）
+            if (!/^[a-zA-Z0-9一-龥][a-zA-Z0-9一-龥._/\-]*$/.test(branchName)) {
+              json(res, { error: 'invalid branch name: only letters, digits, Chinese characters, dots, dashes, underscores and / are allowed' }, 400);
+              return;
+            }
+
+            const { exec } = await import('node:child_process');
+            const { promisify } = await import('node:util');
+            const execAsync = promisify(exec);
+
+            try {
+              // 检查分支是否已存在
+              const { stdout: existing } = await execAsync(`git branch --list "${branchName}"`, { cwd: workspace.path });
+              if (existing.trim()) {
+                json(res, { error: `分支 "${branchName}" 已存在` }, 409);
+                return;
+              }
+
+              // 获取当前分支名（用于日志）
+              const { stdout: currentBranch } = await execAsync('git branch --show-current', { cwd: workspace.path });
+              const fromBranch = currentBranch.trim();
+
+              // 创建新分支（不切换，保留未提交的修改在当前工作区）
+              // git branch <name> 基于当前 HEAD 创建分支，不改变工作区
+              await execAsync(`git branch "${branchName}"`, { cwd: workspace.path });
+
+              // 切换到新分支（git checkout -b 的等效操作：保留未提交修改）
+              await execAsync(`git checkout "${branchName}"`, { cwd: workspace.path });
+
+              log.tree.info(`新建分支: ${branchName} (from ${fromBranch})`);
+              branchResult = {
+                created: true,
+                branchName,
+                fromBranch,
+              };
+            } catch (gitErr) {
+              log.tree.error(`新建分支失败: ${gitErr.message}`);
+              json(res, { error: `Git 操作失败: ${gitErr.stderr || gitErr.message}` }, 500);
+              return;
+            }
+          }
+
+          // ── 创建需求目录 ──
           const config = await loadConfig();
           const docsRoot = resolve(workspace.path, config.docsDir);
           const dirName = `${date}-${title}`;
@@ -548,7 +669,12 @@ export function createTreeRoutes(registry) {
 
           await mkdir(targetPath, { recursive: true });
           log.tree.info(`创建目录: ${developer}/${dirName}`);
-          json(res, { success: true, path: relative(docsRoot, targetPath), fullPath: targetPath });
+          json(res, {
+            success: true,
+            path: relative(docsRoot, targetPath),
+            fullPath: targetPath,
+            branch: branchResult,
+          });
         } catch (e) {
           log.tree.error(`创建目录失败: ${e.message}`);
           json(res, { error: e.message }, 500);
@@ -636,6 +762,130 @@ export function createTreeRoutes(registry) {
           total: associations.length,
           indexBuilt: true,
         });
+      }
+    },
+
+    // GET /file-tree - 获取需求目录下的嵌套文件树
+    {
+      kind: 'exact',
+      path: '/req-hub/file-tree',
+      async handler(req, res) {
+        if (req.method !== 'GET') {
+          res.writeHead(405);
+          res.end();
+          return;
+        }
+
+        const url = new URL(req.url, 'http://localhost');
+        const workspaceId = url.searchParams.get('workspaceId');
+        const requirementId = url.searchParams.get('requirementId');
+        const requirementPath = url.searchParams.get('requirementPath')?.replaceAll('\\', '/');
+
+        if (!workspaceId || !requirementId) {
+          json(res, { error: 'missing workspaceId or requirementId' }, 400);
+          return;
+        }
+
+        const workspaces = registry.list();
+        const workspace = workspaces.find(w => w.id === workspaceId);
+        if (!workspace) {
+          json(res, { error: 'workspace not found' }, 404);
+          return;
+        }
+
+        const config = await loadConfig();
+        const docsRoot = resolve(workspace.path, config.docsDir);
+        const tree = await buildTree(docsRoot);
+
+        // Find the requirement
+        let reqPath = null;
+        for (const dev of tree.developers) {
+          for (const req of dev.requirements) {
+            if (req.id === requirementId && (!requirementPath || req.path.replaceAll('\\', '/') === requirementPath)) {
+              reqPath = resolve(docsRoot, req.path);
+              break;
+            }
+          }
+          if (reqPath) break;
+        }
+
+        if (!reqPath) {
+          json(res, { error: 'requirement not found' }, 404);
+          return;
+        }
+
+        // Supported file extensions
+        const supportedExts = ['.md', '.txt', '.text', '.html', '.htm', '.json'];
+
+        // Recursive function to build tree structure
+        const buildFileTree = async (dirPath, relativePath = '') => {
+          const result = [];
+          let entries;
+          try {
+            entries = await readdir(dirPath, { withFileTypes: true });
+          } catch {
+            return result;
+          }
+
+          // Sort: directories first, then files
+          entries.sort((a, b) => {
+            if (a.isDirectory() && !b.isDirectory()) return -1;
+            if (!a.isDirectory() && b.isDirectory()) return 1;
+            return a.name.localeCompare(b.name);
+          });
+
+          for (const entry of entries) {
+            const fullPath = join(dirPath, entry.name);
+            const relPath = relativePath ? join(relativePath, entry.name) : entry.name;
+
+            if (entry.isDirectory()) {
+              // Skip hidden directories only
+              if (entry.name.startsWith('.')) continue;
+              
+              const children = await buildFileTree(fullPath, relPath);
+              // Always show directories, even if empty
+              result.push({
+                type: 'directory',
+                name: entry.name,
+                path: relPath,
+                children
+              });
+            } else if (entry.isFile()) {
+              // Check if file has supported extension
+              const ext = entry.name.toLowerCase().match(/\.[^.]+$/)?.[0];
+              if (ext && supportedExts.includes(ext)) {
+                try {
+                  const stats = await stat(fullPath);
+                  result.push({
+                    type: 'file',
+                    name: entry.name,
+                    path: relPath,
+                    mtime: stats.mtime.toISOString(),
+                    size: stats.size
+                  });
+                } catch {
+                  result.push({
+                    type: 'file',
+                    name: entry.name,
+                    path: relPath,
+                    mtime: null,
+                    size: null
+                  });
+                }
+              }
+            }
+          }
+
+          return result;
+        };
+
+        try {
+          const fileTree = await buildFileTree(reqPath);
+          json(res, { tree: fileTree });
+        } catch (e) {
+          log.tree.error(`获取文件树失败: ${e.message}`);
+          json(res, { error: e.message }, 500);
+        }
       }
     }
   ];

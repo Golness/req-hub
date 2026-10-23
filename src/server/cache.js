@@ -1,15 +1,20 @@
 /**
- * 缓存管理模块
- * 提供简单的内存缓存功能
+ * Cache management module.
+ * Provides simple in-memory caching with TTL support.
+ * @module cache
  */
 
+/** @type {Map<string, {data: any, timestamp: number}>} Cache storage */
 const cache = new Map();
-const DEFAULT_TTL = 30000; // 30 seconds
+
+/** @type {number} Default TTL in milliseconds (30 seconds) */
+const DEFAULT_TTL = 30000;
 
 /**
- * 获取缓存值
- * @param {string} key - 缓存键
- * @returns {any|null} 缓存值或 null
+ * Get cached value by key.
+ * Returns null if key doesn't exist or entry has expired.
+ * @param {string} key - Cache key
+ * @returns {any|null} Cached data or null if not found/expired
  */
 export function getCached(key) {
   const entry = cache.get(key);
@@ -22,16 +27,18 @@ export function getCached(key) {
 }
 
 /**
- * 设置缓存值
- * @param {string} key - 缓存键
- * @param {any} data - 缓存数据
+ * Set cached value with current timestamp.
+ * @param {string} key - Cache key
+ * @param {any} data - Data to cache
+ * @returns {void}
  */
 export function setCached(key, data) {
   cache.set(key, { data, timestamp: Date.now() });
 }
 
 /**
- * 清空所有缓存
+ * Clear all cached entries.
+ * @returns {void}
  */
 export function clearCache() {
   cache.clear();

@@ -1,34 +1,54 @@
 /**
- * 会话选择器模块
- * 负责列出和筛选与当前工作区相关的 DSH 会话
+ * Session selector module.
+ * Responsible for listing and filtering DSH sessions related to current workspace.
+ * @module session-selector
  */
 
 import { log } from './logger.js';
 
 /**
- * 列出与当前工作区相关的 DSH 会话（包括活跃和持久化的会话）
- * @param {Object} sessions - DSH sessions 服务（用于活跃会话）
- * @param {string} workspacePath - 工作区路径
- * @param {Object} options - 选项
- * @param {number} options.limit - 最大返回数量
- * @param {string} options.query - 搜索关键词
- * @param {Object} options.sessionQuery - DSH sessionQuery 服务（用于持久化会话）
- * @returns {Promise<Array<Object>>} 会话列表
+ * @typedef {Object} SessionInfo
+ * @property {string} id - Session ID
+ * @property {string} title - Session title
+ * @property {number} createdAt - Creation timestamp
+ * @property {string} cwd - Working directory
+ * @property {string|null} parentSession - Parent session ID if subagent
+ * @property {boolean} isLive - Whether session is currently active
+ * @property {boolean} isPersisted - Whether session is persisted to disk
+ * @property {number} [eventCount] - Number of events (for live sessions)
+ */
+
+/**
+ * List DSH sessions related to current workspace.
+ * Includes both active and persisted sessions.
+ * @param {Object} sessions - DSH sessions service (for active sessions)
+ * @param {string} workspacePath - Workspace path to filter by
+ * @param {Object} [options={}] - Query options
+ * @param {number} [options.limit=20] - Maximum results to return
+ * @param {string} [options.query] - Search keyword filter
+ * @param {Object} [options.sessionQuery] - DSH sessionQuery service (for persisted sessions)
+ * @param {Object} [options.registry] - Workspace registry (for archived session IDs)
+ * @returns {Promise<SessionInfo[]>} Filtered session list sorted by creation time (desc)
  */
 export async function listRelatedSessions(sessions, workspacePath, options = {}) {
-  const { limit = 20, query, sessionQuery } = options;
-  
+  const { limit = 20, query, sessionQuery, registry } = options;
+
+  // 获取已归档会话 ID 集合，用于过滤
+  const archivedIds = new Set(registry?.archivedSessionIds || []);
+
   // 使用 sessionQuery 服务获取所有会话（包括持久化的）
   if (sessionQuery) {
     try {
       // 获取所有会话记录
       const allRecords = await sessionQuery.listSessions();
-      
+
       // 标准化路径用于比较
       const wsPath = workspacePath.replace(/\\/g, '/').toLowerCase().replace(/\/$/, '');
-      
-      // 按工作目录过滤：只匹配工作区路径本身或其子目录，且只取父会话
+
+      // 按工作目录过滤：只匹配工作区路径本身或其子目录，且只取父会话，排除已归档
       const filtered = allRecords.filter(record => {
+        // 排除已归档的会话
+        if (archivedIds.has(record.header.id)) return false;
         const cwd = record.header.cwd || '';
         const sessionPath = cwd.replace(/\\/g, '/').toLowerCase().replace(/\/$/, '');
         // 会话路径必须等于工作区路径，或者是工作区路径的子目录
@@ -85,8 +105,10 @@ export async function listRelatedSessions(sessions, workspacePath, options = {})
     // 标准化路径用于比较
     const wsPath = workspacePath.replace(/\\/g, '/').toLowerCase().replace(/\/$/, '');
     
-    // 按工作目录过滤：只匹配工作区路径本身或其子目录，且只取父会话
+    // 按工作目录过滤：只匹配工作区路径本身或其子目录，且只取父会话，排除已归档
     const filtered = allSessions.filter(s => {
+      // 排除已归档的会话
+      if (archivedIds.has(s.header.id)) return false;
       const cwd = s.header.cwd || '';
       const sessionPath = cwd.replace(/\\/g, '/').toLowerCase().replace(/\/$/, '');
       // 会话路径必须等于工作区路径，或者是工作区路径的子目录
@@ -120,21 +142,28 @@ export async function listRelatedSessions(sessions, workspacePath, options = {})
 }
 
 /**
- * 列出所有会话
- * @param {Object} sessions - DSH sessions 服务
- * @param {Object} options - 选项
- * @param {Object} options.sessionQuery - DSH sessionQuery 服务
- * @returns {Promise<Array<Object>>} 会话列表
+ * List all sessions (not filtered by workspace).
+ * @param {Object} sessions - DSH sessions service
+ * @param {Object} [options={}] - Query options
+ * @param {Object} [options.sessionQuery] - DSH sessionQuery service
+ * @param {Object} [options.registry] - Workspace registry (for archived session IDs)
+ * @returns {Promise<SessionInfo[]>} All sessions sorted by creation time (desc)
  */
 export async function listAllSessions(sessions, options = {}) {
-  const { limit = 50, sessionQuery } = options;
-  
+  const { limit = 50, sessionQuery, registry } = options;
+
+  // 获取已归档会话 ID 集合，用于过滤
+  const archivedIds = new Set(registry?.archivedSessionIds || []);
+
   // 使用 sessionQuery 服务
   if (sessionQuery) {
     try {
       const allRecords = await sessionQuery.listSessions();
-      
-      const titlePromises = allRecords.slice(0, limit).map(async (record) => {
+
+      // 排除已归档的会话
+      const activeRecords = allRecords.filter(record => !archivedIds.has(record.header.id));
+
+      const titlePromises = activeRecords.slice(0, limit).map(async (record) => {
         let title = '(无标题)';
         try {
           const titleSnapshot = await sessionQuery.readTitle(record.header.id);
@@ -170,7 +199,9 @@ export async function listAllSessions(sessions, options = {}) {
 
   try {
     const allSessions = sessions.list();
-    const result = allSessions.slice(0, limit).map(s => ({
+    // 排除已归档的会话
+    const activeSessions = allSessions.filter(s => !archivedIds.has(s.header.id));
+    const result = activeSessions.slice(0, limit).map(s => ({
       id: s.header.id,
       title: '(活跃会话)',
       createdAt: s.header.createdAt,

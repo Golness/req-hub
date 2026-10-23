@@ -1,21 +1,33 @@
 /**
- * 任务执行器模块
- * 所有 LLM 任务统一委托给 DSH Subagent 执行
- * 
- * 设计理念：
- * 1. 所有需要 LLM 的地方都通过 subagent 委托
- * 2. Skill 作为指令层，Prompt 作为数据层
- * 3. Subagent 自动拥有 DSH 全套工具能力
+ * Task executor module.
+ * All LLM tasks are delegated to DSH Subagent for execution.
+ *
+ * Design principles:
+ * 1. All LLM-requiring tasks go through subagent delegation
+ * 2. Skills serve as instruction layer, Prompts as data layer
+ * 3. Subagents automatically have full DSH tool capabilities
+ * @module task-executor
  */
 
 import { parseAIResponse } from './ai-engine.js';
 import { getPromptAsync, buildFullPrompt, PROMPT_REGISTRY } from './prompts.js';
 import { log } from './logger.js';
 import { stat } from 'node:fs/promises';
-import { charsToTokens, estimateTextTokens, formatTokens, CHARS_PER_TOKEN } from './token-utils.js';
+import { charsToTokens, estimateTextTokens, formatTokens, CHARS_PER_TOKEN, MAX_SYNC_INPUT_TOKENS, estimateSubagentInputTokens } from './token-utils.js';
 
 /**
- * 任务执行器错误码
+ * Sleep for a specified duration.
+ * @param {number} ms - Milliseconds to sleep
+ * @returns {Promise<void>}
+ */
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Task executor error codes.
+ * Organized by category: preconditions, skill/prompt, provider, execution, resources.
+ * @type {Object<string, string>}
  */
 export const TaskExecutorErrorCode = {
   // 一、前置条件
@@ -30,34 +42,44 @@ export const TaskExecutorErrorCode = {
   EMPTY_USER_PROMPT: 'EMPTY_USER_PROMPT',
   INVALID_CWD: 'INVALID_CWD',
   INVALID_AGENT_OPTIONS: 'INVALID_AGENT_OPTIONS',
-  
+
   // 二、Skill/Prompt
   SKILL_NOT_FOUND: 'SKILL_NOT_FOUND',
   SKILL_CONTENT_EMPTY: 'SKILL_CONTENT_EMPTY',
   SKILL_TOO_LARGE: 'SKILL_TOO_LARGE',
   TEMPLATE_VARIABLE_MISSING: 'TEMPLATE_VARIABLE_MISSING',
   TEMPLATE_RENDER_FAILED: 'TEMPLATE_RENDER_FAILED',
-  
+
   // 三、Provider
   PROVIDER_NOT_FOUND: 'PROVIDER_NOT_FOUND',
   PROVIDER_CAPABILITY_MISSING: 'PROVIDER_CAPABILITY_MISSING',
   MAX_DEPTH_REACHED: 'MAX_DEPTH_REACHED',
   SUBAGENT_POOL_FULL: 'SUBAGENT_POOL_FULL',
   START_TIMEOUT: 'START_TIMEOUT',
-  
+
   // 四、执行
   EXECUTION_ERROR: 'EXECUTION_ERROR',
   EXECUTION_TIMEOUT: 'EXECUTION_TIMEOUT',
+  EXECUTION_STALE: 'EXECUTION_STALE',
   EXECUTION_INTERRUPTED: 'EXECUTION_INTERRUPTED',
   MAX_TOKENS_REACHED: 'MAX_TOKENS_REACHED',
   REFUSAL: 'REFUSAL',
-  
+
   // 五、资源
   DISPOSE_FAILED: 'DISPOSE_FAILED',
 };
 
 /**
- * 任务执行器配置
+ * Task executor configuration constants.
+ * @type {Object}
+ * @property {string} defaultProvider - Default subagent provider
+ * @property {Object} defaultAgentOptions - Default agent options
+ * @property {number} defaultTimeout - Default timeout in ms (20 min)
+ * @property {number} minTimeout - Minimum timeout in ms (30s)
+ * @property {number} maxTimeout - Maximum timeout in ms (20 min)
+ * @property {number} maxSkillTokens - Max skill content tokens (≈100k chars)
+ * @property {number} maxPromptTokens - Max prompt tokens (≈200k chars)
+ * @property {Object} liveness - Liveness detection config
  */
 export const TaskExecutorConfig = {
   // 默认 provider
@@ -69,21 +91,37 @@ export const TaskExecutorConfig = {
     maxTokens: 8000,
   },
   // 默认超时（毫秒）
-  defaultTimeout: 300000, // 5 分钟
+  defaultTimeout: 1200000, // 20 分钟
   // 最小超时
   minTimeout: 30000,
   // 最大超时
-  maxTimeout: 600000, // 10 分钟
+  maxTimeout: 1200000, // 20 分钟
   // Skill 最大 token 数
   maxSkillTokens: 25000, // 约 100k 字符
   // Prompt 最大 token 数
   maxPromptTokens: 50000, // 约 200k 字符
+  // Liveness 检测配置
+  liveness: {
+    enabled: true,
+    pollIntervalMs: 15000,
+    stalenessThresholdMs: 60000,
+    warnAfterStaleCount: 2,
+    interruptAfterStaleCount: 4,
+    autoInterrupt: true,
+    gracePeriodMs: 30000,
+  },
 };
 
 /**
- * 任务执行器错误
+ * Task executor error class.
+ * Extends Error with code and optional details for structured error handling.
  */
 export class TaskExecutorError extends Error {
+  /**
+   * @param {string} message - Error message
+   * @param {string} code - Error code from TaskExecutorErrorCode
+   * @param {Object|null} [details=null] - Additional error details
+   */
   constructor(message, code, details = null) {
     super(message);
     this.name = 'TaskExecutorError';
@@ -93,9 +131,24 @@ export class TaskExecutorError extends Error {
 }
 
 /**
- * 任务执行结果
+ * Task execution result.
+ * Contains output, metadata, and status information.
  */
 export class TaskResult {
+  /**
+   * @param {Object} options - Result options
+   * @param {boolean} [options.success=true] - Whether task succeeded
+   * @param {string} [options.output=''] - Task output text
+   * @param {Object|null} [options.structured=null] - Structured output data
+   * @param {Array} [options.deliverables=[]] - List of deliverable files
+   * @param {string|null} [options.sessionId=null] - Subagent session ID
+   * @param {string} [options.stopReason='completed'] - Stop reason
+   * @param {string|null} [options.diagnostic=null] - Diagnostic info
+   * @param {string|null} [options.skillUsed=null] - Skill name used
+   * @param {number} [options.elapsed=0] - Elapsed time in ms
+   * @param {string|null} [options.errorCode=null] - Error code if failed
+   * @param {Array} [options.warnings=[]] - Warnings generated during execution
+   */
   constructor(options) {
     this.success = options.success ?? true;
     this.output = options.output || '';
@@ -110,22 +163,31 @@ export class TaskResult {
     this.warnings = options.warnings || [];
   }
 
+  /**
+   * Whether the task resulted in an error.
+   * @type {boolean}
+   */
   get isError() {
     return !this.success || this.stopReason !== 'completed';
   }
 
+  /**
+   * Get simple string representation of output.
+   * @returns {string} Output text
+   */
   toSimpleString() {
     return this.output;
   }
-  
+
   /**
-   * 获取用户友好的错误提示
+   * Get user-friendly error message.
+   * @returns {string} Human-readable message
    */
   getUserMessage() {
     if (!this.isError) {
       return '任务执行成功';
     }
-    
+
     switch (this.stopReason) {
       case 'aborted':
         return '任务被中断';
@@ -142,18 +204,24 @@ export class TaskResult {
 }
 
 /**
- * 任务执行器
+ * @typedef {Object} TaskExecutorOptions
+ * @property {Object} ctx - DSH Context (includes subagents service)
+ * @property {Object} llm - LLM service (for provider info, not called directly)
+ * @property {Object} config - Plugin configuration
+ * @property {Object} parentAgent - Parent agent for subagent delegation (required)
+ * @property {string} cwd - Working directory
+ * @property {AbortSignal} [signal] - Cancellation signal
+ * @property {Object} [callbacks] - Progress/error callbacks
+ */
+
+/**
+ * Task executor class.
+ * Manages the full lifecycle of LLM task execution via DSH subagents.
  */
 export class TaskExecutor {
   /**
-   * @param {Object} options
-   * @param {Object} options.ctx - DSH Context（包含 subagents 等服务）
-   * @param {Object} options.llm - LLM 服务（用于获取 provider 信息，不直接调用）
-   * @param {Object} options.config - 插件配置
-   * @param {Object} options.parentAgent - 父 Agent（用于 subagent 委托，必需）
-   * @param {string} options.cwd - 工作目录
-   * @param {AbortSignal} options.signal - 取消信号
-   * @param {Object} options.callbacks - 回调函数
+   * Create a new TaskExecutor instance.
+   * @param {TaskExecutorOptions} options - Executor options
    */
   constructor(options) {
     this.ctx = options.ctx;
@@ -168,7 +236,10 @@ export class TaskExecutor {
   }
 
   /**
-   * 添加警告
+   * Add a warning to the executor's warning list.
+   * @param {string} code - Warning code
+   * @param {string} message - Warning message
+   * @returns {void}
    */
   addWarning(code, message) {
     this.warnings.push({ code, message, timestamp: Date.now() });
@@ -176,7 +247,14 @@ export class TaskExecutor {
   }
 
   /**
-   * 执行任务（统一通过 Subagent）
+   * Execute a task via Subagent delegation.
+   * @param {Object} options - Execution options
+   * @param {string} options.promptKey - Prompt registry key
+   * @param {Object} [options.variables={}] - Template variables
+   * @param {string} [options.description] - Human-readable task description
+   * @param {Object} [options.agentOptions] - Subagent options override
+   * @param {number} [options.timeout] - Timeout in ms
+   * @returns {Promise<TaskResult>} Task execution result
    */
   async execute(options) {
     const { promptKey, variables = {}, description, agentOptions, timeout } = options;
@@ -202,7 +280,7 @@ export class TaskExecutor {
         elapsed: Date.now() - startTime,
         warnings: this.warnings,
       });
-      
+
       this.callbacks.onError?.({ error: firstError, result });
       return result;
     }
@@ -218,7 +296,10 @@ export class TaskExecutor {
   }
 
   /**
-   * 一、验证前置条件
+   * Phase 1: Validate all preconditions.
+   * Checks context, agent, parameters, and configuration.
+   * @param {Object} options - Execution options
+   * @returns {Promise<Array<{code: string, message: string}>>} Array of validation errors
    */
   async validatePreconditions(options) {
     const errors = [];
@@ -264,7 +345,7 @@ export class TaskExecutor {
       });
       return errors;
     }
-    
+
     // 注意：idle 状态也是可以执行任务的，只有 stopped 才是真正的错误
     // 因为父 agent 可能处于 idle 状态等待新的任务
 
@@ -339,7 +420,9 @@ export class TaskExecutor {
   }
 
   /**
-   * 二、Skill/Prompt 加载
+   * Phase 2: Load Skill/Prompt content.
+   * @param {Object} options - Load options
+   * @returns {Promise<{fullPrompt: string, skillUsed: string|null, skillContent: string|null, promptTemplate: string|null}>}
    */
   async loadPrompt(options) {
     const { promptKey, variables = {} } = options;
@@ -382,8 +465,8 @@ export class TaskExecutor {
         }
       }
 
-      this.callbacks.onProgress?.({ 
-        stage: 'skill_loaded', 
+      this.callbacks.onProgress?.({
+        stage: 'skill_loaded',
         skillUsed,
         hasSkill: !!skillUsed,
       });
@@ -396,7 +479,7 @@ export class TaskExecutor {
 
     // 构建完整 prompt
     let fullPrompt = '';
-    
+
     if (result.promptTemplate) {
       try {
         // 检查模板变量
@@ -406,12 +489,12 @@ export class TaskExecutor {
           log.taskExecutor.warn(`模板变量缺失: ${variableErrors.join(', ')}`);
         }
 
-        fullPrompt = buildFullPrompt({ 
-          systemPrompt: result.skillContent || '', 
-          promptTemplate: result.promptTemplate, 
-          variables 
+        fullPrompt = buildFullPrompt({
+          systemPrompt: PROMPT_REGISTRY[promptKey]?.contractVersion === 2 ? '' : result.skillContent || '',
+          promptTemplate: result.promptTemplate,
+          variables
         });
-        
+
         log.taskExecutor.debug(`构建 prompt 完成`, {
           promptKey,
           fullPromptLength: fullPrompt.length,
@@ -451,36 +534,41 @@ export class TaskExecutor {
   }
 
   /**
-   * 验证模板变量
-   * 检查模板中使用的变量是否都已提供
+   * Validate template variables.
+   * Checks that all variables used in template are provided.
+   * @param {string} template - Prompt template with {variable} placeholders
+   * @param {Object} variables - Variable values
+   * @returns {string[]} Array of missing variable names
    */
   validateTemplateVariables(template, variables) {
     const missing = [];
     const variablePattern = /\{(\w+)\}/g;
     let match;
-    
+
     while ((match = variablePattern.exec(template)) !== null) {
       const varName = match[1];
       if (!(varName in variables)) {
         missing.push(varName);
       }
     }
-    
+
     return missing;
   }
 
   /**
-   * 验证必需变量
-   * 根据 PROMPT_REGISTRY 中定义的必需变量检查
+   * Validate required variables per PROMPT_REGISTRY definition.
+   * @param {string} promptKey - Prompt registry key
+   * @param {Object} variables - Provided variables
+   * @returns {Array<{code: string, message: string}>} Array of validation errors
    */
   validateRequiredVariables(promptKey, variables) {
     const errors = [];
     const promptMeta = PROMPT_REGISTRY[promptKey];
-    
+
     if (!promptMeta || !promptMeta.variables) {
       return errors;
     }
-    
+
     // 检查必需变量
     for (const varDef of promptMeta.variables) {
       if (varDef.required) {
@@ -493,16 +581,24 @@ export class TaskExecutor {
         }
       }
     }
-    
+
     return errors;
   }
 
   /**
-   * 三、Subagent 启动
+   * Phase 3: Start subagent.
+   * @param {Object} options - Start options
+   * @param {Object} promptData - Loaded prompt data
+   * @returns {Promise<{run: Object, provider: string}>} Started run and provider info
+   * @throws {TaskExecutorError} If provider not found or start fails
    */
   async startSubagent(options, promptData) {
     const { promptKey, description, agentOptions, timeout } = options;
     const { fullPrompt, skillUsed } = promptData;
+    const inputLimit = options.maxInputTokens ?? (options.promptKey?.startsWith('phased-') ? MAX_SYNC_INPUT_TOKENS : null);
+    if (inputLimit && estimateSubagentInputTokens(fullPrompt) >= inputLimit) {
+      throw new TaskExecutorError(`同步输入超过预算（须小于 ${inputLimit} tokens），请减少固定 prompt 或拆分输入`, 'PROMPT_TOO_LARGE');
+    }
 
     // 获取 provider
     const provider = this.config?.ai?.delegation?.provider || TaskExecutorConfig.defaultProvider;
@@ -520,7 +616,7 @@ export class TaskExecutor {
 
     // 3.1 Provider 能力检查
     const capabilities = providerInstance.capabilities || {};
-    
+
     if (agentOptions && !capabilities.agentOptions) {
       throw new TaskExecutorError(
         `Provider "${provider}" 不支持 agentOptions`,
@@ -534,7 +630,7 @@ export class TaskExecutor {
     }
 
     if (options.toolFilter && !capabilities.toolFilter) {
-      this.addWarning('TOOL_FILTER_UNSUPPORTED', `Provider "${provider}" 不支持 toolFilter，将被忽略`);
+      throw new TaskExecutorError(`Provider ${provider} 不支持工具隔离`, 'CAPABILITY_UNSUPPORTED');
     }
 
     // 3.2 检查深度限制
@@ -548,8 +644,8 @@ export class TaskExecutor {
     }
 
     // 回调：Subagent 启动中
-    this.callbacks.onProgress?.({ 
-      stage: 'subagent_starting', 
+    this.callbacks.onProgress?.({
+      stage: 'subagent_starting',
       provider,
     });
 
@@ -575,13 +671,16 @@ export class TaskExecutor {
       prompt: [{ type: 'text', text: fullPrompt }],
       parent: this.parentAgent,
       signal: this.signal,
+      ...(options.toolFilter ? { toolFilter: options.toolFilter } : {}),
       ...Object.values(mergedAgentOptions).some(v => v !== undefined) ? { agentOptions: mergedAgentOptions } : {},
     });
 
     // 设置启动超时
+    // ⚠️ 修复 Issue #3: 添加定时器清理，避免 unhandled promise rejection
     const startTimeoutMs = 30000; // 30 秒启动超时
+    let startTimeoutId;
     const startTimeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new TaskExecutorError(
+      startTimeoutId = setTimeout(() => reject(new TaskExecutorError(
         `Subagent 启动超时 (${startTimeoutMs}ms)`,
         TaskExecutorErrorCode.START_TIMEOUT
       )), startTimeoutMs);
@@ -603,19 +702,26 @@ export class TaskExecutor {
         );
       }
       throw e;
+    } finally {
+      // ⚠️ 修复 Issue #3: 清理定时器
+      clearTimeout(startTimeoutId);
     }
   }
 
   /**
-   * 四、Subagent 执行
+   * Phase 4: Execute subagent and wait for result.
+   * Includes timeout and liveness monitoring.
+   * @param {Object} run - Subagent run instance
+   * @param {Object} options - Execution options
+   * @returns {Promise<{result: Object, sessionId: string}>} Execution result
    */
   async executeSubagent(run, options) {
     const { timeout } = options;
     const sessionId = run.id;
 
     // 回调：Subagent 执行中
-    this.callbacks.onProgress?.({ 
-      stage: 'executing', 
+    this.callbacks.onProgress?.({
+      stage: 'executing',
       sessionId,
     });
 
@@ -626,37 +732,278 @@ export class TaskExecutor {
       Math.max(timeout || TaskExecutorConfig.defaultTimeout, TaskExecutorConfig.minTimeout),
       TaskExecutorConfig.maxTimeout
     );
-    
+
+    // ⚠️ 修复 Issue #3: 添加定时器清理，避免 unhandled promise rejection
+    // 如果 run.result 先完成，setTimeout 仍然在后台运行
+    // 当超时触发时，reject() 被调用但没有 Promise 在等待它
+    let timeoutId;
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new TaskExecutorError(
+      timeoutId = setTimeout(() => reject(new TaskExecutorError(
         `执行超时 (${timeoutMs}ms)`,
         TaskExecutorErrorCode.EXECUTION_TIMEOUT
       )), timeoutMs);
     });
 
-    // 等待结果（带超时）
-    const result = await Promise.race([
-      run.result,
-      timeoutPromise,
-    ]);
+    // Liveness 检测
+    const livenessConfig = options.liveness
+      ?? this.config?.ai?.delegation?.liveness
+      ?? TaskExecutorConfig.liveness;
 
-    // 记录原始结果 - 使用 info 级别确保能看到
-    log.taskExecutor.info(`Subagent 原始结果`, {
-      stopReason: result.stopReason,
-      hasOutput: !!result.output,
-      outputType: result.output ? (Array.isArray(result.output) ? 'array' : typeof result.output) : 'null',
-      outputLength: result.output ? (Array.isArray(result.output) ? result.output.length : result.output.length) : 0,
-      hasDiagnostic: !!result.diagnostic,
-      diagnostic: result.diagnostic ? result.diagnostic.substring(0, 500) : null,
-      hasError: !!result.error,
-      errorMessage: result.error?.message,
-    });
+    let livenessMonitor = null;
+    let livenessReject = null;
+    const livenessPromise = livenessConfig?.enabled
+      ? new Promise((_, reject) => { livenessReject = reject; })
+      : options.syncV2 ? new Promise(() => {}) : Promise.resolve();
 
-    return { result, sessionId };
+    if (livenessConfig?.enabled) {
+      livenessMonitor = await this.monitorLiveness(sessionId, livenessConfig, Date.now());
+
+      // 轮询 monitor 的 staleError，一旦设置就 reject
+      (async () => {
+        while (livenessMonitor && !livenessMonitor.staleError) {
+          await sleep(1000);
+        }
+        if (livenessMonitor?.staleError && livenessReject) {
+          livenessReject(livenessMonitor.staleError);
+        }
+      })();
+    }
+
+    try {
+      // 等待结果（超时 + 无响应检测）
+      const result = await Promise.race([
+        run.result,
+        timeoutPromise,
+        livenessPromise,
+      ]);
+
+      // 记录原始结果 - 使用 info 级别确保能看到
+      log.taskExecutor.info(`Subagent 原始结果`, {
+        stopReason: result.stopReason,
+        hasOutput: !!result.output,
+        outputType: result.output ? (Array.isArray(result.output) ? 'array' : typeof result.output) : 'null',
+        outputLength: result.output ? (Array.isArray(result.output) ? result.output.length : result.output.length) : 0,
+        hasDiagnostic: !!result.diagnostic,
+        diagnostic: result.diagnostic ? result.diagnostic.substring(0, 500) : null,
+        hasError: !!result.error,
+        errorMessage: result.error?.message,
+      });
+
+      return { result, sessionId };
+    } finally {
+      // ⚠️ 修复 Issue #3: 清理定时器，避免 unhandled promise rejection
+      clearTimeout(timeoutId);
+      if (livenessMonitor) {
+        livenessMonitor.stop();
+        if (options.syncV2) livenessMonitor = null;
+      }
+    }
   }
 
   /**
-   * 通过 Subagent 执行
+   * Monitor subagent liveness via event polling.
+   * Detects stalled subagents and optionally interrupts them.
+   * @param {string} sessionId - Subagent session ID
+   * @param {Object} config - Liveness configuration
+   * @param {number} startTime - Task start timestamp
+   * @returns {Promise<{stop: Function, staleError: Error|null}>} Monitor controller
+   */
+  async monitorLiveness(sessionId, config, startTime) {
+    const {
+      pollIntervalMs = 15000,
+      warnAfterStaleCount = 2,
+      interruptAfterStaleCount = 4,
+      autoInterrupt = true,
+      gracePeriodMs = 30000,
+    } = config;
+
+    let staleCount = 0;
+    let lastActivityTime = startTime;
+    let lastActivityDesc = '启动中';
+    let warned = false;
+    let stopped = false;
+    let staleError = null;
+
+    const controller = {
+      stop: () => { stopped = true; },
+      get staleError() { return staleError; },
+      get lastActivityTime() { return lastActivityTime; },
+      get lastActivityDesc() { return lastActivityDesc; },
+    };
+
+    // 判断一个事件是否代表"活跃"
+    const isActiveEvent = (event) => {
+      const type = event.type || '';
+      // turn 生命周期：start 表示开始工作，end 表示结束
+      // 只要有 turn/start 且没有对应的 turn/end，说明正在工作中
+      if (type === 'turn/start' || type === 'turn/end') return true;
+      // 消息事件：用户输入或助手回复都算活跃
+      if (type === 'user/message' || type === 'assistant/message') return true;
+      // 工具调用：说明 subagent 正在执行操作
+      if (type.startsWith('tool_') || type.includes('tool')) return true;
+      // 交付物：说明有产出
+      if (type.includes('deliverable')) return true;
+      return false;
+    };
+
+    // 从事件生成人类可读的活动描述
+    const describeEvent = (event) => {
+      const type = event.type || '';
+      if (type === 'turn/start') return 'AI 思考中';
+      if (type === 'turn/end') return '轮次完成';
+      if (type === 'user/message') return '收到用户输入';
+      if (type === 'assistant/message') return 'AI 回复中';
+      if (type.includes('tool')) return '调用工具中';
+      if (type.includes('deliverable')) return '生成交付物';
+      return type;
+    };
+
+    // 后台轮询循环
+    (async () => {
+      // 等待 grace period
+      await sleep(gracePeriodMs);
+
+      while (!stopped) {
+        await sleep(pollIntervalMs);
+        if (stopped) break;
+
+        try {
+          if (!this.ctx?.sessionQuery) {
+            log.taskExecutor.debug('sessionQuery 不可用，跳过活跃度检测');
+            continue;
+          }
+
+          const observation = await this.ctx.sessionQuery.observeSession(sessionId);
+          if (!observation?.events || observation.events.length === 0) {
+            continue;
+          }
+
+          const events = observation.events;
+
+          // 检查是否有未完成的 turn（turn/start 没有对应的 turn/end）
+          let hasActiveTurn = false;
+          let latestActiveEvent = null;
+          let latestActiveTime = 0;
+
+          for (let i = events.length - 1; i >= 0; i--) {
+            const e = events[i];
+            if (!isActiveEvent(e)) continue;
+
+            if (e.type === 'turn/start') {
+              // 检查后面是否有 turn/end
+              let hasEnd = false;
+              for (let j = i + 1; j < events.length; j++) {
+                if (events[j].type === 'turn/end') { hasEnd = true; break; }
+              }
+              if (!hasEnd) {
+                hasActiveTurn = true;
+                const t = e.time ? new Date(e.time).getTime() : 0;
+                if (t > latestActiveTime) {
+                  latestActiveTime = t;
+                  latestActiveEvent = e;
+                }
+              }
+            } else if (e.type !== 'turn/end') {
+              const t = e.time ? new Date(e.time).getTime() : 0;
+              if (t > latestActiveTime) {
+                latestActiveTime = t;
+                latestActiveEvent = e;
+              }
+            }
+          }
+
+          // 有未完成的 turn → 一定活跃，不算 stale
+          if (hasActiveTurn) {
+            lastActivityTime = latestActiveTime || Date.now();
+            lastActivityDesc = latestActiveEvent ? describeEvent(latestActiveEvent) : 'AI 工作中';
+            staleCount = 0;
+
+            this.callbacks.onProgress?.({
+              stage: 'liveness_active',
+              sessionId,
+              lastActivity: new Date(lastActivityTime).toISOString(),
+              lastActivityDesc,
+            });
+            continue;
+          }
+
+          // 没有活跃 turn，检查最新活跃事件的时间
+          if (latestActiveTime > lastActivityTime) {
+            lastActivityTime = latestActiveTime;
+            lastActivityDesc = latestActiveEvent ? describeEvent(latestActiveEvent) : '活跃';
+            staleCount = 0;
+
+            this.callbacks.onProgress?.({
+              stage: 'liveness_active',
+              sessionId,
+              lastActivity: new Date(lastActivityTime).toISOString(),
+              lastActivityDesc,
+            });
+            continue;
+          }
+
+          // 无新活动
+          staleCount++;
+          const stalenessDuration = Date.now() - lastActivityTime;
+
+          log.taskExecutor.debug('Subagent 无新活动', {
+            sessionId,
+            staleCount,
+            stalenessDuration: `${Math.round(stalenessDuration / 1000)}s`,
+            lastActivityDesc,
+          });
+
+          this.callbacks.onProgress?.({
+            stage: 'liveness_stale',
+            sessionId,
+            staleCount,
+            stalenessDuration,
+            lastActivity: new Date(lastActivityTime).toISOString(),
+            lastActivityDesc,
+          });
+
+          // 达到警告阈值
+          if (staleCount >= warnAfterStaleCount && !warned) {
+            warned = true;
+            const msg = `Subagent 可能已卡住: ${Math.round(stalenessDuration / 1000)}s 无活动（最后活动: ${lastActivityDesc}）`;
+            this.addWarning('SUBAGENT_STALE', msg);
+            log.taskExecutor.warn(msg, { sessionId, staleCount });
+          }
+
+          // 达到中断阈值
+          if (staleCount >= interruptAfterStaleCount && autoInterrupt) {
+            const msg = `Subagent 检测到无响应: ${Math.round(stalenessDuration / 1000)}s 无活动，自动中断`;
+            log.taskExecutor.error(msg, { sessionId, staleCount });
+
+            // ⚠️ 注意：ctx.subagents.interrupt() 对 one-shot subagent 是静默空操作
+            // 因为 interrupt() 只作用于 continuable 类型的 subagent（ContinuableActivationRegistry.resident）
+            // One-shot subagent 通过 SpawnInProcessProvider.start() 直接启动，不注册到 resident Map
+            // 因此取消 one-shot subagent 的唯一有效机制是 AbortSignal
+            // 这里不调用 interrupt()，而是依赖 signal.abort() 传播取消
+            // 如果未来切换到 continuable subagent，可以恢复 interrupt() 调用
+
+            staleError = new TaskExecutorError(
+              msg,
+              TaskExecutorErrorCode.EXECUTION_STALE,
+              { sessionId, staleCount, stalenessDuration }
+            );
+            break;
+          }
+        } catch (e) {
+          if (e.code === TaskExecutorErrorCode.EXECUTION_STALE) throw e;
+          log.taskExecutor.warn(`活跃度检测失败: ${e.message}`);
+        }
+      }
+    })();
+
+    return controller;
+  }
+
+  /**
+   * Execute task via subagent (full pipeline: load prompt → start → execute → collect).
+   * @param {Object} options - Execution options
+   * @param {number} startTime - Task start timestamp
+   * @returns {Promise<TaskResult>} Task result
    */
   async executeViaSubagent(options, startTime) {
     const { promptKey, description } = options;
@@ -664,7 +1011,7 @@ export class TaskExecutor {
 
     try {
       // ====== 二、Skill/Prompt 加载 ======
-      const promptData = await this.loadPrompt(options);
+      const promptData = options.preparedPromptData || await this.loadPrompt(options);
 
       // ====== 三、Subagent 启动 ======
       const startResult = await this.startSubagent(options, promptData);
@@ -677,7 +1024,7 @@ export class TaskExecutor {
 
       // 提取输出
       const output = this.extractOutput(result.output);
-      
+
       // 记录详细结果
       log.taskExecutor.debug(`Subagent 执行结果`, {
         stopReason: result.stopReason,
@@ -690,8 +1037,8 @@ export class TaskExecutor {
       });
 
       // 回调：交付物收集中
-      this.callbacks.onProgress?.({ 
-        stage: 'collecting_deliverables', 
+      this.callbacks.onProgress?.({
+        stage: 'collecting_deliverables',
       });
 
       // ====== 六、交付物收集 ======
@@ -732,12 +1079,12 @@ export class TaskExecutor {
       return taskResult;
     } catch (e) {
       const elapsed = Date.now() - startTime;
-      
-      const errorCode = e instanceof TaskExecutorError 
-        ? e.code 
+
+      const errorCode = e instanceof TaskExecutorError
+        ? e.code
         : TaskExecutorErrorCode.EXECUTION_ERROR;
 
-      log.taskExecutor.error(`Subagent 执行失败: ${e.message}`, { 
+      log.taskExecutor.error(`Subagent 执行失败: ${e.message}`, {
         code: errorCode,
         stack: e.stack,
         elapsed,
@@ -767,7 +1114,9 @@ export class TaskExecutor {
   }
 
   /**
-   * 五、资源释放
+   * Phase 5: Dispose subagent resources.
+   * @param {Object|null} run - Subagent run instance
+   * @returns {Promise<void>}
    */
   async disposeRun(run) {
     if (!run) return;
@@ -782,7 +1131,9 @@ export class TaskExecutor {
   }
 
   /**
-   * 从 stopReason 获取错误码
+   * Map stopReason to error code.
+   * @param {string} stopReason - Subagent stop reason
+   * @returns {string|null} Error code or null for success
    */
   getErrorCodeFromStopReason(stopReason) {
     switch (stopReason) {
@@ -801,7 +1152,9 @@ export class TaskExecutor {
   }
 
   /**
-   * 提取输出文本
+   * Extract text output from subagent output blocks.
+   * @param {Array<Object>} outputBlocks - Raw output blocks from subagent
+   * @returns {string} Concatenated text output
    */
   extractOutput(outputBlocks) {
     if (!Array.isArray(outputBlocks) || outputBlocks.length === 0) {
@@ -827,7 +1180,12 @@ export class TaskExecutor {
   }
 
   /**
-   * 构建 Subagent Prompt
+   * Build subagent prompt with optional skill content.
+   * @param {string} userPrompt - User prompt text
+   * @param {Object} options - Build options
+   * @param {string} options.skillContent - Skill instruction content
+   * @param {string} options.skillName - Skill name
+   * @returns {string} Complete prompt
    */
   buildSubagentPrompt(userPrompt, options) {
     const { skillContent, skillName } = options;
@@ -858,7 +1216,9 @@ ${userPrompt}
   }
 
   /**
-   * 六、交付物收集
+   * Phase 6: Collect deliverables from subagent session.
+   * @param {string} sessionId - Subagent session ID
+   * @returns {Promise<Array>} Array of deliverable file objects
    */
   async collectDeliverables(sessionId) {
     const deliverables = [];
@@ -874,7 +1234,7 @@ ${userPrompt}
         log.taskExecutor.warn(`无法观察 session: ${sessionId}`);
         return deliverables;
       }
-      
+
       if (observation?.events) {
         for (const event of observation.events) {
           if (event.type === 'deliverables/presented') {
@@ -892,7 +1252,11 @@ ${userPrompt}
   }
 
   /**
-   * 九、监控诊断 - 记录指标
+   * Phase 9: Record execution metrics for diagnostics.
+   * @param {TaskResult} result - Task result
+   * @param {string|null} provider - Provider used
+   * @param {string} promptKey - Prompt key used
+   * @returns {void}
    */
   recordMetrics(result, provider, promptKey) {
     // 性能指标
@@ -918,14 +1282,21 @@ ${userPrompt}
 }
 
 /**
- * 创建任务执行器（工厂函数）
+ * Create a TaskExecutor instance (factory function).
+ * @param {TaskExecutorOptions} options - Executor options
+ * @returns {TaskExecutor} New task executor instance
  */
 export function createTaskExecutor(options) {
   return new TaskExecutor(options);
 }
 
 /**
- * 便捷方法：执行任务
+ * Convenience method: execute a task.
+ * @param {Object} ctx - DSH context
+ * @param {Object} llm - LLM service
+ * @param {Object} config - Configuration
+ * @param {Object} options - Task options (promptKey, variables, parentAgent, cwd, etc.)
+ * @returns {Promise<TaskResult>} Task result
  */
 export async function executeTask(ctx, llm, config, options) {
   const executor = new TaskExecutor({
@@ -943,7 +1314,12 @@ export async function executeTask(ctx, llm, config, options) {
 }
 
 /**
- * 便捷方法：执行并解析 JSON 结果
+ * Convenience method: execute task and parse JSON result.
+ * @param {Object} ctx - DSH context
+ * @param {Object} llm - LLM service
+ * @param {Object} config - Configuration
+ * @param {Object} options - Task options
+ * @returns {Promise<{success: boolean, data?: Object, error?: string, result: TaskResult}>}
  */
 export async function executeAndParse(ctx, llm, config, options) {
   const result = await executeTask(ctx, llm, config, options);
@@ -968,3 +1344,9 @@ export async function executeAndParse(ctx, llm, config, options) {
 
 
 
+
+/** Render the exact initial subagent payload without starting a task. */
+export async function prepareTaskPrompt(ctx, llm, config, options) {
+  const executor = new TaskExecutor({ ctx, llm, config, cwd: options.cwd, parentAgent: options.parentAgent });
+  return executor.loadPrompt(options);
+}

@@ -1,6 +1,8 @@
 /**
- * AI 分析相关路由
- * 所有 LLM 调用统一委托给 DSH Subagent
+ * AI analysis routes module.
+ * Handles requirement analysis HTTP endpoints.
+ * All LLM calls are delegated to DSH Subagent.
+ * @module routes/analyze-routes
  */
 
 import { resolve, join } from 'node:path';
@@ -14,9 +16,20 @@ import { log } from '../logger.js';
 import { getScopedSkills } from '../prompts.js';
 import { analyzeRequirement } from '../analyze-engine.js';
 
-// In-memory analysis task state
+/** @type {Object|null} Current analysis task state */
 let currentAnalysisTask = null;
 
+/**
+ * Create AI analysis routes.
+ * @param {Object} registry - Workspace registry service
+ * @param {Object} llm - LLM service
+ * @param {Object} sessions - Sessions service
+ * @param {Object} agents - Agents service
+ * @param {Object} agentPresets - Agent presets service
+ * @param {Object} sessionQuery - Session query service
+ * @param {Object} ctx - DSH context
+ * @returns {Array<Object>} Array of route definitions
+ */
 export function createAnalyzeRoutes(registry, llm, sessions, agents, agentPresets, sessionQuery, ctx) {
   return [
     // GET /analyze-preview - 获取分析预览文件列表

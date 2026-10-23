@@ -55,7 +55,7 @@
   background: var(--dsw-alias-bg-layer-2);
   padding: 0.2em 0.4em;
   border-radius: 3px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--rh-font-code);
   font-size: 0.9em;
 }
 
@@ -75,13 +75,13 @@
 .rh-markdown blockquote {
   margin: 1em 0;
   padding: 0.5em 1em;
-  border-left: 4px solid var(--dsw-alias-brand-primary);
+  border-left: 4px solid var(--rh-accent);
   background: var(--dsw-alias-bg-layer-2);
   color: var(--dsw-alias-label-secondary);
 }
 
 .rh-markdown a {
-  color: var(--dsw-alias-brand-primary);
+  color: var(--rh-accent);
   text-decoration: none;
 }
 
@@ -134,7 +134,7 @@
   background: var(--dsw-alias-bg-layer-2);
   padding: 1em;
   border-radius: 6px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--rh-font-code);
   font-size: 0.85em;
   white-space: pre;
   overflow-x: auto;

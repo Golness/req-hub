@@ -6,6 +6,17 @@ const { createIconComponents } = require('../icons.js');
 
 const { IconFolderOpen, IconFolder } = createIconComponents(h);
 
+/**
+ * @component
+ * Modal dialog for selecting a workspace from a list of available workspaces.
+ * Displays workspace titles in a selectable list with the currently selected workspace highlighted.
+ * @param {Object} props - Component props
+ * @param {Array<Object>} props.workspaces - List of workspace objects with id and title properties
+ * @param {string} props.selectedId - The ID of the currently selected workspace
+ * @param {Function} props.onSelect - Callback invoked with the selected workspace object when a workspace is clicked
+ * @param {Function} props.onClose - Callback invoked to close the modal
+ * @returns {JSX.Element}
+ */
 function WorkspaceModal({ workspaces, selectedId, onSelect, onClose }) {
   return h('div', { className: 'rh-modal-overlay', onClick: onClose, role: 'dialog', 'aria-modal': 'true', 'aria-label': '选择工作区' },
     h('div', { className: 'rh-modal', onClick: e => e.stopPropagation() },

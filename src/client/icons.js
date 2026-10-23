@@ -1,14 +1,25 @@
 /**
- * SVG Icon Components for ReqHub
- * 使用内联 SVG 替换 emoji，提供更好的可访问性和样式控制
+ * SVG Icon Components for ReqHub.
+ * Uses inline SVG instead of emoji for better accessibility and style control.
  *
- * 注意：这个文件导出图标路径数据，实际的 React 组件在 factory 内部创建
- * 这样可以确保 React 的 require 发生在 DSH ModuleLoader 的 factory 内部
+ * Note: This file exports icon path data. The actual React components are created
+ * inside the DSH ModuleLoader factory to ensure React's require happens within
+ * the factory context.
+ *
+ * @module req-hub/client/icons
  */
 
 'use strict';
 
-// 图标尺寸常量
+/**
+ * Predefined icon sizes in pixels.
+ * @constant {Object.<string, number>}
+ * @property {number} xs - Extra small: 12px
+ * @property {number} sm - Small: 14px
+ * @property {number} md - Medium: 16px (default)
+ * @property {number} lg - Large: 18px
+ * @property {number} xl - Extra large: 20px
+ */
 const ICON_SIZE = {
   xs: 12,
   sm: 14,
@@ -17,11 +28,18 @@ const ICON_SIZE = {
   xl: 20,
 };
 
-// 图标路径数据（SVG path d 属性）
+/**
+ * SVG path data for each icon (maps to the SVG path `d` attribute).
+ * All icons use a 24x24 viewBox.
+ * @constant {Object.<string, string>}
+ */
 const ICON_PATHS = {
-  folder: 'M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z',
+  reqHub: 'M4 3h9a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z M6 8l1.5 1.5L11 6 M6 14h5 M6 17h3 M14 12h4 M18 5v14 M18 5h2 M18 19h2 M22 5a1 1 0 1 1-2 0 1 1 0 0 1 2 0 M22 19a1 1 0 1 1-2 0 1 1 0 0 1 2 0 M20 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0',
+  folder: 'M2 8a2 2 0 012-2h6l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V8z',
+  folderOpen: 'M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z',
+  file: 'M8 2h6l6 6v12a2 2 0 01-2 2H8a2 2 0 01-2-2V4a2 2 0 012-2zm6 1v5h5',
+  chevronRight: 'M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z',
   refresh: 'M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z',
-  file: 'M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v7h6v9H6z',
   search: 'M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z',
   tools: 'M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z',
   list: 'M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z',
@@ -57,7 +75,6 @@ const ICON_PATHS = {
   warning: 'M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z',
   chevronDown: 'M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z',
   clipboard: 'M19 2h-4.18C14.4.84 13.3 0 12 0c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm7 18H5V4h2v3h10V4h2v16z',
-  folderOpen: 'M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z',
   calendar: 'M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z',
   comment: 'M21.99 4c0-1.1-.89-2-1.99-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4-.01-18z',
   merge: 'M8 14.5L5.5 17 8 19.5V21H3v-1.5h2.5L3 17l2.5-2.5V13h2.5v1.5zm8-7L18.5 5 16 2.5V1h5v1.5h-2.5L21 5l-2.5 2.5V9H16V7.5zM16 11l-4 4V7l4 4z',
@@ -66,18 +83,30 @@ const ICON_PATHS = {
   sync: 'M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z',
   checkboxOn: 'M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z',
   checkboxOff: 'M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z',
-  robot: 'M20 9V7c0-1.1-.9-2-2-2h-3c0-1.66-1.34-3-3-3S9 3.34 9 5H6c-1.1 0-2 .9-2 2v2c-1.66 0-3 1.34-3 3s1.34 3 3 3v4c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-4c1.66 0 3-1.34 3-3s-1.34-3-3-3zM7.5 11.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5S9.83 13 9 13s-1.5-.67-1.5-1.5zM16 17H8v-2h8v2zm-1-4c-.83 0-1.5-.67-1.5-1.5S14.17 10 15 10s1.5.67 1.5 1.5S15.83 13 15 13z',
 };
 
 /**
- * 创建图标组件的工厂函数（在 factory 内部调用）
- * @param {Function} createElement - React.createElement
+ * Factory function that creates React icon components from SVG path data.
+ * Must be called inside the DSH ModuleLoader factory with a valid createElement function.
+ *
+ * @param {Function} createElement - React.createElement function for creating elements.
+ * @returns {Object.<string, React.FC>} An object mapping icon names (e.g., "IconFolder") to React components.
  */
 function createIconComponents(createElement) {
   const components = {};
 
   for (const [name, path] of Object.entries(ICON_PATHS)) {
     const capitalizedName = name.charAt(0).toUpperCase() + name.slice(1);
+    /**
+     * SVG Icon component.
+     * @component
+     * @param {Object} props - Component props.
+     * @param {number} [props.size=ICON_SIZE.md] - Icon size in pixels.
+     * @param {string} [props.className=''] - Additional CSS class names.
+     * @param {React.CSSProperties} [props.style={}] - Inline styles to apply.
+     * @param {...*} [props...rest] - Additional props passed to the SVG element.
+     * @returns {React.ReactElement} An SVG icon element.
+     */
     components[`Icon${capitalizedName}`] = function Icon({ size = ICON_SIZE.md, className = '', style = {}, ...props }) {
       return createElement('svg', {
         width: size,

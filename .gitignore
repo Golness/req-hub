@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+.req-hub/
 
 # Build output
 lib/
