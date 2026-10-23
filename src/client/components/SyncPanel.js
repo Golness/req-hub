@@ -998,6 +998,12 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
   const [viewingFile, setViewingFile] = useState(null);
   const [branchInfo, setBranchInfo] = useState({ targetBranch: null, baseBranch: null });
   const [baseBranch, setBaseBranch] = useState('');
+  const baseBranchEdited = React.useRef(false);
+  const [commitState, setCommitState] = useState({ data: null, error: null, loading: false, key: null });
+  const [selectedCommits, setSelectedCommits] = useState([]);
+  const [commitSearch, setCommitSearch] = useState('');
+  const [commitRevision, setCommitRevision] = useState(0);
+  const [includeWorkingChanges, setIncludeWorkingChanges] = useState(true);
   const [runAnalysis, setRunAnalysis] = useState(false);
   const [runIndex, setRunIndex] = useState(false);
 
@@ -1025,13 +1031,44 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
   // Load branch info
   useEffect(() => {
     if (!selectedReq?.id) return;
-    fetch(`${ROUTE}/sync-branch-info?workspaceId=${encodeURIComponent(workspaceId)}&requirementId=${encodeURIComponent(selectedReq.id)}`)
-      .then(res => res.ok ? res.json() : null)
+    const controller = new AbortController();
+    baseBranchEdited.current = false;
+    setBranchInfo({ targetBranch: null, baseBranch: null }); setBaseBranch('');
+    fetch(`${ROUTE}/sync-branch-info?workspaceId=${encodeURIComponent(workspaceId)}&requirementId=${encodeURIComponent(selectedReq.id)}`, { signal: controller.signal })
+      .then(async res => { const data = await res.json(); if (!res.ok || data.error) throw new Error(data.error || '读取分支失败'); return data; })
       .then(data => {
-        if (data) setBranchInfo(data);
+        if (controller.signal.aborted) return;
+        setBranchInfo(data);
+        if (!baseBranchEdited.current) setBaseBranch(data.baseBranch || '');
       })
-      .catch(() => {});
+      .catch(error => { if (!controller.signal.aborted) setBranchInfo({ targetBranch: null, baseBranch: null, targetBranchError: error.message }); });
+    return () => controller.abort();
   }, [workspaceId, selectedReq?.id]);
+
+  const comparisonKey = JSON.stringify([workspaceId, selectedReq?.id, branchInfo.targetBranch, baseBranch.trim(), commitRevision]);
+  const commitsReady = !!commitState.data && commitState.key === comparisonKey && !commitState.loading;
+  const availableCommits = commitsReady ? commitState.data.commits : [];
+  const visibleCommits = availableCommits.filter(commit => `${commit.hash} ${commit.subject} ${commit.author}`.toLowerCase().includes(commitSearch.toLowerCase().trim()));
+  const canSync = !!branchInfo.targetBranch && !!baseBranch.trim() && commitsReady && (selectedCommits.length > 0 || selectedSessions.length > 0 || includeWorkingChanges && commitState.data.hasUncommitted);
+
+  useEffect(() => {
+    setSelectedCommits([]);
+    if (!branchInfo.targetBranch || !baseBranch.trim()) { setCommitState({ data: null, error: null, loading: false, key: comparisonKey }); return; }
+    const controller = new AbortController();
+    setCommitState({ data: null, error: null, loading: true, key: comparisonKey });
+    const timer = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ workspaceId, requirementId: selectedReq.id, baseBranch: baseBranch.trim() });
+        const res = await fetch(`${ROUTE}/sync-commits?${params}`, { signal: controller.signal });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || '加载 commit 列表失败');
+        if (controller.signal.aborted) return;
+        setCommitState({ data, error: null, loading: false, key: comparisonKey });
+        setSelectedCommits(data.commits.map(commit => commit.hash));
+      } catch (error) { if (!controller.signal.aborted) setCommitState({ data: null, error: error.message, loading: false, key: comparisonKey }); }
+    }, 250);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [comparisonKey]);
 
   // Load sessions
   useEffect(() => {
@@ -1113,6 +1150,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
   };
 
   const handlePhasedSync = async () => {
+    if (!canSync || syncing) return;
     setError(null);
     setView('progress');
     if (setSyncing) setSyncing(true);
@@ -1177,6 +1215,10 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
           requirementId: selectedReq.id,
           docType: activeTab,
           baseBranch: baseBranch.trim(),
+          commitHashes: selectedCommits,
+          branchTip: commitState.data.branchTip,
+          baseCommit: commitState.data.baseline,
+          includeWorkingChanges,
           sessionIds: selectedSessions,
           runAnalysis,
           runIndex,
@@ -1190,7 +1232,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
       if (contentType && contentType.includes('application/json')) {
         const data = await response.json();
         if (data.skipped) {
-          showToast(data.message || '当前 commit 无需同步', 'info');
+          showToast({ text: data.message || '当前 commit 无需同步', holdMs: 3000 });
           setCurrentSync(null);
           setView('select');
           if (setSyncing) setSyncing(false);
@@ -1341,6 +1383,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
     } catch (e) {
       console.error('Phased sync failed:', e);
       setError(e.message || '分阶段同步失败');
+      setView('select'); setCurrentSync(null);
       if (setSyncing) setSyncing(false);
     }
   };
@@ -1430,7 +1473,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
   }
 
   // Main view: session selector + sync button
-  return h('div', null,
+  return h('div', { className: 'rh-op-panel' },
     // Back button
     h('div', { className: 'rh-btn-stack', style: { marginBottom: 12 } },
       h('button', {
@@ -1454,19 +1497,43 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
       border: '1px solid var(--dsw-alias-border-l1)',
       fontSize: 'var(--rh-font-size)'
     }},
-      h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }},
-        h('span', { style: { fontWeight: 600, color: 'var(--dsw-alias-label-primary)', display: 'flex', alignItems: 'center', gap: 4 }}, h(IconMerge, { size: 14 }), ' 目标分支：'),
+      h('div', { className: 'rh-sync-branch-row', style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }},
+        h('span', { className: 'rh-sync-branch-label', style: { fontWeight: 600, color: 'var(--dsw-alias-label-primary)', display: 'flex', alignItems: 'center', gap: 4 }}, h(IconMerge, { size: 14 }), ' 目标分支：'),
         h('code', { style: {
           flex: 1,
           color: branchInfo.targetBranch ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-error-primary)',
           fontSize: 'var(--rh-font-size-sm)'
         }}, branchInfo.targetBranch || '未找到对应分支')
       ),
-      h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 }},
-        h('span', { style: { fontWeight: 600, color: 'var(--dsw-alias-label-primary)', display: 'flex', alignItems: 'center', gap: 4 }}, h(IconChart, { size: 14 }), ' 基准分支：'),
-        h('input', { className: 'rh-search-input', 'aria-label': '同步基准分支', placeholder: '首次同步必填，如 main 或 origin/develop', value: baseBranch, disabled: syncing, onChange: event => setBaseBranch(event.target.value) })
-      )
+      h('div', { className: 'rh-sync-branch-row', style: { display: 'flex', alignItems: 'center', gap: 8 }},
+        h('span', { className: 'rh-sync-branch-label', style: { fontWeight: 600, color: 'var(--dsw-alias-label-primary)', display: 'flex', alignItems: 'center', gap: 4 }}, h(IconChart, { size: 14 }), ' 基准分支：'),
+        h('input', { className: 'rh-search-input', 'aria-label': '同步基准分支', placeholder: '填写基准分支，如 main 或 origin/develop', value: baseBranch, disabled: syncing, onChange: event => { baseBranchEdited.current = true; setBaseBranch(event.target.value); } })
+      ),
+      !baseBranch.trim() && branchInfo.baseBranchHint && h('p', { className: 'rh-sync-hint', role: 'status' }, branchInfo.baseBranchHint),
+      branchInfo.targetBranchError && h('p', { className: 'rh-error', role: 'alert' }, branchInfo.targetBranchError)
     ),
+
+    h('section', { className: 'rh-sync-commits', 'aria-label': '选择同步提交' },
+      h('div', { className: 'rh-sync-commits-heading' },
+        h('strong', null, '选择代码提交'),
+        h('span', { className: 'rh-sync-hint' }, `已选 ${selectedCommits.length} / ${availableCommits.length}`),
+        h('button', { type: 'button', className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: !commitsReady || syncing, onClick: () => setSelectedCommits(availableCommits.map(commit => commit.hash)) }, '全选'),
+        h('button', { type: 'button', className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: !commitsReady || syncing, onClick: () => setSelectedCommits([]) }, '清空'),
+        h('button', { type: 'button', className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: !baseBranch.trim() || !branchInfo.targetBranch || syncing, onClick: () => setCommitRevision(value => value + 1) }, '刷新提交')),
+      h('p', { className: 'rh-sync-hint' }, '仅展示目标分支包含、基准分支不包含的提交，默认全选。'),
+      !branchInfo.targetBranch || !baseBranch.trim() ? h('p', { className: 'rh-sync-hint' }, '目标分支和基准分支都确定后显示 commit 列表。')
+        : commitState.loading || !commitState.key ? h('p', { role: 'status', className: 'rh-sync-hint' }, '正在加载 commit…')
+        : commitState.error ? h('p', { role: 'alert', className: 'rh-error' }, commitState.error)
+        : commitsReady && h(React.Fragment, null,
+          availableCommits.length > 0 && h('input', { className: 'rh-search-input', type: 'search', 'aria-label': '筛选提交', placeholder: '搜索提交信息、作者或 SHA…', value: commitSearch, onChange: event => setCommitSearch(event.target.value) }),
+          h('div', { className: 'rh-sync-commit-list' }, visibleCommits.map(commit => h('label', { className: `rh-sync-commit${selectedCommits.includes(commit.hash) ? ' selected' : ''}`, key: commit.hash },
+            h('input', { type: 'checkbox', checked: selectedCommits.includes(commit.hash), disabled: syncing, 'aria-label': `选择提交 ${commit.shortHash}`, onChange: event => setSelectedCommits(previous => event.target.checked ? [...previous, commit.hash] : previous.filter(hash => hash !== commit.hash)) }),
+            h('span', { className: 'rh-sync-commit-content' },
+              h('span', { className: 'rh-sync-commit-title', title: commit.subject }, h('code', null, commit.shortHash), ' ', commit.subject),
+              h('span', { className: 'rh-sync-hint' }, `${commit.author} · ${new Date(commit.date).toLocaleString()}${commit.merge ? ' · 合并提交（相对第一父提交）' : ''}`))))),
+          !availableCommits.length && h('p', { className: 'rh-sync-hint' }, '目标分支没有相对基准分支独有的提交。'),
+          availableCommits.length > 0 && !visibleCommits.length && h('p', { className: 'rh-sync-hint' }, '没有符合筛选条件的提交。'),
+          commitState.data.hasUncommitted && h('label', { className: 'rh-sync-working-option' }, h('input', { type: 'checkbox', checked: includeWorkingChanges, disabled: syncing, onChange: event => setIncludeWorkingChanges(event.target.checked) }), '包含当前工作区未提交改动'))),
 
     // Session selector
     h('div', { style: { marginBottom: 12 } },
@@ -1567,7 +1634,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
       h('button', {
         className: 'rh-btn rh-btn-primary',
         onClick: handlePhasedSync,
-        disabled: syncing,
+        disabled: syncing || !canSync,
         style: { width: '100%' },
       }, syncing ? '同步中...' : h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconBrain, { size: 14 }), ` 开始同步${docTypeName}`))
     ),

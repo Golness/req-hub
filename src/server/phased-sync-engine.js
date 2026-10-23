@@ -132,7 +132,11 @@ export class PhasedSyncEngine {
       const id = 'code.' + i, required = [id + '.diff'], context = [];
       await store.put(required[0], file.content);
       const snapshot = sourceSnapshots.find(source => source.file === file.file);
-      if (snapshot) for (const layer of ['base', 'target', 'final']) {
+      if (snapshot?.commitChanges) {
+        await store.put(id + '.selected-commits', JSON.stringify(snapshot));
+        context.push(id + '.selected-commits');
+      }
+      else if (snapshot) for (const layer of ['base', 'target', 'final']) {
         await store.put(id + '.' + layer, JSON.stringify({ file: file.file, exists: snapshot[layer] !== null, content: snapshot[layer] }));
         context.push(id + '.' + layer);
       }

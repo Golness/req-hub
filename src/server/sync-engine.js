@@ -8,6 +8,7 @@ import { hashBytes, decodeDocument } from './sync-artifacts.js';
 import { filterSyncCodeDiff, isSyncCodeFile, parseSyncCodeDiff } from './sync-code-files.js';
 import { parseBranchName } from './utils.js';
 import { loadState, getActiveSync, getSyncHistory, setActiveSync, getAbortController } from './sync-state.js';
+import { defaultSyncBaseBranch, listSyncCommits } from './sync-branches.js';
 
 const execFileAsync = promisify(execFile);
 const reservations = new Map();
@@ -61,9 +62,10 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
   const current = await git(cwd, 'branch', '--show-current');
   const branchName = await findBranchByRequirement(cwd, requirementId, current);
   const commitHash = await git(cwd, 'rev-parse', '--verify', `refs/heads/${branchName}^{commit}`);
-  const successes = history.filter(item => item.schemaVersion === 2 && item.branchName === branchName && item.docType === docType && item.status === 'completed' && item.commitHash);
+  const selectionMode = options.commitHashes !== undefined;
+  const successes = history.filter(item => item.schemaVersion === 2 && item.branchName === branchName && item.docType === docType && item.status === 'completed' && item.commitHash && !item.selectionMode);
   let baseline = null;
-  for (const item of successes) {
+  for (const item of selectionMode ? [] : successes) {
     if (await isAncestor(cwd, commitHash, item.commitHash)) {
       return { skipped: true, commitHash, branchName, message: '当前 commit 已同步，或早于历史成功同步版本' };
     }
@@ -73,7 +75,7 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
     if (!baseline || await isAncestor(cwd, baseline, item.commitHash)) baseline = item.commitHash;
   }
   if (!baseline) {
-    const ref = options.baseBranch?.trim();
+    const ref = options.baseBranch?.trim() || await defaultSyncBaseBranch(cwd);
     if (!ref || ref.startsWith('-') || /[\s\x00]/.test(ref)) throw new Error('BASE_BRANCH_REQUIRED: 请配置同步基准分支');
     const sha = await git(cwd, 'rev-parse', '--verify', ref + '^{commit}').catch(() => { throw new Error('BASE_BRANCH_NOT_FOUND: ' + ref); });
     const bases = (await git(cwd, 'merge-base', '--all', sha, commitHash).catch(() => '')).split('\n').filter(Boolean);
@@ -82,21 +84,46 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
   }
   const range = baseline ? `${baseline}..${commitHash}` : commitHash;
   const hashes = (await git(cwd, 'rev-list', '--reverse', range)).split('\n').filter(Boolean);
-  const commits = await Promise.all(hashes.map(async hash => {
+  let commits = await Promise.all(hashes.map(async hash => {
     const fields = (await git(cwd, 'show', '-s', '--format=%H%n%s%n%an%n%aI', hash)).split('\n');
     return { hash: fields[0], subject: fields[1], author: fields[2], date: fields[3] };
   }));
-  const committedDiff = filterSyncCodeDiff(await git(cwd, 'diff', '--no-renames', '--no-textconv', '--no-ext-diff', baseline, commitHash, '--'));
+  let committedDiff;
+  let selectionKey = null, comparison = null;
+  const selectedChanges = new Map();
+  if (selectionMode) {
+    if (!Array.isArray(options.commitHashes) || options.commitHashes.length > 10000 || options.commitHashes.some(hash => typeof hash !== 'string' || !/^[a-f0-9]{40,64}$/.test(hash))) throw new Error('COMMIT_SELECTION_INVALID: 提交清单无效');
+    const ref = options.baseBranch?.trim() || await defaultSyncBaseBranch(cwd);
+    comparison = await listSyncCommits(cwd, branchName, ref);
+    if (comparison.branchTip !== commitHash || options.branchTip && options.branchTip !== commitHash || options.baseCommit && options.baseCommit !== comparison.baseline) throw new Error('COMMIT_LIST_CHANGED: 分支已更新，请刷新 commit 列表后重新选择');
+    const chosen = new Set(options.commitHashes);
+    if ([...chosen].some(hash => !comparison.commits.some(commit => commit.hash === hash))) throw new Error('COMMIT_OUT_OF_RANGE: 所选 commit 不在目标分支相对基准分支的差异中');
+    commits = comparison.commits.filter(commit => chosen.has(commit.hash));
+    const diffs = [];
+    for (const commit of commits) {
+      const parent = commit.parent;
+      const diff = filterSyncCodeDiff(parent
+        ? await git(cwd, 'diff', '--no-renames', '--no-textconv', '--no-ext-diff', parent, commit.hash, '--')
+        : await git(cwd, 'show', '--format=', '--root', '--no-renames', '--no-textconv', '--no-ext-diff', commit.hash, '--'));
+      if (diff) diffs.push(diff);
+      for (const { file } of parseSyncCodeDiff(diff)) {
+        if (!selectedChanges.has(file)) selectedChanges.set(file, []);
+        selectedChanges.get(file).push({ commitHash: commit.hash, parent });
+      }
+    }
+    committedDiff = diffs.join('\n\n');
+  } else committedDiff = filterSyncCodeDiff(await git(cwd, 'diff', '--no-renames', '--no-textconv', '--no-ext-diff', baseline, commitHash, '--'));
   const indexBefore = await git(cwd, 'ls-files', '--stage', '-z');
   const uncommittedChanges = await readWorkingChanges(cwd);
-  if (uncommittedChanges.hasChanges && current !== branchName) {
+  if (options.includeWorkingChanges !== false && uncommittedChanges.hasChanges && current !== branchName) {
     throw new Error('当前工作分支存在未提交改动，请切换到需求分支后同步');
   }
+  const includeWorkingChanges = options.includeWorkingChanges !== false;
   const codeDiff = [
     committedDiff && `# 已提交的变更\n\n${committedDiff}`,
-    uncommittedChanges.staged && `# 已暂存但未提交的变更\n\n${uncommittedChanges.staged}`,
-    uncommittedChanges.unstaged && `# 未暂存的变更\n\n${uncommittedChanges.unstaged}`,
-    uncommittedChanges.untrackedDiff && `# 未跟踪的新文件\n\n${uncommittedChanges.untrackedDiff}`,
+    includeWorkingChanges && uncommittedChanges.staged && `# 已暂存但未提交的变更\n\n${uncommittedChanges.staged}`,
+    includeWorkingChanges && uncommittedChanges.unstaged && `# 未暂存的变更\n\n${uncommittedChanges.unstaged}`,
+    includeWorkingChanges && uncommittedChanges.untrackedDiff && `# 未跟踪的新文件\n\n${uncommittedChanges.untrackedDiff}`,
   ].filter(Boolean).join('\n\n');
   const sourceSnapshots = [];
   const casePaths = new Map();
@@ -105,11 +132,24 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
     if (casePaths.has(lower) && casePaths.get(lower) !== file) throw new Error('SOURCE_CASE_COLLISION');
     casePaths.set(lower, file);
     const at = async sha => {
+      if (!sha) return null;
       const object = await git(cwd, 'ls-tree', '-z', sha, '--', file);
       if (!object) return null;
       if (!object.startsWith('100')) throw new Error('SOURCE_NOT_REGULAR: ' + file);
       return decodeDocument((await execFileAsync('git', ['show', sha + ':' + file], { cwd, encoding: 'buffer', maxBuffer: 32 * 1024 * 1024 })).stdout);
     };
+    if (selectionMode) {
+      const changes = [];
+      for (const change of selectedChanges.get(file) || []) changes.push({ ...change, base: await at(change.parent), target: await at(change.commitHash) });
+      const workingFile = includeWorkingChanges && parseSyncCodeDiff([uncommittedChanges.staged, uncommittedChanges.unstaged, uncommittedChanges.untrackedDiff].join('\n\n')).some(item => item.file === file);
+      let working = null;
+      if (workingFile && current === branchName) {
+        try { if (!(await lstat(join(cwd, file))).isFile()) throw new Error('SOURCE_NOT_REGULAR: ' + file); working = decodeDocument(await readFile(join(cwd, file))); }
+        catch (error) { if (error.code !== 'ENOENT') throw error; }
+      }
+      sourceSnapshots.push({ file, commitChanges: changes, ...(workingFile ? { working } : {}) });
+      continue;
+    }
     const base = await at(baseline), target = await at(commitHash);
     let final = target;
     if (current === branchName) {
@@ -123,7 +163,13 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
   }
   if ((await git(cwd, 'rev-parse', branchName)) !== commitHash || (await git(cwd, 'ls-files', '--stage', '-z')) !== indexBefore) throw new Error('INPUT_CHANGED: Git 状态在捕获期间变化');
   if (JSON.stringify(await readWorkingChanges(cwd)) !== JSON.stringify(uncommittedChanges)) throw new Error('INPUT_CHANGED: 工作区在捕获期间变化');
-  return { schemaVersion: 2, commitHash, branchName, baselineCommit: baseline, commits, committedDiff, uncommittedChanges, codeDiff, sourceSnapshots };
+  if (selectionMode) {
+    selectionKey = hashBytes(Buffer.from(JSON.stringify([comparison.baseline, commits.map(commit => commit.hash), includeWorkingChanges, includeWorkingChanges ? uncommittedChanges : null])));
+    if (history.some(item => item.schemaVersion === 2 && item.status === 'completed' && item.branchName === branchName && item.docType === docType && item.selectionKey === selectionKey)) return { skipped: true, commitHash, branchName, message: '所选 commit 和未提交改动已同步' };
+  }
+  return { schemaVersion: 2, commitHash, branchName, baselineCommit: baseline, commits, committedDiff,
+    uncommittedChanges: includeWorkingChanges ? uncommittedChanges : { staged: '', unstaged: '', untracked: [], untrackedDiff: '', hasChanges: false },
+    codeDiff, sourceSnapshots, selectionMode, selectionKey };
 }
 
 /** Serialize preflight + reservation so two requests cannot both pass the history gate. */
@@ -142,11 +188,13 @@ export async function beginCommitSync(cwd, reqDir, fields) {
     const active = await getActiveSync(fields.workspaceId, fields.requirementId);
     if (active?.status === 'running') return { active: true, sync: active };
     const prepared = await prepareCommitSync(cwd, fields.requirementId, fields.docType,
-      await getSyncHistory(fields.workspaceId, fields.requirementId), { baseBranch: fields.baseBranch });
+      await getSyncHistory(fields.workspaceId, fields.requirementId), { baseBranch: fields.baseBranch, commitHashes: fields.commitHashes, branchTip: fields.branchTip, baseCommit: fields.baseCommit, includeWorkingChanges: fields.includeWorkingChanges });
     if (prepared.skipped) return prepared;
-    const id = `${fields.docType}-${prepared.commitHash}-${hashBytes(Buffer.from(prepared.branchName)).slice(0, 12)}`;
+    const id = `${fields.docType}-${prepared.commitHash}-${hashBytes(Buffer.from(prepared.branchName)).slice(0, 12)}${prepared.selectionKey ? '-' + prepared.selectionKey.slice(0, 16) : ''}`;
     const sync = { ...fields, schemaVersion: 2, id, commitHash: prepared.commitHash, branchName: prepared.branchName,
       hasUncommitted: prepared.uncommittedChanges.hasChanges,
+      selectionMode: prepared.selectionMode, selectionKey: prepared.selectionKey,
+      selectedCommitHashes: prepared.selectionMode ? prepared.commits.map(commit => commit.hash) : undefined,
       baselineCommit: prepared.baselineCommit, snapshotDir: `v2/${id}/${randomUUID()}`,
       startedAt: Date.now(), status: 'running' };
     await setActiveSync(sync, reqDir);

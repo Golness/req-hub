@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { loadConfig } from '../config.js';
 import { findRequirementDir } from '../doc-reader.js';
 import { findBranchByRequirement, beginCommitSync } from '../sync-engine.js';
+import { defaultSyncBaseBranch, listSyncCommits } from '../sync-branches.js';
 import { buildSyncTimeline } from '../sync-timeline.js';
 import { compareSyncSnapshots } from '../sync-snapshots.js';
 import { PhasedSyncEngine } from '../phased-sync-engine.js';
@@ -121,19 +122,39 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
 
         try {
           // Find target branch for this requirement
-          const targetBranch = await findBranchByRequirement(workspace.path, requirementId);
-
-          const baseConfig = await loadConfig();
-          const baseBranch = baseConfig.sync?.baseBranches?.[workspaceId] || baseConfig.sync?.baseBranch || null;
+          const baseBranch = await defaultSyncBaseBranch(workspace.path);
+          let targetBranch = null, targetBranchError = null;
+          try { targetBranch = await findBranchByRequirement(workspace.path, requirementId); }
+          catch (error) { targetBranchError = error.message; }
 
           json(res, {
             targetBranch,
             baseBranch,
+            baseBranchHint: baseBranch ? null : '未找到 main 或 master 分支，请手动填写基准分支。',
+            targetBranchError,
             currentBranch: targetBranch || '未找到'
           });
         } catch (e) {
           json(res, { error: e.message });
         }
+      }
+    },
+
+    {
+      kind: 'exact', path: '/req-hub/sync-commits',
+      async handler(req, res) {
+        if (req.method !== 'GET') return json(res, { error: 'method not allowed' }, 405);
+        const url = new URL(req.url, 'http://localhost');
+        const workspace = registry.list().find(w => w.id === url.searchParams.get('workspaceId'));
+        if (!workspace) return json(res, { error: 'workspace not found' }, 404);
+        const requirementId = url.searchParams.get('requirementId');
+        if (!requirementId) return json(res, { error: 'missing requirementId' }, 400);
+        try {
+          const targetBranch = await findBranchByRequirement(workspace.path, requirementId);
+          const baseBranch = url.searchParams.get('baseBranch')?.trim() || await defaultSyncBaseBranch(workspace.path);
+          if (!baseBranch) return json(res, { error: '未找到 main 或 master 分支，请手动填写基准分支。' }, 400);
+          return json(res, await listSyncCommits(workspace.path, targetBranch, baseBranch));
+        } catch (error) { return json(res, { error: error.message }, 400); }
       }
     },
 
@@ -474,7 +495,11 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
               docType,
               docTypeName,
               sessionIds,
-              baseBranch: input.baseBranch || config.sync?.baseBranches?.[workspaceId] || config.sync?.baseBranch,
+              baseBranch: input.baseBranch?.trim() || await defaultSyncBaseBranch(workspace.path),
+              commitHashes: input.commitHashes,
+              branchTip: input.branchTip,
+              baseCommit: input.baseCommit,
+              includeWorkingChanges: input.includeWorkingChanges !== false,
               startedAt: Date.now(),
               status: 'running', // running | completed | failed
               steps: [
@@ -968,7 +993,9 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
                 res.write(`data: ${JSON.stringify({ type: 'error', error: e.message })}\n\n`);
               } catch { /* ignore */ }
             } else {
-              json(res, { error: e.message }, 500);
+              const status = /^(?:COMMIT_LIST_CHANGED|INPUT_CHANGED):/.test(e.message) ? 409
+                : /^(?:COMMIT_OUT_OF_RANGE|COMMIT_SELECTION_INVALID|BASE_BRANCH_)/.test(e.message) ? 400 : 500;
+              json(res, { error: e.message }, status);
             }
             try { res.end(); } catch { /* ignore */ }
           }

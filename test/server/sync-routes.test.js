@@ -52,6 +52,19 @@ describe('v2 sync route integration',()=>{
   expect(input).toContain('+STAGED');expect(input).toContain('+UNSTAGED');expect(input).toContain('+UNTRACKED');expect(input).not.toContain('TEST_IGNORED');
   for(const request of harness.requests) expect(JSON.stringify(request.prompt)).not.toMatch(/STAGED|UNSTAGED|UNTRACKED/);
  });
+ it('publishes using checked commits only and preserves commit-scoped source artifacts',async()=>{
+  const chosen=git('rev-parse','HEAD'),base=git('rev-parse','main');
+  await writeFile(join(repo,'not-selected.js'),'UNSELECTED_SENTINEL');git('add','not-selected.js');git('commit','-m','unselected');
+  const tip=git('rev-parse','HEAD');
+  const response=await dispatch({baseBranch:'main',commitHashes:[chosen],branchTip:tip,baseCommit:base,includeWorkingChanges:false});
+  expect(response.body).toContain('"type":"done"');
+  const task=(await getSyncHistory(workspaceId,requirementId))[0];expect(task.selectedCommitHashes).toEqual([chosen]);
+  const input=await readFile(join(reqDir,'sync-logs',task.snapshotDir,'input-code.diff'),'utf8');
+  expect(input).toContain('+changed');expect(input).not.toContain('UNSELECTED_SENTINEL');
+  const manifest=JSON.parse(await readFile(join(reqDir,'sync-logs',task.snapshotDir,'input/manifest.json'),'utf8'));
+  expect(manifest.artifacts.some(a=>a.id==='code.0.selected-commits')).toBe(true);
+  expect(await readFile(join(reqDir,'requirement.md'),'utf8')).toContain('新规则');
+ });
  it('does not publish when evidence coverage is incomplete',async()=>{
   harness=createSyncHarness({skipCoverage:true});routes=createSyncRoutes({list:()=>[{id:workspaceId,path:repo}]},{},{},{get:()=>harness.parentAgent},harness.ctx);
   const response=await dispatch();expect(response.body).toContain('EVIDENCE_NOT_FULLY_READ');
