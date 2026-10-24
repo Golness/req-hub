@@ -12,6 +12,8 @@ const { ROUTE } = require('../constants.js');
 const { DocsViewerContext } = require('../context.js');
 const { FilePreview } = require('./FilePreview.js');
 const { showToast } = require('./shared/ToastContainer.js');
+const { SessionList } = require('./shared/SessionList.js');
+const { CodexSessionsSection } = require('./CodexSessionsSection.js');
 const { createIconComponents } = require('../icons.js');
 
 const { IconSync, IconError, IconCheck, IconSkip, IconCancel, IconHourglass, IconChevronDown } = createIconComponents(h);
@@ -961,11 +963,15 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
   const { syncActivity } = React.useContext(DocsViewerContext);
   const [sessions, setSessions] = useState([]);
   const [selectedSessions, setSelectedSessions] = useState([]);
+  const [codexSelection, setCodexSelection] = useState({ ids: [], versions: {} });
+  const selectedSessionIds = [...selectedSessions, ...codexSelection.ids];
   const [sessionSearch, setSessionSearch] = useState('');
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [error, setError] = useState(null);
   const [viewingSession, setViewingSession] = useState(null);
   const selectedSessionVersions = useRef({});
+  const sessionVersions = () => ({ ...selectedSessionVersions.current, ...codexSelection.versions });
+  useEffect(() => { setSelectedSessions([]); selectedSessionVersions.current = {}; setCodexSelection({ ids: [], versions: {} }); }, [workspaceId]);
   const pollRef = useRef(null);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -1025,7 +1031,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
   const commitsReady = !!commitState.data && commitState.key === comparisonKey && !commitState.loading;
   const availableCommits = commitsReady ? commitState.data.commits : [];
   const visibleCommits = availableCommits.filter(commit => `${commit.hash} ${commit.subject} ${commit.author}`.toLowerCase().includes(commitSearch.toLowerCase().trim()));
-  const canSync = !syncActivity && !!branchInfo.targetBranch && !!baseBranch.trim() && commitsReady && (selectedCommits.length > 0 || selectedSessions.length > 0 || includeWorkingChanges && commitState.data.hasUncommitted);
+  const canSync = !syncActivity && !!branchInfo.targetBranch && !!baseBranch.trim() && commitsReady && (selectedCommits.length > 0 || selectedSessionIds.length > 0 || includeWorkingChanges && commitState.data.hasUncommitted);
 
   useEffect(() => {
     setSelectedCommits([]);
@@ -1110,7 +1116,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
     setView('progress');
     if (setSyncing) setSyncing(true);
 
-    const steps = syncTaskModel.createSyncSteps({ sessionIds: selectedSessions });
+    const steps = syncTaskModel.createSyncSteps({ sessionIds: selectedSessionIds });
 
     const initialSync = {
       id: `sync-${Date.now()}`,
@@ -1118,8 +1124,8 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
       requirementId: selectedReq.id,
       docType: activeTab,
       docTypeName,
-      sessionIds: selectedSessions,
-      sessionVersions: Object.fromEntries(selectedSessions.map(id => [id, selectedSessionVersions.current[id]])),
+      sessionIds: selectedSessionIds,
+      sessionVersions: Object.fromEntries(selectedSessionIds.map(id => [id, sessionVersions()[id]])),
       startedAt: Date.now(),
       status: 'running',
       steps,
@@ -1163,8 +1169,8 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
           branchTip: commitState.data.branchTip,
           baseCommit: commitState.data.baseline,
           includeWorkingChanges,
-          sessionIds: selectedSessions,
-          sessionVersions: Object.fromEntries(selectedSessions.map(id => [id, selectedSessionVersions.current[id]])),
+          sessionIds: selectedSessionIds,
+          sessionVersions: Object.fromEntries(selectedSessionIds.map(id => [id, sessionVersions()[id]])),
         }),
       });
       if (!mounted.current) {
@@ -1263,8 +1269,8 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
     const session = sessions.find(s => s.id === viewingSession.id);
     return h(SessionTurnsView, {
       sessionId: viewingSession.id,
-      sessionTitle: session?.title || '会话内容',
-      snapshotVersion: selectedSessionVersions.current[viewingSession.id] || viewingSession.snapshotVersion,
+      sessionTitle: session?.title || viewingSession.title || '会话内容',
+      snapshotVersion: sessionVersions()[viewingSession.id] || viewingSession.snapshotVersion,
       onBack: () => setViewingSession(null),
     });
   }
@@ -1419,61 +1425,13 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
         onChange: (e) => setSessionSearch(e.target.value),
         style: { marginBottom: 6, fontSize: 'var(--rh-font-size-sm)' },
       }),
-      loadingSessions
-        ? h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)' } }, '加载中...')
-        : sessions.length === 0
-          ? h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', fontStyle: 'italic' } }, '未找到相关会话')
-          : h('div', {
-              style: {
-                maxHeight: 200,
-                overflow: 'auto',
-                border: '1px solid var(--dsw-alias-border-l1)',
-                borderRadius: 6,
-              }
-            },
-            sessions.map(s =>
-              h('div', {
-                key: s.id,
-                style: {
-                  borderBottom: '1px solid var(--dsw-alias-border-l1)',
-                }
-              },
-                h('div', {
-                  onClick: () => toggleSession(s.id),
-                  style: {
-                    padding: '8px 12px',
-                    cursor: 'pointer',
-                    fontSize: 'var(--rh-font-size)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    background: selectedSessions.includes(s.id) ? 'var(--dsw-alias-interactive-bg-active)' : 'transparent',
-                    color: selectedSessions.includes(s.id) ? 'var(--rh-accent)' : 'var(--dsw-alias-label-primary)',
-                  }
-                },
-                  h('span', { style: { fontSize: 'var(--rh-font-size-title)', display: 'inline-flex' } }, h('input', { type: 'checkbox', checked: selectedSessions.includes(s.id), disabled: !selectedSessions.includes(s.id) && (!s.snapshotVersion || !s.syncTurnCount), readOnly: true, tabIndex: -1, 'aria-label': `选择会话 ${s.title || s.id}` })),
-                  h('span', { style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 } }, s.title),
-                  h('span', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)' } },
-                    s.snapshotError ? '读取失败' : `${s.turnCount ?? 0} 轮（可同步 ${s.syncTurnCount ?? 0} 轮）`
-                  ),
-                  h('span', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', flexShrink: 0 } },
-                    new Date(s.createdAt).toLocaleDateString()
-                  ),
-                  h('button', {
-                    className: 'rh-btn rh-btn-secondary rh-btn-sm',
-                    onClick: (e) => {
-                      e.stopPropagation();
-                      setViewingSession(s);
-                    },
-                  }, '查看内容')
-                )
-              )
-            )
-          ),
+      h(SessionList, { sessions, selectedIds: selectedSessions, onToggle: toggleSession, onView: setViewingSession, loading: loadingSessions, disabled: syncing }),
       selectedSessions.length > 0 && h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', marginTop: 6 } },
         `已选择 ${selectedSessions.length} 个会话`
       )
     ),
+
+    h(CodexSessionsSection, { workspaceId, selection: codexSelection, onSelectionChange: setCodexSelection, onView: setViewingSession, disabled: syncing }),
 
     // Action buttons
     h('div', { style: { marginBottom: 12 } },

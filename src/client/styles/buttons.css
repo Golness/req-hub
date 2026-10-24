@@ -86,6 +86,9 @@
 .rh-topbar-value.unselected { color: var(--dsw-alias-label-secondary); }
 .rh-diff-expand { display: block; width: 100%; text-align: left; }
 .rh-header-back { white-space: nowrap; }
+.rh-btn.rh-codex-workspace { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 100%; padding: 10px 12px; text-align: left; white-space: normal; overflow-wrap: anywhere; border-radius: 0; }
+.rh-codex-workspace > span,
+.rh-codex-workspace > small { color: var(--dsw-alias-label-secondary); font-size: var(--rh-font-size-sm); }
 
 /* Navigation, tab and disclosure buttons follow the same interaction palette.
  * Their existing blue text marks location; tabs retain their full-width underline.

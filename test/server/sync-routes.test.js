@@ -4,6 +4,8 @@ import { join } from 'node:path';import { tmpdir } from 'node:os';import { rando
 import { createSyncHarness } from './sync-v2-harness.js';
 import { sessionEvents } from './session-fixture.js';
 import { renderSessionDocument } from '../../src/server/session-utils.js';
+import { CodexSessionService } from '../../src/server/codex-sessions/service.js';
+import { codexRecords, writeCodexRollout } from './codex-fixture.js';
 import { syncSupervisor } from '../../src/server/sync-supervisor.js';
 import { setActiveSync, setAbortController } from '../../src/server/sync-state.js';
 vi.mock('../../src/server/config.js',()=>({loadConfig:vi.fn().mockResolvedValue({docsDir:'docs',sync:{baseBranch:'main'}})}));
@@ -49,6 +51,38 @@ beforeEach(async()=>{
 });
 afterEach(async()=>{await routes.dispose();await rm(repo,{recursive:true,force:true});});
 describe('v2 sync route integration',()=>{
+ it('imports Codex Markdown, previews it and analyzes mixed DSH/Codex evidence through the same frozen files',async()=>{
+  const home=join(repo,'codex-home'), databasePath=join(repo,'codex-cache','codex.sqlite');
+  await writeCodexRollout(home,codexRecords({cwd:repo,final:'CODEX_FINAL_BODY',intermediate:'CODEX_INTERMEDIATE_BODY',incomplete:true}));
+  const codex=new CodexSessionService({codexHome:home,databasePath});
+  await routes.dispose();
+  harness.ctx.sessionQuery={readSession:async()=>({events:sessionEvents()})};
+  routes=createSyncRoutes({list:()=>[{id:workspaceId,path:repo}]},{},{},{get:()=>harness.parentAgent},harness.ctx,{codexService:codex});
+  try {
+   const workspaces=(await getRoute('/req-hub/codex/workspaces?workspaceId='+workspaceId)).data.workspaces;
+   const imported=await postRoute('/req-hub/codex/refresh',{workspaceId,codexWorkspaceId:workspaces[0].id});
+   expect(imported.data.sessions).toHaveLength(1);
+   const selected=imported.data.sessions[0];expect(selected).toMatchObject({id:'codex:cx-one',syncTurnCount:1,turnCount:2});
+   const preview=await getRoute('/req-hub/session-turns?'+new URLSearchParams({sessionId:selected.id,version:selected.snapshotVersion}));
+   expect(preview.data.turns[0].messages.map(message=>message.kind)).toEqual(['input','intermediate','followup','final']);
+   const {readSessionSnapshot}=await import('../../src/server/session-utils.js');
+   const dsh=await readSessionSnapshot(harness.ctx.sessionQuery,'dsh-one');
+   const options={sessionIds:['dsh-one',selected.id],sessionVersions:{'dsh-one':dsh.version,[selected.id]:selected.snapshotVersion},commitHashes:[],includeWorkingChanges:false};
+   expect((await dispatch(options)).body).toContain('"type":"done"');
+   const task=(await getSyncHistory(workspaceId,requirementId))[0];expect(task.status).toBe('completed');
+   expect(task.sessionSnapshots).toHaveLength(2);
+   const markdown=await readFile(join(reqDir,'sync-logs',task.snapshotDir,'input/sessions/session-2.md'),'utf8');
+   expect(markdown).toBe(renderSessionDocument(selected.id,preview.data.turns.filter(turn=>turn.syncable)));
+   expect(markdown).toContain('CODEX_INTERMEDIATE_BODY');expect(markdown).toContain('CODEX_FINAL_BODY');
+   expect(markdown).not.toContain('尚未结束的输入');expect(markdown).not.toContain('SECRET');
+   expect(harness.calls.some(call=>call.name==='req_hub_sync_read'&&call.args.artifactId==='session.turn.1')).toBe(true);
+   expect(harness.requests.every(request=>!JSON.stringify(request.prompt).includes('CODEX_FINAL_BODY'))).toBe(true);
+   expect(JSON.parse((await dispatch(options)).body).skipped).toBe(true);
+   await writeCodexRollout(home,codexRecords({cwd:repo,final:'changed'}));
+   expect((await dispatch(options)).status).toBe(409);
+   expect((await getRoute('/req-hub/session-turns?'+new URLSearchParams({sessionId:selected.id,version:selected.snapshotVersion}))).status).toBe(409);
+  } finally {await codex.close();}
+ });
  it('deletes a published task and its snapshots while retaining final documents and unrelated files',async()=>{
   await dispatch();const task=(await getSyncHistory(workspaceId,requirementId))[0];
   const final=await readFile(join(reqDir,'requirement.md'),'utf8');

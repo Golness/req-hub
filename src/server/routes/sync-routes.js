@@ -23,6 +23,8 @@ import { compareSyncSnapshots } from '../sync-snapshots.js';
 import { PhasedSyncEngine } from '../phased-sync-engine.js';
 import { listRelatedSessions } from '../session-selector.js';
 import { readSessionSnapshot, extractMultipleSessionTurns } from '../session-utils.js';
+import { CodexSessionService } from '../codex-sessions/service.js';
+import { createCodexSessionRoutes } from './codex-session-routes.js';
 import { json, readBody } from '../utils.js';
 import { log } from '../logger.js';
 import {
@@ -51,9 +53,10 @@ import { charsToTokens, formatTokens } from '../token-utils.js';
  * @param {Object} ctx - DSH context
  * @returns {Array<Object>} Array of route definitions
  */
-export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
+export function createSyncRoutes(registry, llm, sessions, agents, ctx, options = {}) {
   // 从 ctx 获取 sessionQuery 服务
   const sessionQuery = ctx?.sessionQuery;
+  const codex = options.codexService || new CodexSessionService(options.codex);
 
   const pendingSyncs = new Set(), controllers = new Map();
   let closed = false;
@@ -70,6 +73,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
   const watchdog = setInterval(() => { void syncSupervisor.check().catch(error => log.sync.error('任务监管恢复失败：' + error.message)); }, 15000);
   watchdog.unref?.();
   const routes = [
+    ...createCodexSessionRoutes(registry, codex),
     {
       kind: 'exact', path: '/req-hub/sync-delete',
       async handler(req, res) {
@@ -479,14 +483,14 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
         }
 
         try {
-          const snapshot = await readSessionSnapshot(sessionQuery, sessionId, sessions);
+          const snapshot = sessionId.startsWith('codex:') ? await codex.snapshot(sessionId) : await readSessionSnapshot(sessionQuery, sessionId, sessions);
           if (url.searchParams.get('version') !== snapshot.version) {
             return json(res, { success: false, error: 'SESSION_CHANGED: 会话已变化，请刷新会话列表后重新选择' }, 409);
           }
           json(res, { success: true, ...snapshot });
         } catch (e) {
           log.sync.error(`获取会话轮次失败: ${e.message}`);
-          json(res, { success: false, error: e.message }, 500);
+          json(res, { success: false, error: e.message }, e.statusCode || 500);
         }
       }
     },
@@ -566,7 +570,9 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
             if (!Array.isArray(sessionIds) || sessionIds.some(id => typeof id !== 'string') || new Set(sessionIds).size !== sessionIds.length) {
               return json(res, { error: 'SESSION_SELECTION_INVALID: 会话选择无效' }, 400);
             }
-            const sessionInput = await extractMultipleSessionTurns(sessionQuery, sessionIds, { sessions });
+            const codexSnapshots = new Map((await codex.snapshots(sessionIds.filter(id => id.startsWith('codex:')))).map(snapshot => [snapshot.sessionId, snapshot]));
+            const sessionInput = await extractMultipleSessionTurns(sessionQuery, sessionIds, { sessions,
+              readSnapshot: id => codexSnapshots.get(id) || readSessionSnapshot(sessionQuery, id, sessions) });
             for (const snapshot of sessionInput.snapshots) {
               if (input.sessionVersions?.[snapshot.sessionId] !== snapshot.version) {
                 return json(res, { error: 'SESSION_CHANGED: 会话已变化，请刷新会话列表后重新选择' }, 409);
@@ -803,7 +809,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
             } else {
               const status = /^(?:COMMIT_LIST_CHANGED|INPUT_CHANGED):/.test(e.message) ? 409
                 : /^(?:COMMIT_OUT_OF_RANGE|COMMIT_SELECTION_INVALID|BASE_BRANCH_)/.test(e.message) ? 400 : 500;
-              json(res, { error: e.message }, status);
+              json(res, { error: e.message }, e.statusCode || status);
             }
             try { res.end(); } catch { /* ignore */ }
           } finally {
@@ -1089,7 +1095,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
       await abortSync(task.id, task.workspaceId, task.requirementId);
     }
     const grace = setTimeout(() => { if (owner) void syncSupervisor.expire(owner, 'SYNC_SHUTDOWN_TIMEOUT: 插件退出时同步未能正常收尾，已回收').catch(error => log.sync.error(error.message)); }, syncSupervisor.limits.cancelling);
-    try { await Promise.allSettled([...pendingSyncs]); } finally { clearTimeout(grace); }
+    try { await Promise.allSettled([...pendingSyncs]); } finally { clearTimeout(grace); if (!options.codexService) await codex.close(); }
   };
   return routes;
 }

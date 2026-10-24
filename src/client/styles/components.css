@@ -1994,3 +1994,18 @@ p.rh-sync-hint { margin: 6px 0; }
 .rh-writing-change { margin:16px 0; padding:8px; border:1px solid var(--dsw-alias-border-l1); border-radius:8px; }
 
 .rh-settings-provider { font-size: var(--rh-font-size); }
+
+/* DSH and Codex share session selection rows and the same turn-content preview. */
+.rh-session-list { max-height: 240px; overflow: auto; border: 1px solid var(--dsw-alias-border-l1); border-radius: var(--rh-button-radius-sm); }
+.rh-session-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding-right: 8px; border-bottom: 1px solid var(--dsw-alias-border-l1); }
+.rh-session-row:last-child { border-bottom: 0; }
+.rh-session-choice { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 12px; cursor: pointer; font-size: var(--rh-font-size); }
+.rh-session-choice[data-selected='true'] { background: var(--dsw-alias-interactive-bg-active); color: var(--rh-accent); }
+.rh-session-info { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+.rh-session-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.rh-session-meta { font-size: var(--rh-font-size-sm); color: var(--dsw-alias-label-secondary); overflow-wrap: anywhere; }
+.rh-sync-sessions > .rh-search-input { margin: 6px 0; }
+.rh-codex-workspaces { margin-top: 12px; }
+.rh-codex-warnings { margin: 8px 0; font-size: var(--rh-font-size-sm); color: var(--dsw-alias-label-secondary); }
+.rh-codex-warnings summary { cursor: pointer; }
+.rh-codex-warnings ul { max-height: 160px; overflow: auto; padding-left: 20px; overflow-wrap: anywhere; }

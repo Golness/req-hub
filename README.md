@@ -49,6 +49,8 @@ ReqHub 将需求文档组织为 **开发者 → 需求 → 文件** 三级目录
 - **DSH 会话集成**：选择列表展示总轮次和可同步轮次；完整预览按顺序标注用户输入、补充输入、助手中间回复及最终回复。仅正常完成且有用户输入和有效最终回复的轮次参与同步，排除思考、工具、系统提示和注入上下文。
 - **会话快照与文件引用**：预览和同步校验同一份正文快照版本，会话变化后需刷新重选；本次同步目录的 `input/sessions/` 保存每会话及分轮 Markdown，Subagent 通过受控文件引用读取，复用代码同步的哈希核验、读取覆盖检查和完整输入预算。优先按会话分块，超限时只在轮次间拆分，单轮超限直接报错。同步去重同时考虑所选会话快照。
 - **增量合并**：AI 将代码变更智能合并到现有文档，而非覆盖
+- **Codex 会话集成**：在 DSH 会话区域下点击“选择 Codex 工作区”，按项目名称与路径搜索并选择，拉取该工作区的未归档主会话。支持多根工作区及项目关联的 worktree，会话列表、内容预览和多选方式与 DSH 一致；可与 DSH 会话混合加入同一次讨论分析。刷新会话会重新读取内容并清空旧勾选；只分析完整轮次，未完成轮次保留在预览中。
+- **Codex 读取与落库**：移植 [dsh-codex-migrate](https://github.com/polarskicpl/dsh-codex-migrate) 的 JSONL 文本读取能力（[MIT 来源说明](src/server/codex-sessions/NOTICE.md)）。只读 `CODEX_HOME`（默认 `~/.codex`）的项目、会话及归档元数据，无 SQLite 时读取活跃 JSONL 和标题索引。用户输入、补充输入、中间回复和最终回复保留原顺序，去除镜像重复；不导入系统上下文、隐藏推理和工具结果。独立保存到 `<DSH_HOME>/req-hub/codex/codex.sqlite`，同目录 `documents/` 存放按内容版本生成的 Markdown；不修改 Codex，不创建 DSH 会话。会话发生变化、被归档或读取失败时，旧版本不能进入分析；选中内容会再次冻结到需求同步快照的 `input/sessions/`。
 - **同步历史**：记录每次同步的完整过程和结果，支持回溯查看
 - **发布即结束**：同步完成文档校验与发布后直接结束，不再执行额外 AI 元数据分析。
 - **后台任务与通知**：离开同步页面或关闭 ReqHub 标签页不会取消服务端任务；底部栏独立显示文档类型、需求、当前步骤和分块进度，结束后保留成功、失败或终止提示，可点击查看详情。需求文档与技术方案在整个 ReqHub 中共用一个执行名额，服务端阻止跨页面、跨工作区并发启动。
@@ -197,6 +199,7 @@ src/server/
 | 目录树 | 10+ | `/workspaces`, `/tree`, `/read`, `/create-dir`, `/file-tree` |
 | AI 分析 | 5 | `/analyze-preview`, `/analyze-stream` (SSE), `/analysis-status`, `/analysis-cancel` |
 | 知识库 | 多个 | `/knowledge/search`, `/knowledge/entries`, `/knowledge/builds` |
+| Codex 会话 | 3 | `/codex/workspaces`, `/codex/sessions`, `/codex/refresh`；内容预览复用 `/session-turns` |
 | 同步 | 12+ | `/phased-sync` (SSE), `/sync-history`, `/sync-detail` |
 | 写作 | 4 | `/writing/options`, `/writing/optimize`, `/writing/jobs/:id`, `/writing/jobs/:id/cancel` |
 | 内联 | 5 | `/logs`, `/skills`, `/skill-content` |

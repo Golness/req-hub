@@ -1,5 +1,5 @@
 import model from '../shared/sync-task.cjs';
-import { updateSyncProgress, completeSync } from './sync-state.js';
+import { updateSyncProgress, completeSync, isSyncTaskRemoved } from './sync-state.js';
 
 /** One ordered writer owns steps, chunks, publication metadata and terminal snapshots. */
 export class SyncLifecycle {
@@ -11,8 +11,10 @@ export class SyncLifecycle {
   }
   event(event) {
     return this.enqueue(async () => {
+      if (isSyncTaskRemoved(this.task)) return;
       if (!model.updateSyncTask(this.task, event)) return;
       await updateSyncProgress(this.task.id, this.task, this.task.workspaceId, this.task.requirementId);
+      if (isSyncTaskRemoved(this.task)) return;
       this.emit({ type: 'state', sync: structuredClone(this.task) });
     });
   }
@@ -38,9 +40,11 @@ export class SyncLifecycle {
   }
   finish(options = {}) {
     return this.enqueue(async () => {
+      if (isSyncTaskRemoved(this.task)) return this.task;
       model.finishSyncTask(this.task, options);
       await updateSyncProgress(this.task.id, this.task, this.task.workspaceId, this.task.requirementId);
-      await completeSync(this.task.id, this.task.workspaceId, this.task.requirementId);
+      await completeSync(this.task.id, this.task.workspaceId, this.task.requirementId, this.task.snapshotDir);
+      if (isSyncTaskRemoved(this.task)) return this.task;
       this.emit({ type: 'state', sync: structuredClone(this.task) });
       return this.task;
     });
