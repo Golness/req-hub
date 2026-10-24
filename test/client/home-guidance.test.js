@@ -47,7 +47,9 @@ it('keeps sync progress in the shell after navigation and retains a clickable, d
  await click(container.querySelector('.rh-sync-status-link'));
  expect([...container.querySelectorAll('.rh-rail-btn.active')].some(button=>button.textContent==='同步')).toBe(true);
  expect(container.querySelector('.rh-right-body').textContent).toContain('同步完成');
- await click(container.querySelector('[aria-label="关闭同步通知"]'));expect(container.querySelector('.rh-sync-status')).toBeNull();
+ expect(container.querySelector('.rh-sync-status')).toBeNull();
+ await act(async()=>window.dispatchEvent(new Event('req-hub-sync-change')));
+ expect(container.querySelector('.rh-sync-status')).toBeNull();
 });
 
 it('opens a completion notice in its own workspace and does not force later workspace switches back',async()=>{

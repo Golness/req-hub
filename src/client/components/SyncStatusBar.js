@@ -14,7 +14,7 @@ function SyncStatusBar({ monitor, onOpen }) {
   const detail = active ? ` · ${step?.label || '同步检查'} · ${done}/${steps.length} 步${chunks.length ? ` · 分块 ${chunkDone}/${chunks.length}` : ''}` : task.error ? ` · ${task.error}` : '';
   return h('div', { className: 'rh-sync-status', role: 'status', 'aria-live': 'polite', 'data-status': task.status },
     h('button', { type:'button',className:'rh-btn rh-btn-ghost rh-btn-sm rh-sync-status-link',disabled:!task.id,
-      onClick:()=>onOpen(task),title:`${task.requirementId} · ${text}${detail}` },
+      onClick:()=>{ onOpen(task); monitor.dismiss(); },title:`${task.requirementId} · ${text}${detail}` },
       `${task.docTypeName || (task.docType === 'design' ? '技术方案' : '需求文档')} · ${task.requirementId} · ${text}${detail}`),
     monitor.error && h('button', {type:'button',className:'rh-btn rh-btn-ghost rh-btn-sm',onClick:monitor.refresh}, monitor.error + '，重试'),
     h(DeleteSyncTaskButton, { task }),

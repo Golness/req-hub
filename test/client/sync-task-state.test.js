@@ -58,3 +58,21 @@ it('keeps cancellation visible until the server confirms that the task ended', a
   await act(async () => new Promise(resolve => setTimeout(resolve, 1100)));
   expect(container.textContent).toContain('已终止'); expect(container.textContent).not.toContain('正在终止');
 });
+
+it('filters the whole sync history by document type, including failed tasks', async () => {
+  const original = fetch.getMockImplementation();
+  fetch.mockImplementation(async (url, ...args) => url.includes('/sync-history?') ? json({ history: [
+    { ...task('failed'), id: 'req-task', docTypeName: 'REQ_ONLY' },
+    { ...task('failed'), id: 'design-task', docType: 'design', docTypeName: 'DESIGN_ONLY' },
+  ] }) : original(url, ...args));
+  await act(async () => root.render(React.createElement(DocsViewerContext.Provider, { value: {} }, React.createElement(SyncPanel, { workspaceId: 'ws', selectedReq: req, onClose: vi.fn() }))));
+  await act(async () => button('同步历史').click());
+  expect(container.textContent).toContain('REQ_ONLY');
+  expect(container.textContent).not.toContain('DESIGN_ONLY');
+  await act(async () => button('技术方案').click());
+  expect(container.textContent).toContain('DESIGN_ONLY');
+  expect(container.textContent).not.toContain('REQ_ONLY');
+  await act(async () => button('需求文档').click());
+  expect(container.textContent).toContain('REQ_ONLY');
+  expect(container.textContent).not.toContain('DESIGN_ONLY');
+});

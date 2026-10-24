@@ -7,9 +7,11 @@ const { VersionSelect } = require('./VersionSelect.js');
 const { hasPublishedDocument } = require('../../../shared/sync-task.cjs');
 const DOC_TYPES = [['requirement', '需求文档'], ['design', '技术方案']];
 
-function SyncVersionCompare({ history, workspaceId, requirementId }) {
+function SyncVersionCompare({ history, workspaceId, requirementId, docType: selectedDocType, onDocTypeChange }) {
   const id = React.useId();
-  const [docType, setDocType] = React.useState('requirement');
+  const [localDocType, setLocalDocType] = React.useState('requirement');
+  const docType = selectedDocType || localDocType;
+  const setDocType = type => { setLocalDocType(type); onDocTypeChange?.(type); };
   const versions = history.filter(sync => hasPublishedDocument(sync) && sync.docType === docType);
   const [selection, setSelection] = React.useState(null);
   const [result, setResult] = React.useState(null);

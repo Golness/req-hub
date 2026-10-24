@@ -20,6 +20,35 @@ async function run(docType, harnessOptions = {}, input = {}) {
 }
 
 describe('v2 frozen evidence and isolated candidates', () => {
+  it('splits a single large file and all frozen source versions without losing text or exceeding the budget', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'req-hub-large-file-'));
+    const harness = createSyncHarness({ noChange: true });
+    const engine = new PhasedSyncEngine({ ...harness, config: {}, cwd: dir });
+    try {
+      const codeDiff = diff + '\n+' + '中文大文件\n'.repeat(16000);
+      const options = { docType: 'design', currentDoc: source, syncDir: dir, codeDiff,
+        sourceSnapshots: [{ file: 'src/rule.js', base: '旧代码\n'.repeat(15000), target: '目标代码\n'.repeat(15000), final: '最终代码\n'.repeat(15000) }] };
+      const plan = await engine.prepareSyncChunks(options);
+      expect(plan.code.length).toBeGreaterThan(1);
+      expect(plan.code.every(chunk => chunk.tokens < 150000)).toBe(true);
+      const ranges = new Map();
+      for (const chunk of plan.code) for (const id of chunk.items.flatMap(item => item.required)) {
+        const part = JSON.parse(await plan.store.read(id));
+        const parts = ranges.get(part.sourceArtifactId) || [];
+        parts.push(part); ranges.set(part.sourceArtifactId, parts);
+      }
+      expect(ranges.size).toBe(4);
+      for (const [id, parts] of ranges) {
+        parts.sort((a, b) => a.start - b.start);
+        expect(parts[0].start).toBe(0);
+        expect(parts.at(-1).end).toBe(parts[0].totalChars);
+        expect(parts.map(part => part.text).join('')).toBe(await plan.store.read(id));
+      }
+      const result = await engine.sync({ ...options, preparedChunks: plan });
+      expect(result.errors).toEqual([]);
+      expect(result.mergedDoc).toBe(source);
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
   it.each(['requirement', 'design'])('updates only the requested %s text and produces reproducible diff', async docType => {
     const { result, harness, events, files } = await run(docType);
     expect(result.errors).toEqual([]);

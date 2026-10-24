@@ -1,11 +1,13 @@
 'use strict';
 const React = require('react');
 const { ROUTE } = require('../constants.js');
+const { isSyncActive } = require('../../shared/sync-task.cjs');
+const isActive = task => task && (isSyncActive(task) || task.status === 'preparing');
 
 /** Shell-owned observation; leaving an operation page never cancels server execution. */
 function useSyncMonitor() {
   const [state, setState] = React.useState({ active: null, latest: null, error: '' });
-  const [dismissed, setDismissed] = React.useState(null);
+  const [dismissed, setDismissed] = React.useState(() => new Set());
   const refreshRef = React.useRef(() => {});
   const removedTasks = React.useRef(new Set());
   const taskKey = task => task && JSON.stringify([task.workspaceId, task.requirementId, task.snapshotDir || task.notificationId || task.id]);
@@ -38,8 +40,16 @@ function useSyncMonitor() {
     refresh();
     return () => { disposed = true; clearInterval(timer); window.removeEventListener('req-hub-sync-deleted', removed); window.removeEventListener('req-hub-sync-change', refresh); window.removeEventListener('focus', refresh); };
   }, []);
-  const latestKey = state.latest?.snapshotDir || state.latest?.notificationId || state.latest?.id;
-  return { ...state, notification: state.active || (latestKey !== dismissed ? state.latest : null),
-    dismiss: () => setDismissed(latestKey), refresh: () => refreshRef.current() };
+  const task = state.active || state.latest;
+  const notificationKey = task && taskKey(task) + ':' + (isActive(task) ? 'active' : task.status);
+  const notification = dismissed.has(notificationKey) ? null : task;
+  const terminalKey = notification && !isActive(notification) ? notificationKey : null;
+  React.useEffect(() => {
+    if (!terminalKey) return;
+    const timer = setTimeout(() => setDismissed(previous => new Set([...previous, terminalKey])), 8000);
+    return () => clearTimeout(timer);
+  }, [terminalKey]);
+  return { ...state, notification,
+    dismiss: () => setDismissed(previous => new Set([...previous, notificationKey])), refresh: () => refreshRef.current() };
 }
 module.exports = { useSyncMonitor };

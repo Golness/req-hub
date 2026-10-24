@@ -817,6 +817,8 @@ function SyncProgressView({ sync, onBack, onViewFile, workspaceId, requirementId
  */
 function SyncHistoryView({ onBack, onSelectSync, workspaceId, requirementId }) {
   const [history, setHistory] = useState([]);
+  const [historyDocType, setHistoryDocType] = useState('requirement');
+  const visibleHistory = history.filter(sync => sync.docType === historyDocType);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -842,13 +844,13 @@ function SyncHistoryView({ onBack, onSelectSync, workspaceId, requirementId }) {
     ),
     // List
     h('div', { style: { flex: 1, overflow: 'auto', padding: 16 }},
-      !loading && history.length > 0 && h(SyncVersionCompare, { history, workspaceId, requirementId }),
+      !loading && history.length > 0 && h(SyncVersionCompare, { history, workspaceId, requirementId, docType: historyDocType, onDocTypeChange: setHistoryDocType }),
       loading
         ? h('div', { style: { textAlign: 'center', padding: 40, color: 'var(--dsw-alias-label-secondary)' }}, '加载中...')
-        : history.length === 0
-          ? h('div', { style: { textAlign: 'center', padding: 40, color: 'var(--dsw-alias-label-secondary)', fontStyle: 'italic' }}, '暂无同步记录')
+        : visibleHistory.length === 0
+          ? h('div', { role: 'status', style: { textAlign: 'center', padding: 40, color: 'var(--dsw-alias-label-secondary)', fontStyle: 'italic' }}, `暂无${historyDocType === 'design' ? '技术方案' : '需求文档'}同步记录`)
           : h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 }},
-              history.map(sync =>
+              visibleHistory.map(sync =>
                 h('div', {
                   key: sync.id,
                   onClick: () => onSelectSync(sync),

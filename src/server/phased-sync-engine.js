@@ -36,7 +36,10 @@ export async function packSyncChunks(groups, { buildVariables, preparePrompt, de
     for (const item of group.items) {
       if (await fits([...pending, item])) { pending.push(item); continue; }
       if (pending.length) { chunks.push({ items: pending }); pending = []; }
-      if (!await fits([item])) throw new Error('单个' + (item.file ? '代码文件' : '会话轮次') + '超过同步输入预算：' + (item.file || ((item.sessionId || item.sessionTitle || '未提供会话标识') + ' · 轮次 ' + (item.turnNumber ?? '未知'))));
+      if (!await fits([item])) {
+        const measured = await measure([item], chunks.length, upperTotal);
+        throw new Error('单个' + (item.file ? '代码文件' : '会话轮次') + '超过同步输入预算：' + (item.file || ((item.sessionId || item.sessionTitle || '未提供会话标识') + ' · 轮次 ' + (item.turnNumber ?? '未知'))) + `（完整输入保守估算 ${measured.tokens.toLocaleString()}，上限 ${maxTokens.toLocaleString()}，含提示词、文档和证据）`);
+      }
       pending.push(item);
     }
   }
@@ -71,8 +74,9 @@ export async function packSyncChunks(groups, { buildVariables, preparePrompt, de
 export async function chunkCodeDiff(files, options) {
   const byFile = new Map();
   for (const file of files) {
-    if (byFile.has(file.file)) byFile.get(file.file).content += '\n' + file.content;
-    else byFile.set(file.file, { ...file });
+    const key = file.part === undefined ? file.file : `${file.file}\0${file.part}`;
+    if (byFile.has(key)) byFile.get(key).content += '\n' + file.content;
+    else byFile.set(key, { ...file });
   }
   const packages = new Map();
   for (const file of byFile.values()) {
@@ -179,11 +183,43 @@ export class PhasedSyncEngine {
     const commonCost = await cost(common);
     const fixed = Math.max(...Object.values(templates).map(prompt => estimateSubagentInputTokens(prompt.fullPrompt))) + REQUEST_RESERVE + 16000 + 2 * OUTPUT_LIMIT;
     if (fixed + commonCost * 2 >= MAX_SYNC_INPUT_TOKENS) throw new Error('DOCUMENT_INPUT_TOO_LARGE: 文档与固定契约超出完整读取预算');
+    // Large files can include several full frozen source versions. Preserve every byte,
+    // but give each analysis only a bounded, labelled range instead of requiring the
+    // entire file and all versions in a single child context.
+    const boundedCodeFiles = [];
+    for (const file of codeFiles) {
+      if (fixed + commonCost + await cost([...file.required, ...file.context]) + 8 < MAX_SYNC_INPUT_TOKENS) {
+        boundedCodeFiles.push(file); continue;
+      }
+      let part = 0;
+      for (const sourceId of [...file.required, ...file.context]) {
+        const text = await store.read(sourceId);
+        let start = 0;
+        while (start < text.length) {
+          const id = sourceId + '.part-' + part;
+          const wrap = end => JSON.stringify({ file: file.file, sourceArtifactId: sourceId, start, end, totalChars: text.length, text: text.slice(start, end) });
+          let low = start + 1, high = text.length, end = start;
+          while (low <= high) {
+            const middle = Math.floor((low + high) / 2);
+            const tokens = estimateSubagentInputTokens(JSON.stringify({ artifactId: id, text: wrap(middle) })) + 1024;
+            if (fixed + commonCost + tokens + 8 < MAX_SYNC_INPUT_TOKENS) { end = middle; low = middle + 1; }
+            else high = middle - 1;
+          }
+          const newline = text.lastIndexOf('\n', end - 1);
+          if (newline >= start + (end - start) / 2) end = newline + 1;
+          if (end < text.length && /[\uD800-\uDBFF]/.test(text[end - 1])) end--;
+          if (end <= start) throw new Error('DOCUMENT_INPUT_TOO_LARGE: 固定输入预算不足以读取代码片段：' + file.file);
+          await store.put(id, wrap(end));
+          boundedCodeFiles.push({ file: file.file, part: part++, content: text.slice(start, end), required: [id], context: [] });
+          start = end;
+        }
+      }
+    }
     const packing = () => ({
       buildVariables: items => ({ ids: [...common, ...items.flatMap(item => [...item.required, ...item.context])] }),
       preparePrompt: async variables => ({ fullPrompt: 'x'.repeat(fixed + await cost(variables.ids)) }),
     });
-    const code = await chunkCodeDiff(codeFiles, packing());
+    const code = await chunkCodeDiff(boundedCodeFiles, packing());
     const discussion = await chunkTurns(turns, packing());
     const stage = async (source, chunk) => {
       const id = source + '-' + chunk.index, manifestId = 'manifest.' + id;
