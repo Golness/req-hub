@@ -2009,3 +2009,6 @@ p.rh-sync-hint { margin: 6px 0; }
 .rh-codex-warnings { margin: 8px 0; font-size: var(--rh-font-size-sm); color: var(--dsw-alias-label-secondary); }
 .rh-codex-warnings summary { cursor: pointer; }
 .rh-codex-warnings ul { max-height: 160px; overflow: auto; padding-left: 20px; overflow-wrap: anywhere; }
+
+.rh-codex-progress { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; font-size: var(--rh-font-size); color: var(--dsw-alias-label-secondary); }
+.rh-codex-progress progress { width: 100%; height: 6px; accent-color: var(--rh-accent); }

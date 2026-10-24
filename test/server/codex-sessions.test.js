@@ -2,6 +2,7 @@ import { beforeEach, afterEach, it, expect } from 'vitest';
 import { mkdtemp, readFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
+import { Readable } from 'node:stream';
 import { createCodexTranscript } from '../../src/server/codex-sessions/transcript.js';
 import { CodexSessionService } from '../../src/server/codex-sessions/service.js';
 import { CodexSource } from '../../src/server/codex-sessions/source.js';
@@ -15,6 +16,32 @@ beforeEach(async () => {
 });
 afterEach(async () => { native?.close(); native = null; await service.close(); await rm(root, { recursive: true, force: true }); });
 const parse = records => { const parser = createCodexTranscript('codex:cx-one'); records.forEach(record => parser.push(record)); return parser.finish(); };
+
+it('streams refresh progress before the result and reports errors inside an opened stream', async () => {
+  const run = async fail => {
+    const events = [];
+    const routes = createCodexSessionRoutes({ list: () => [{ id: 'ws' }] }, {
+      async refresh(workspaceId, projectId, onProgress) {
+        expect(workspaceId).toBe('ws'); expect(projectId).toBe('project:p');
+        onProgress({ phase: 'importing', completed: 1, total: 2 });
+        expect(events).toHaveLength(1);
+        if (fail) throw Error('读取失败');
+        return { sessions: [] };
+      },
+    });
+    const req = Readable.from([JSON.stringify({ workspaceId: 'ws', codexWorkspaceId: 'project:p', stream: true })]);
+    req.method = 'POST';
+    const res = { writeHead(status, headers) { expect(status).toBe(200); expect(headers['Content-Type']).toContain('application/x-ndjson'); },
+      write(line) { events.push(JSON.parse(line)); }, end() { this.ended = true; } };
+    await routes[2].handler(req, res);
+    expect(res.ended).toBe(true);
+    return events;
+  };
+  expect(await run(false)).toEqual([
+    { type: 'progress', phase: 'importing', completed: 1, total: 2 }, { type: 'result', result: { sessions: [] } },
+  ]);
+  expect((await run(true)).at(-1)).toEqual({ type: 'error', error: '读取失败' });
+});
 
 it('keeps full ordered visible replies, human steering and completed turns without mirrored duplicates', () => {
   const final = '最终回复'.repeat(15000), intermediate = '中间回复'.repeat(15000);
@@ -48,7 +75,15 @@ it('uses Codex projects across worktree paths, excludes archived and subagent th
   ], [{ id: 'p', title: '订单项目', paths: ['D:/repo', 'D:/other-root'] }]);
   const { workspaces } = await service.workspaces(); expect(workspaces[0]).toMatchObject({ id: 'project:p', title: '订单项目', sessionCount: 1 });
   expect(workspaces[0].paths).toHaveLength(2);
-  const result = await service.refresh('dsh-ws', 'project:p');
+  const progress = [];
+  const result = await service.refresh('dsh-ws', 'project:p', event => progress.push(event));
+  expect(progress).toEqual([
+    { phase: 'queued', completed: 0, total: null },
+    { phase: 'inventory', completed: 0, total: null },
+    { phase: 'importing', completed: 0, total: 1 },
+    { phase: 'importing', completed: 1, total: 1 },
+    { phase: 'saving', completed: 1, total: 1 },
+  ]);
   expect(result.sessions).toHaveLength(1); expect(result.importedCount).toBe(1);
   const imported = result.sessions[0]; expect(imported.id).toBe('codex:cx-one');
   expect(imported).toMatchObject({ turnCount: 1, syncTurnCount: 1 });

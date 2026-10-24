@@ -40,12 +40,14 @@ export class CodexSessionService {
     return { workspace: project ? JSON.parse(project.payload) : null, refreshedAt: project?.refreshed_at || null,
       sessions: project ? db.prepare('SELECT payload FROM sessions WHERE project_id=? AND active=1').all(selection.project_id).map(row => JSON.parse(row.payload)).sort((a, b) => b.updatedAt - a.updatedAt) : [] };
   }
-  refresh(workspaceId, projectId) {
-    const operation = this.queue.then(() => this.importProject(workspaceId, projectId));
+  refresh(workspaceId, projectId, onProgress = () => {}) {
+    onProgress({ phase: 'queued', completed: 0, total: null });
+    const operation = this.queue.then(() => this.importProject(workspaceId, projectId, onProgress));
     this.queue = operation.catch(() => {});
     return operation;
   }
-  async importProject(workspaceId, projectId) {
+  async importProject(workspaceId, projectId, onProgress) {
+    onProgress({ phase: 'inventory', completed: 0, total: null });
     const db = await this.database();
     projectId ||= db.prepare('SELECT project_id FROM selections WHERE workspace_id=?').get(workspaceId)?.project_id;
     const inventory = await this.source.inventory();
@@ -54,7 +56,9 @@ export class CodexSessionService {
     if (!project) throw codexError('CODEX_WORKSPACE_MISSING: 工作区不存在，请重新选择 Codex 工作区', 404);
     const warnings = [...inventory.warnings], rows = [];
     let importedCount = 0;
-    for (const session of inventory.sessions.filter(item => item.workspaceId === project.id)) {
+    const sessions = inventory.sessions.filter(item => item.workspaceId === project.id);
+    onProgress({ phase: 'importing', completed: 0, total: sessions.length });
+    for (const session of sessions) {
       const details = { ...session, source: 'codex', isPersisted: true };
       delete details.sourcePath; delete details.nativeId;
       try {
@@ -76,7 +80,9 @@ export class CodexSessionService {
         warnings.push(`${session.title}：${error.message}`);
       }
       rows.push({ session, details });
+      onProgress({ phase: 'importing', completed: rows.length, total: sessions.length });
     }
+    onProgress({ phase: 'saving', completed: rows.length, total: sessions.length });
     const now = new Date().toISOString();
     db.exec('BEGIN IMMEDIATE');
     try {

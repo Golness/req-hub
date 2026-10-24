@@ -57,6 +57,31 @@ async function chooseWorkspace() {
   await click(dialog.querySelector('.rh-codex-workspace'));
 }
 
+it('shows streamed refresh counts before completion and hides progress after the result', async () => {
+  await open(); await chooseWorkspace();
+  let next;
+  let initial = true;
+  const releaseLock = vi.fn();
+  fetchMock.mockImplementationOnce(async () => ({
+    ok: true, headers: { get: () => 'application/x-ndjson' },
+    body: { getReader: () => ({ releaseLock, read: () => {
+      if (initial) { initial = false; return Promise.resolve({ value: new TextEncoder().encode(JSON.stringify({ type: 'progress', phase: 'importing', completed: 1, total: 3 }) + '\n'), done: false }); }
+      return new Promise(resolve => { next = resolve; });
+    } }) },
+  }));
+  await click(button('刷新 Codex 会话'));
+  expect(container.textContent).toContain('正在拉取 Codex 会话（1/3）');
+  expect(container.querySelector('progress').value).toBe(1);
+  expect(container.querySelector('progress').max).toBe(3);
+  expect(button('刷新 Codex 会话').disabled).toBe(true);
+  expect(container.textContent).not.toContain('Markdown 已入库');
+  await act(async () => next({ value: new TextEncoder().encode(JSON.stringify({ type: 'result', result: { workspace: project, sessions: [session] } }) + '\n'), done: true }));
+  expect(container.querySelector('progress')).toBeNull();
+  expect(container.textContent).toContain('Markdown 已入库');
+  expect(button('刷新 Codex 会话').disabled).toBe(false);
+  expect(releaseLock).toHaveBeenCalled();
+});
+
 it('places Codex under DSH sessions, imports a chosen workspace and submits both sources with their preview versions', async () => {
   await open();
   expect(button('开始同步需求文档').disabled).toBe(true);
