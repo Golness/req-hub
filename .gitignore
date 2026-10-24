@@ -17,3 +17,6 @@ Thumbs.db
 
 # Plugin docs directory (example data)
 docs/
+
+# pnpm store
+.pnpm-store/
