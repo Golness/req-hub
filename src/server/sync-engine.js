@@ -2,12 +2,13 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
+import taskModel from '../shared/sync-task.cjs';
 import { readFile, lstat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { hashBytes, decodeDocument } from './sync-artifacts.js';
 import { filterSyncCodeDiff, isSyncCodeFile, parseSyncCodeDiff } from './sync-code-files.js';
 import { parseBranchName } from './utils.js';
-import { loadState, getActiveSync, getSyncHistory, setActiveSync, getAbortController } from './sync-state.js';
+import { loadState, getActiveSync, getSyncHistory, setActiveSync, getAbortController, completeSync, removeSyncTask } from './sync-state.js';
 import { defaultSyncBaseBranch, listSyncCommits } from './sync-branches.js';
 
 const execFileAsync = promisify(execFile);
@@ -63,9 +64,10 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
   const branchName = await findBranchByRequirement(cwd, requirementId, current);
   const commitHash = await git(cwd, 'rev-parse', '--verify', `refs/heads/${branchName}^{commit}`);
   const selectionMode = options.commitHashes !== undefined;
-  const successes = history.filter(item => item.schemaVersion === 2 && item.branchName === branchName && item.docType === docType && item.status === 'completed' && item.commitHash && !item.selectionMode);
+  const sessionSnapshots = options.sessionSnapshots || [];
+  const successes = history.filter(item => item.schemaVersion === 2 && item.branchName === branchName && item.docType === docType && taskModel.hasPublishedDocument(item) && item.commitHash && !item.selectionMode);
   let baseline = null;
-  for (const item of selectionMode ? [] : successes) {
+  for (const item of selectionMode || sessionSnapshots.length ? [] : successes) {
     if (await isAncestor(cwd, commitHash, item.commitHash)) {
       return { skipped: true, commitHash, branchName, message: '当前 commit 已同步，或早于历史成功同步版本' };
     }
@@ -163,9 +165,11 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
   }
   if ((await git(cwd, 'rev-parse', branchName)) !== commitHash || (await git(cwd, 'ls-files', '--stage', '-z')) !== indexBefore) throw new Error('INPUT_CHANGED: Git 状态在捕获期间变化');
   if (JSON.stringify(await readWorkingChanges(cwd)) !== JSON.stringify(uncommittedChanges)) throw new Error('INPUT_CHANGED: 工作区在捕获期间变化');
-  if (selectionMode) {
-    selectionKey = hashBytes(Buffer.from(JSON.stringify([comparison.baseline, commits.map(commit => commit.hash), includeWorkingChanges, includeWorkingChanges ? uncommittedChanges : null])));
-    if (history.some(item => item.schemaVersion === 2 && item.status === 'completed' && item.branchName === branchName && item.docType === docType && item.selectionKey === selectionKey)) return { skipped: true, commitHash, branchName, message: '所选 commit 和未提交改动已同步' };
+  if (selectionMode || sessionSnapshots.length) {
+    const identity = [comparison?.baseline || baseline, commits.map(commit => commit.hash), includeWorkingChanges, includeWorkingChanges ? uncommittedChanges : null];
+    if (sessionSnapshots.length) identity.push(sessionSnapshots);
+    selectionKey = hashBytes(Buffer.from(JSON.stringify(identity)));
+    if (history.some(item => item.schemaVersion === 2 && taskModel.hasPublishedDocument(item) && item.branchName === branchName && item.docType === docType && item.selectionKey === selectionKey)) return { skipped: true, commitHash, branchName, message: '所选 commit 和未提交改动已同步' };
   }
   return { schemaVersion: 2, commitHash, branchName, baselineCommit: baseline, commits, committedDiff,
     uncommittedChanges: includeWorkingChanges ? uncommittedChanges : { staged: '', unstaged: '', untracked: [], untrackedDiff: '', hasChanges: false },
@@ -173,22 +177,35 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
 }
 
 /** Serialize preflight + reservation so two requests cannot both pass the history gate. */
-export async function beginCommitSync(cwd, reqDir, fields) {
+function abortable(promise, signal) {
+  if (!signal) return promise;
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const abort = () => { signal.removeEventListener('abort', abort); reject(signal.reason || new Error('同步已取消')); };
+    signal.addEventListener('abort', abort, { once: true });
+    Promise.resolve(promise).then(value => { signal.removeEventListener('abort', abort); resolve(value); }, error => { signal.removeEventListener('abort', abort); reject(error); });
+  });
+}
+
+export async function beginCommitSync(cwd, reqDir, fields, { signal } = {}) {
   const key = `${fields.workspaceId}:${fields.requirementId}`;
   const previous = reservations.get(key) || Promise.resolve();
   let release;
   const lock = new Promise(resolve => { release = resolve; });
   reservations.set(key, lock);
-  await previous;
+  let created;
   try {
+    await abortable(previous, signal);
+    signal?.throwIfAborted();
     await loadState(fields.workspaceId, fields.requirementId, reqDir);
     if (getAbortController(fields.workspaceId, fields.requirementId)?.controller.signal.aborted) {
       throw new Error('上一个同步任务正在终止，请稍后重试');
     }
     const active = await getActiveSync(fields.workspaceId, fields.requirementId);
-    if (active?.status === 'running') return { active: true, sync: active };
-    const prepared = await prepareCommitSync(cwd, fields.requirementId, fields.docType,
-      await getSyncHistory(fields.workspaceId, fields.requirementId), { baseBranch: fields.baseBranch, commitHashes: fields.commitHashes, branchTip: fields.branchTip, baseCommit: fields.baseCommit, includeWorkingChanges: fields.includeWorkingChanges });
+    if (taskModel.isSyncActive(active)) return { active: true, sync: active };
+    if (active) await completeSync(active.id, fields.workspaceId, fields.requirementId);
+    const prepared = await abortable(prepareCommitSync(cwd, fields.requirementId, fields.docType,
+      await getSyncHistory(fields.workspaceId, fields.requirementId), { baseBranch: fields.baseBranch, commitHashes: fields.commitHashes, branchTip: fields.branchTip, baseCommit: fields.baseCommit, includeWorkingChanges: fields.includeWorkingChanges, sessionSnapshots: fields.sessionSnapshots }), signal);
     if (prepared.skipped) return prepared;
     const id = `${fields.docType}-${prepared.commitHash}-${hashBytes(Buffer.from(prepared.branchName)).slice(0, 12)}${prepared.selectionKey ? '-' + prepared.selectionKey.slice(0, 16) : ''}`;
     const sync = { ...fields, schemaVersion: 2, id, commitHash: prepared.commitHash, branchName: prepared.branchName,
@@ -197,8 +214,13 @@ export async function beginCommitSync(cwd, reqDir, fields) {
       selectedCommitHashes: prepared.selectionMode ? prepared.commits.map(commit => commit.hash) : undefined,
       baselineCommit: prepared.baselineCommit, snapshotDir: `v2/${id}/${randomUUID()}`,
       startedAt: Date.now(), status: 'running' };
+    signal?.throwIfAborted(); created = sync;
     await setActiveSync(sync, reqDir);
+    signal?.throwIfAborted();
     return { ...prepared, sync };
+  } catch (error) {
+    if (created && signal?.aborted) await removeSyncTask(created);
+    throw error;
   } finally {
     release();
     if (reservations.get(key) === lock) reservations.delete(key);

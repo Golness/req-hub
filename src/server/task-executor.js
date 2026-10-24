@@ -666,17 +666,24 @@ export class TaskExecutor {
     );
 
     // 启动 subagent
-    const startPromise = this.ctx.subagents.start(provider, {
+    const startController = options.syncV2 ? new AbortController() : null;
+    const startSignal = startController ? AbortSignal.any([startController.signal, this.signal].filter(Boolean)) : this.signal;
+    startSignal?.throwIfAborted();
+    const startPromise = Promise.resolve(this.ctx.subagents.start(provider, {
       label: description || promptKey,
       prompt: [{ type: 'text', text: fullPrompt }],
       parent: this.parentAgent,
-      signal: this.signal,
+      signal: startSignal,
       ...(options.toolFilter ? { toolFilter: options.toolFilter } : {}),
       ...Object.values(mergedAgentOptions).some(v => v !== undefined) ? { agentOptions: mergedAgentOptions } : {},
+    })).then(run => {
+      // A child may settle while an awaited progress callback persists its ID.
+      if (options.syncV2) void run.result.catch(() => {});
+      return run;
     });
 
     // 设置启动超时
-    // ⚠️ 修复 Issue #3: 添加定时器清理，避免 unhandled promise rejection
+    //  修复 Issue #3: 添加定时器清理，避免 unhandled promise rejection
     const startTimeoutMs = 30000; // 30 秒启动超时
     let startTimeoutId;
     const startTimeoutPromise = new Promise((_, reject) => {
@@ -688,8 +695,15 @@ export class TaskExecutor {
 
     try {
       const run = await Promise.race([startPromise, startTimeoutPromise]);
-      return { run, provider };
+      if (options.syncV2) startSignal.throwIfAborted();
+      return { run, provider, startController };
     } catch (e) {
+      if (startController) {
+        startController.abort(e);
+        // DSH start() owns setup until it settles; reclaim even a handle published
+        // after the caller's timeout, before releasing the sync reservation.
+        try { const lateRun = await startPromise; await lateRun?.dispose(); } catch { /* start failed before publication */ }
+      }
       if (e.code === TaskExecutorErrorCode.START_TIMEOUT) {
         throw e;
       }
@@ -703,7 +717,7 @@ export class TaskExecutor {
       }
       throw e;
     } finally {
-      // ⚠️ 修复 Issue #3: 清理定时器
+      //  修复 Issue #3: 清理定时器
       clearTimeout(startTimeoutId);
     }
   }
@@ -720,7 +734,7 @@ export class TaskExecutor {
     const sessionId = run.id;
 
     // 回调：Subagent 执行中
-    this.callbacks.onProgress?.({
+    await this.callbacks.onProgress?.({
       stage: 'executing',
       sessionId,
     });
@@ -733,7 +747,7 @@ export class TaskExecutor {
       TaskExecutorConfig.maxTimeout
     );
 
-    // ⚠️ 修复 Issue #3: 添加定时器清理，避免 unhandled promise rejection
+    //  修复 Issue #3: 添加定时器清理，避免 unhandled promise rejection
     // 如果 run.result 先完成，setTimeout 仍然在后台运行
     // 当超时触发时，reject() 被调用但没有 Promise 在等待它
     let timeoutId;
@@ -753,7 +767,7 @@ export class TaskExecutor {
     let livenessReject = null;
     const livenessPromise = livenessConfig?.enabled
       ? new Promise((_, reject) => { livenessReject = reject; })
-      : options.syncV2 ? new Promise(() => {}) : Promise.resolve();
+      : new Promise(() => {});
 
     if (livenessConfig?.enabled) {
       livenessMonitor = await this.monitorLiveness(sessionId, livenessConfig, Date.now());
@@ -791,11 +805,11 @@ export class TaskExecutor {
 
       return { result, sessionId };
     } finally {
-      // ⚠️ 修复 Issue #3: 清理定时器，避免 unhandled promise rejection
+      //  修复 Issue #3: 清理定时器，避免 unhandled promise rejection
       clearTimeout(timeoutId);
       if (livenessMonitor) {
         livenessMonitor.stop();
-        if (options.syncV2) livenessMonitor = null;
+        livenessMonitor = null;
       }
     }
   }
@@ -975,7 +989,7 @@ export class TaskExecutor {
             const msg = `Subagent 检测到无响应: ${Math.round(stalenessDuration / 1000)}s 无活动，自动中断`;
             log.taskExecutor.error(msg, { sessionId, staleCount });
 
-            // ⚠️ 注意：ctx.subagents.interrupt() 对 one-shot subagent 是静默空操作
+            //  注意：ctx.subagents.interrupt() 对 one-shot subagent 是静默空操作
             // 因为 interrupt() 只作用于 continuable 类型的 subagent（ContinuableActivationRegistry.resident）
             // One-shot subagent 通过 SpawnInProcessProvider.start() 直接启动，不注册到 resident Map
             // 因此取消 one-shot subagent 的唯一有效机制是 AbortSignal
@@ -1008,6 +1022,7 @@ export class TaskExecutor {
   async executeViaSubagent(options, startTime) {
     const { promptKey, description } = options;
     let run = null;
+    let runController;
 
     try {
       // ====== 二、Skill/Prompt 加载 ======
@@ -1016,6 +1031,7 @@ export class TaskExecutor {
       // ====== 三、Subagent 启动 ======
       const startResult = await this.startSubagent(options, promptData);
       run = startResult.run;
+      runController = startResult.startController;
       const { provider } = startResult;
 
       // ====== 四、Subagent 执行 ======
@@ -1109,7 +1125,8 @@ export class TaskExecutor {
       return result;
     } finally {
       // ====== 五、资源释放 ======
-      await this.disposeRun(run);
+      runController?.abort();
+      await this.disposeRun(run, { strict: !!options.syncV2 });
     }
   }
 
@@ -1118,7 +1135,7 @@ export class TaskExecutor {
    * @param {Object|null} run - Subagent run instance
    * @returns {Promise<void>}
    */
-  async disposeRun(run) {
+  async disposeRun(run, { strict = false } = {}) {
     if (!run) return;
 
     try {
@@ -1126,6 +1143,7 @@ export class TaskExecutor {
       log.taskExecutor.debug(`Subagent 资源已释放`);
     } catch (disposeError) {
       log.taskExecutor.warn(`资源释放失败: ${disposeError.message}`);
+      if (strict) throw disposeError;
       // 不抛出错误，只记录警告
     }
   }

@@ -19,9 +19,9 @@ export async function readDocumentVersion(path) {
     return { exists: true, bytes: await readFile(path) };
   } catch (error) { if (error.code === 'ENOENT') return { exists: false, bytes: Buffer.alloc(0) }; throw error; }
 }
-export async function atomicWrite(path, bytes) {
+export async function atomicWrite(path, bytes, signal, assertActive) {
   const temp = path + '.' + randomUUID() + '.tmp';
-  try { await writeFile(temp, bytes, { flag: 'wx' }); await rename(temp, path); }
+  try { signal?.throwIfAborted(); assertActive?.(); await writeFile(temp, bytes, { flag: 'wx' }); signal?.throwIfAborted(); assertActive?.(); await rename(temp, path); }
   finally { await unlink(temp).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
 }
 /** Parser positions index original UTF-16 text; no Markdown reserialization. */
@@ -108,7 +108,7 @@ export function validateCandidate(originalBytes, candidateBytes, fileName, autho
 }
 
 /** Journal makes interrupted publishing recoverable without overwriting a new user edit. */
-export async function publishDocument({ docPath, syncDir, fileName, original, candidateBytes, validation, signal }) {
+export async function publishDocument({ docPath, syncDir, fileName, original, candidateBytes, validation, signal, assertActive }) {
   if (!['requirement.md', 'design.md'].includes(fileName) || hashBytes(original.bytes) !== validation.originalHash || hashBytes(candidateBytes) !== validation.candidateHash) throw new Error('PUBLISH_VALIDATION_MISMATCH');
   return withDocumentLock(docPath, async () => {
     signal?.throwIfAborted();
@@ -122,7 +122,7 @@ export async function publishDocument({ docPath, syncDir, fileName, original, ca
     // Recheck under the shared lock immediately before replacing the live document.
     const latest = await readDocumentVersion(docPath);
     if (latest.exists !== original.exists || !latest.bytes.equals(original.bytes)) throw new Error('PUBLISH_CONFLICT');
-    await atomicWrite(docPath, candidateBytes);
+    await atomicWrite(docPath, candidateBytes, signal, assertActive);
     if (!(await readFile(docPath)).equals(candidateBytes)) throw new Error('PUBLISH_CONFLICT');
     await atomicWrite(join(syncDir, 'publish-journal.json'), JSON.stringify({ ...journal, stage: 'document_written' }, null, 2));
     return journal;

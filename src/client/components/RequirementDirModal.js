@@ -6,7 +6,7 @@ const { useState, useEffect } = React;
 const { ROUTE } = require('../constants.js');
 const { createIconComponents } = require('../icons.js');
 
-const { IconFolderOpen, IconFile, IconExpand } = createIconComponents(h);
+const { IconFolderOpen, IconChevronRight } = createIconComponents(h);
 
 /**
  * @component
@@ -51,7 +51,7 @@ function RequirementDirModal({ workspaceId, selectedReqId, onSelect, onClose }) 
 
   return h('div', { className: 'rh-modal-overlay', onClick: onClose, role: 'dialog', 'aria-modal': 'true', 'aria-label': '选择需求目录' },
     h('div', { className: 'rh-modal', onClick: e => e.stopPropagation(), style: { minWidth: 400 } },
-      h('div', { className: 'rh-modal-title', style: { display: 'flex', alignItems: 'center', gap: 6 } }, h(IconFolderOpen, { size: 16 }), ' 选择需求目录'),
+      h('div', { className: 'rh-modal-title', style: { display: 'flex', alignItems: 'center', gap: 6 } },  ' 选择需求目录'),
       loading
         ? h('div', { className: 'rh-empty' }, '加载中...')
         : !tree || tree.developers.length === 0
@@ -64,7 +64,7 @@ function RequirementDirModal({ workspaceId, selectedReqId, onSelect, onClose }) 
                     onClick: () => toggleDev(dev.name),
                     style: { fontWeight: 600 }
                   },
-                    h('span', { className: 'rh-modal-item-icon' }, h(IconExpand, { size: 12, style: { transform: expandedDevs[dev.name] ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' } })),
+                    h('span', { className: 'rh-modal-item-icon' }, h(IconChevronRight, { size: 12, style: { transform: expandedDevs[dev.name] ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' } })),
                     h('span', { className: 'rh-modal-item-name' }, dev.name),
                     h('span', { className: 'rh-modal-item-count' }, `(${dev.requirementCount})`)
                   ),
@@ -77,7 +77,7 @@ function RequirementDirModal({ workspaceId, selectedReqId, onSelect, onClose }) 
                     },
                       h('span', { className: 'rh-modal-item-icon' }, h(IconFolderOpen, { size: 14 })),
                       h('span', { className: 'rh-modal-item-name' }, `${req.date.slice(5)} ${req.title}`),
-                      h('span', { className: 'rh-modal-item-count', style: { display: 'inline-flex', alignItems: 'center', gap: 2 } }, h(IconFile, { size: 11 }), ` ${req.fileCount}`)
+                      h('span', { className: 'rh-modal-item-count', style: { display: 'inline-flex', alignItems: 'center', gap: 2 } }, `${req.fileCount} 个文件`)
                     )
                   )
                 )

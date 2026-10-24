@@ -37,44 +37,20 @@
 .rh-tl-item:not(:last-child):before {
   content: '';
   position: absolute;
-  left: 11px;
-  top: 28px;
+  left: 3px;
+  top: 20px;
   bottom: -6px;
   width: 2px;
   background: var(--dsw-alias-border-l1);
 }
 
 .rh-tl-dot {
-  width: 24px;
-  height: 24px;
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
   border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
   flex-shrink: 0;
-  background: var(--dsw-alias-bg-layer-2);
-  border: 2px solid var(--dsw-alias-border-l1);
-}
-
-.rh-tl-dot.requirement {
-  border-color: var(--rh-accent);
-  background: var(--dsw-alias-brand-primary-bg);
-}
-
-.rh-tl-dot.design {
-  border-color: var(--dsw-alias-state-info-primary);
-  background: var(--dsw-alias-state-info-bg);
-}
-
-.rh-tl-dot.cr {
-  border-color: var(--dsw-alias-state-warning-primary);
-  background: var(--dsw-alias-state-warning-bg);
-}
-
-.rh-tl-dot.release {
-  border-color: var(--dsw-alias-state-success-primary);
-  background: var(--dsw-alias-state-success-bg);
+  background: var(--dsw-alias-label-tertiary);
 }
 
 .rh-tl-content {

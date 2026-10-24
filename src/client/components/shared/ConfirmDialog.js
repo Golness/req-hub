@@ -73,7 +73,7 @@ function ConfirmDialog({ title, message, confirmText = '确认', cancelText = '�
         ),
         h('h3', { className: 'rh-confirm-title' }, title),
         h('button', {
-          className: 'rh-confirm-close',
+          className: 'rh-btn rh-btn-ghost rh-btn-sm rh-btn-icon rh-confirm-close',
           onClick: onCancel,
           'aria-label': '关闭',
         }, h(IconClose, { size: 16 }))

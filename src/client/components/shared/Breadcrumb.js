@@ -28,7 +28,7 @@ function Breadcrumb({ items, onNavigate }) {
     if (i < items.length - 1) {
       elements.push(h('button', {
         key: `link-${i}`,
-        className: 'rh-breadcrumb-link',
+        className: 'rh-btn rh-btn-ghost rh-btn-sm rh-breadcrumb-link',
         onClick: () => onNavigate ? onNavigate(item) : (item.onClick && item.onClick()),
         'aria-label': `导航到 ${item.label}`,
       }, item.label));

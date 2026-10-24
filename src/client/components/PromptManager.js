@@ -1,6 +1,7 @@
 'use strict';
 
 const React = require('react');
+const { Select } = require('./shared/Select.js');
 const h = React.createElement;
 const { useState, useRef, useId } = React;
 
@@ -10,15 +11,13 @@ const CATEGORIES = [
   { id: 'sync', label: '同步' },
   { id: 'view', label: '查看' },
   { id: 'trace', label: '追溯' },
-  { id: 'workbench', label: '工作台' },
-  { id: 'templates', label: '模板' },
+  { id: 'writing', label: '写作' },
   { id: 'other', label: '其他' },
 ];
 
 function getPromptCategory(key, meta) {
   if (key.startsWith('phased-') || meta.category === 'phased-sync') return 'sync';
-  if (key === 'analyze' || key === 'search' || meta.category === 'search') return 'workbench';
-  if (key === 'template' || meta.category === 'template') return 'templates';
+  if (key === 'analyze') return 'sync';
   return CATEGORIES.some(category => category.id === meta.category) ? meta.category : 'other';
 }
 
@@ -73,7 +72,7 @@ function PromptManager({ registry, error, onRetry, prompts, skillBindings, skill
           }, item.label, h('span', { className: 'rh-prompt-count' }, item.entries.length)))
         ),
         h('div', { className: 'rh-prompt-workspace', role: 'tabpanel', id: `${id}-panel`, 'aria-labelledby': `${id}-tab-${category.id}` },
-          h('select', {
+          h(Select, {
             className: 'rh-form-select rh-prompt-picker', 'aria-label': '选择 Prompt', value: selected[0],
             onChange: event => setSelectedKeys(prev => ({ ...prev, [category.id]: event.target.value })),
           }, category.entries.map(([key, meta]) => h('option', { key, value: key }, meta.label))),
@@ -113,8 +112,9 @@ function PromptManager({ registry, error, onRetry, prompts, skillBindings, skill
               meta.description && h('p', { className: 'rh-prompt-description' }, meta.description),
               h('div', { className: 'rh-prompt-skill' },
                 h('label', { htmlFor: `${id}-skill` }, 'Skill'),
-                h('select', {
+                h(Select, {
                   id: `${id}-skill`, className: 'rh-form-select', value: binding,
+                  'aria-label': 'Skill', searchable: true, searchPlaceholder: '搜索 Skill…',
                   onChange: event => onBindSkill(key, event.target.value),
                 },
                   h('option', { value: '' }, '不绑定'),
@@ -135,7 +135,7 @@ function PromptManager({ registry, error, onRetry, prompts, skillBindings, skill
               h('details', { className: 'rh-prompt-reference', key: `${key}-reference` },
                 h('summary', null, '变量与输出', meta.outputFormat ? ` · ${meta.outputFormat}` : ''),
                 h('div', { className: 'rh-prompt-variables' }, (meta.variables || []).map(variable => h('button', {
-                  key: variable.name, type: 'button', className: 'rh-prompt-variable',
+                  key: variable.name, type: 'button', className: 'rh-btn rh-btn-sm rh-prompt-variable',
                   title: `${variable.description || variable.name}${variable.required ? '（必填）' : ''}，点击插入`,
                   onClick: () => {
                     const editor = editorRef.current;

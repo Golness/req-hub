@@ -48,16 +48,26 @@ it('opens Markdown as editable preview, preserves drafts across views, and saves
     });
     await new Promise((resolve) => setTimeout(resolve, 250));
   });
-  await act(async () => container.querySelector('[title="切换到只读预览"]').click());
+  expect(container.querySelector('[title="预览并编辑渲染后的文档"]').getAttribute('aria-pressed')).toBe('true');
+  await act(async () => container.querySelector('[title="编辑 Markdown 原文"]').click());
   expect(container.querySelector('.ProseMirror')).toBeNull();
-  expect(container.querySelector('.rh-preview-body').textContent).toContain('Initial edited');
-  await act(async () => container.querySelector('[title="切换到可编辑预览"]').click());
+  const source = container.querySelector('[aria-label="Markdown 原文"]');
+  expect(source.value).toBe('# Initial edited\n');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(source, '# Source edited\n');
+    source.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true })));
+  expect(JSON.parse(fetchMock.mock.calls.find(([, options]) => options?.method === 'POST')[1].body).content).toBe('# Source edited\n');
+  await act(async () => container.querySelector('[title="预览并编辑渲染后的文档"]').click());
   await act(async () => vi.waitFor(() => {
-    expect(container.querySelector('.ProseMirror h1')?.textContent).toBe('Initial edited');
+    expect(container.querySelector('.ProseMirror h1')?.textContent).toBe('Source edited');
   }));
   await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true })));
-  const saveCall = fetchMock.mock.calls.find(([, options]) => options?.method === 'POST');
-  expect(JSON.parse(saveCall[1].body)).toEqual({ workspaceId: 'ws', path: 'design.md', content: '# Initial edited\n' });
+  const saves = fetchMock.mock.calls.filter(([, options]) => options?.method === 'POST');
+  expect(saves).toHaveLength(2);
+  const saveCall = saves[1];
+  expect(JSON.parse(saveCall[1].body)).toEqual({ workspaceId: 'ws', path: 'design.md', content: '# Source edited\n' });
   expect(container.querySelector('.rh-toast-success')?.textContent).toContain('文件已保存');
 });
 
@@ -100,4 +110,52 @@ it('tracks editable Markdown scroll and navigates using the preview container co
   expect(nav.querySelector('[aria-current="location"]')?.textContent).toBe('第三章');
   expect(scrollTo).toHaveBeenCalledWith({ top: 820, behavior: 'smooth' });
   expect(nav.scrollTop).toBeGreaterThan(0);
+});
+
+it('resets to editable preview when opening another Markdown file with identical saved content', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ text: '# Shared' }) })));
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  root = createRoot(container);
+  const open = async relPath => act(async () => root.render(React.createElement(FilePreview, {
+    workspaceId: 'ws', relPath, name: relPath, showToc: false,
+  })));
+  await open('first.md');
+  await act(async () => vi.waitFor(() => expect(container.querySelector('.ProseMirror h1')?.textContent).toBe('Shared')));
+  await act(async () => container.querySelector('[title="编辑 Markdown 原文"]').click());
+  const source = container.querySelector('textarea');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(source, '# Unsaved');
+    source.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await open('second.md');
+  await act(async () => vi.waitFor(() => expect(container.querySelector('.ProseMirror h1')?.textContent).toBe('Shared')));
+  expect(container.querySelector('textarea')).toBeNull();
+  expect(container.querySelector('[title="预览并编辑渲染后的文档"]').getAttribute('aria-pressed')).toBe('true');
+});
+
+it('opens an empty Markdown file for editing and saves raw Markdown through the toolbar', async () => {
+  const fetchMock = vi.fn(async (_url, options) => ({
+    ok: true, json: async () => options?.method === 'POST' ? { success: true } : { text: '' },
+  }));
+  vi.stubGlobal('fetch', fetchMock);
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  root = createRoot(container);
+  await act(async () => root.render(React.createElement(FilePreview, {
+    workspaceId: 'ws', relPath: 'empty.md', name: 'empty.md', showToc: false,
+  })));
+  await act(async () => vi.waitFor(() => expect(container.querySelector('.ProseMirror')?.getAttribute('contenteditable')).toBe('true')));
+  await act(async () => container.querySelector('[title="编辑 Markdown 原文"]').click());
+  const source = container.querySelector('textarea');
+  expect(source.value).toBe('');
+  const markdown = '# 新文档\n\n**原文**\n';
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(source, markdown);
+    source.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => container.querySelector('[title="保存文件 (Ctrl+S)"]').click());
+  expect(JSON.parse(fetchMock.mock.calls.find(([, options]) => options?.method === 'POST')[1].body)).toEqual({
+    workspaceId: 'ws', path: 'empty.md', content: markdown,
+  });
 });

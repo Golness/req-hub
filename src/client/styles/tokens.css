@@ -15,6 +15,15 @@ body {
   --rh-line-height: 20px;
   --rh-header-height: 48px;
   --rh-control-height: 32px;
+  /* DSH SidebarRoot newSession / ui-primitives Button contract. */
+  --rh-button-fill: var(--dsw-alias-button-elevated-fill);
+  --rh-button-hover: var(--dsw-alias-button-floating-hover);
+  --rh-button-selected: var(--dsw-alias-interactive-bg-active);
+  --rh-button-border: 0.5px solid var(--dsw-alias-border-l3);
+  --rh-button-radius: var(--dsw-radius-md);
+  --rh-button-radius-sm: var(--dsw-radius-sm);
+  --rh-button-height: 32px;
+  --rh-button-height-sm: 28px;
   --rh-panel-padding: 16px;
   /* Spacing scale (8px base) */
   --rh-space-xs: 4px;

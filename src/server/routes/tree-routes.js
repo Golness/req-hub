@@ -14,7 +14,7 @@ import { walkDocs, isInside, json, readBody } from '../utils.js';
 import { getCached, setCached } from '../cache.js';
 import { log } from '../logger.js';
 import { SUPPORTED_DOC_EXTS } from '../tree.js';
-import { rebuildIndex, loadIndex } from '../index-manager.js';
+import { readSource } from '../knowledge/source-reader.js';
 
 /**
  * Create document tree routes.
@@ -41,147 +41,6 @@ export function createTreeRoutes(registry) {
           path: w.path
         }));
         json(res, items);
-      }
-    },
-
-    // POST /rebuild-index - 重建搜索索引
-    {
-      kind: 'exact',
-      path: '/req-hub/rebuild-index',
-      async handler(req, res) {
-        if (req.method !== 'POST') {
-          res.writeHead(405);
-          res.end();
-          return;
-        }
-
-        try {
-          const body = await readBody(req);
-          const { workspaceId } = JSON.parse(body);
-
-          if (!workspaceId) {
-            json(res, { error: 'missing workspaceId' }, 400);
-            return;
-          }
-
-          const workspaces = registry.list();
-          const workspace = workspaces.find(w => w.id === workspaceId);
-          if (!workspace) {
-            json(res, { error: 'workspace not found' }, 404);
-            return;
-          }
-
-          const config = await loadConfig();
-          const docsRoot = resolve(workspace.path, config.docsDir);
-          const tree = await buildTree(docsRoot);
-
-          const startTime = Date.now();
-          await rebuildIndex(docsRoot, tree);
-          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-
-          log.index.info(`索引重建完成 (${elapsed}s)`);
-          json(res, { success: true, elapsed });
-        } catch (e) {
-          log.index.error(`索引重建失败: ${e.message}`);
-          json(res, { error: e.message }, 500);
-        }
-      }
-    },
-
-    // GET /index-status - 获取索引状态
-    {
-      kind: 'exact',
-      path: '/req-hub/index-status',
-      async handler(req, res) {
-        if (req.method !== 'GET') {
-          res.writeHead(405);
-          res.end();
-          return;
-        }
-
-        try {
-          const url = new URL(req.url, 'http://localhost');
-          const workspaceId = url.searchParams.get('workspaceId');
-
-          if (!workspaceId) {
-            json(res, { built: false });
-            return;
-          }
-
-          const workspaces = registry.list();
-          const workspace = workspaces.find(w => w.id === workspaceId);
-          if (!workspace) {
-            json(res, { built: false });
-            return;
-          }
-
-          const config = await loadConfig();
-          const docsRoot = resolve(workspace.path, config.docsDir || 'docs');
-          const index = await loadIndex(docsRoot);
-
-          if (!index) {
-            json(res, { built: false });
-            return;
-          }
-
-          json(res, {
-            built: true,
-            builtAt: index.builtAt,
-            stats: {
-              requirements: (index.requirements || []).length,
-              features: Object.keys(index.featureIndex || {}).length,
-              fields: Object.keys(index.fieldIndex || {}).length,
-              tags: Object.keys(index.tagIndex || {}).length,
-            },
-          });
-        } catch (e) {
-          log.index.error(`获取索引状态失败: ${e.message}`);
-          json(res, { built: false });
-        }
-      }
-    },
-
-    // GET /index-data - 获取索引详情
-    {
-      kind: 'exact',
-      path: '/req-hub/index-data',
-      async handler(req, res) {
-        if (req.method !== 'GET') {
-          res.writeHead(405);
-          res.end();
-          return;
-        }
-
-        try {
-          const url = new URL(req.url, 'http://localhost');
-          const workspaceId = url.searchParams.get('workspaceId');
-
-          if (!workspaceId) {
-            json(res, { error: 'missing workspaceId' }, 400);
-            return;
-          }
-
-          const workspaces = registry.list();
-          const workspace = workspaces.find(w => w.id === workspaceId);
-          if (!workspace) {
-            json(res, { error: 'workspace not found' }, 404);
-            return;
-          }
-
-          const config = await loadConfig();
-          const docsRoot = resolve(workspace.path, config.docsDir);
-          
-          const index = await loadIndex(docsRoot);
-          if (!index) {
-            json(res, { error: '索引文件不存在，请先重建索引' }, 404);
-            return;
-          }
-
-          json(res, index);
-        } catch (e) {
-          log.index.error(`读取索引失败: ${e.message}`);
-          json(res, { error: e.message }, 500);
-        }
       }
     },
 
@@ -451,6 +310,11 @@ export function createTreeRoutes(registry) {
             return;
           }
 
+          if (/\.(pdf|docx|xlsx)$/i.test(path)) {
+            const source = await readSource(docsRoot, path);
+            json(res, { text: source.text, path: source.relativePath, coordinate: source.coordinate, locations: source.locations, warnings: source.warnings });
+            return;
+          }
           const { readFile } = await import('node:fs/promises');
           const text = await readFile(fullPath, 'utf-8');
           json(res, { text, path: relative(docsRoot, fullPath) });
@@ -682,89 +546,6 @@ export function createTreeRoutes(registry) {
       }
     },
 
-    // GET /fields/:field - 按字段名查找关联需求
-    {
-      kind: 'prefix',
-      path: '/req-hub/fields/',
-      async handler(req, res) {
-        if (req.method !== 'GET') {
-          res.writeHead(405);
-          res.end();
-          return;
-        }
-
-        const url = new URL(req.url, 'http://localhost');
-        const workspaceId = url.searchParams.get('workspaceId');
-        const fieldName = decodeURIComponent(url.pathname.slice('/req-hub/fields/'.length));
-
-        if (!workspaceId || !fieldName) {
-          json(res, { error: 'missing workspaceId or field name' }, 400);
-          return;
-        }
-
-        const workspaces = registry.list();
-        const workspace = workspaces.find(w => w.id === workspaceId);
-        if (!workspace) {
-          json(res, { error: 'workspace not found' }, 404);
-          return;
-        }
-
-        const config = await loadConfig();
-        const docsRoot = resolve(workspace.path, config.docsDir);
-
-        // Load search index
-        const { loadIndex } = await import('../index-manager.js');
-        const index = await loadIndex(docsRoot);
-
-        if (!index) {
-          json(res, { field: fieldName, associations: [], indexBuilt: false });
-          return;
-        }
-
-        // Find the field in fieldIndex (case-insensitive match)
-        const matchedKeys = Object.keys(index.fieldIndex || {}).filter(
-          k => k.toLowerCase() === fieldName.toLowerCase() || k.toLowerCase().includes(fieldName.toLowerCase())
-        );
-
-        const associatedReqIds = new Set();
-        for (const key of matchedKeys) {
-          for (const id of index.fieldIndex[key]) {
-            associatedReqIds.add(id);
-          }
-        }
-
-        // Build association details
-        const associations = [];
-        for (const r of index.requirements || []) {
-          if (!associatedReqIds.has(r.id)) continue;
-          const matchedFields = (r.fields || []).filter(f =>
-            matchedKeys.some(k => k.toLowerCase() === f.toLowerCase())
-          );
-          associations.push({
-            id: r.id,
-            developer: r.developer,
-            date: r.date,
-            title: r.title,
-            type: r.type,
-            summary: r.summary,
-            matchedFields,
-            changeDescription: r.summary || '',
-          });
-        }
-
-        // Sort by date descending
-        associations.sort((a, b) => b.date.localeCompare(a.date));
-
-        json(res, {
-          field: fieldName,
-          matchedKeys,
-          associations,
-          total: associations.length,
-          indexBuilt: true,
-        });
-      }
-    },
-
     // GET /file-tree - 获取需求目录下的嵌套文件树
     {
       kind: 'exact',
@@ -815,7 +596,7 @@ export function createTreeRoutes(registry) {
         }
 
         // Supported file extensions
-        const supportedExts = ['.md', '.txt', '.text', '.html', '.htm', '.json'];
+        const supportedExts = ['.md', '.txt', '.text', '.html', '.htm', '.json', '.pdf', '.docx', '.xlsx'];
 
         // Recursive function to build tree structure
         const buildFileTree = async (dirPath, relativePath = '') => {

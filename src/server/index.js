@@ -11,9 +11,8 @@ import { installSyncTools } from './sync-controlled-tools.js';
 import { createConfigRoutes } from './routes/config-routes.js';
 import { createTreeRoutes } from './routes/tree-routes.js';
 import { createAnalyzeRoutes } from './routes/analyze-routes.js';
-import { createSearchRoutes } from './routes/search-routes.js';
 import { createSyncRoutes } from './routes/sync-routes.js';
-import { createTemplateRoutes } from './routes/template-routes.js';
+import { createWritingRoutes } from './routes/writing-routes.js';
 import { createKnowledgeRoutes } from './routes/knowledge-routes.js';
 import { log, getLogs, clearLogs, getLogLevels, getLogTags } from './logger.js';
 import { json } from './utils.js';
@@ -81,9 +80,13 @@ export function apply(ctx) {
 
   const disposers = [];
   const knowledge = createKnowledgeRoutes(workspaceRegistry);
+  const writing = createWritingRoutes(workspaceRegistry, llm, agents, ctx, knowledge.service);
+  disposers.push(() => { void writing.dispose(); });
   disposers.push(() => { void knowledge.dispose(); });
   const syncTools = installSyncTools(ctx);
   if (syncTools) disposers.push(() => syncTools.dispose());
+
+  const syncRoutes = createSyncRoutes(workspaceRegistry, llm, sessions, agents, ctx);
 
   // 创建所有路由
   const routes = [
@@ -97,14 +100,11 @@ export function apply(ctx) {
     // AI 分析相关（传入 ctx 用于 subagent）
     ...createAnalyzeRoutes(workspaceRegistry, llm, sessions, agents, agentPresets, sessionQuery, ctx),
     
-    // 搜索相关（传入 agents 和 ctx 用于 subagent）
-    ...createSearchRoutes(workspaceRegistry, llm, agents, ctx),
-    
     // 文档同步相关（传入 agents 和 ctx 用于 subagent）
-    ...createSyncRoutes(workspaceRegistry, llm, sessions, agents, ctx),
+    ...syncRoutes,
     
-    // 模板生成相关（传入 agents 和 ctx 用于 subagent）
-    ...createTemplateRoutes(workspaceRegistry, llm, agents, ctx),
+    // 写作与知识库优化
+    ...writing.routes,
     
     // 日志相关
     {
@@ -501,9 +501,10 @@ export function apply(ctx) {
   log.startup.info(`已注册 ${routes.length} 个路由`);
 
   // 返回清理函数
-  return () => {
+  return async () => {
+    await syncRoutes.dispose();
     for (const dispose of disposers) {
-      dispose();
+      await dispose();
     }
     log.startup.info('ReqHub 插件卸载');
   };

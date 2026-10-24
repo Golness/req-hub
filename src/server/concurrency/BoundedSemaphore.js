@@ -23,7 +23,7 @@ export class BoundedSemaphore {
     this.maxConcurrency = maxConcurrency;
     this.running = 0;
     this.queue = [];       // 等待队列 [{ resolve, reject }]
-    // ⚠️ 修复 Issue #4: 移除 this.aborted 死代码
+    //  修复 Issue #4: 移除 this.aborted 死代码
     // 原设计中 abortAll() 设置 this.aborted = true，但 acquire() 从未检查它
     // 如果 abortAll() 的意图是"阻止新的获取"，应该在 acquire() 中检查
     // 如果意图只是"清空等待队列"，则不需要这个标志
@@ -49,7 +49,7 @@ export class BoundedSemaphore {
 
     // 无空位，排队等待
     return new Promise((resolve, reject) => {
-      // ⚠️ 修复竞态条件：在 Promise 内部再次检查 signal 状态
+      //  修复竞态条件：在 Promise 内部再次检查 signal 状态
       // 避免在外部检查后、Promise 创建前 signal 触发的时间窗口
       if (signal?.aborted) {
         reject(new AbortError('Operation aborted'));
@@ -94,7 +94,7 @@ export class BoundedSemaphore {
    * 释放一个执行槽位，唤醒队列中下一个等待者
    */
   release() {
-    // ⚠️ 修复 Issue #7: 添加警告日志，避免静默掩盖 bug
+    //  修复 Issue #7: 添加警告日志，避免静默掩盖 bug
     if (this.running <= 0) {
       log.concurrency.warn('BoundedSemaphore: release() called when running <= 0, possible double-release bug');
       return;
@@ -114,7 +114,7 @@ export class BoundedSemaphore {
    * 注意：正在运行的任务不受影响，它们通过各自的 AbortSignal 传播取消
    */
   abortAll() {
-    // ⚠️ 修复 Issue #4: 移除 this.aborted = true（死代码）
+    //  修复 Issue #4: 移除 this.aborted = true（死代码）
     // abortAll() 只清空等待队列，不阻止新的获取
     // 因为取消通过 signal 传播，不需要信号量层面的全局标志
     for (const entry of this.queue) {

@@ -3,7 +3,7 @@ const React = require('react');
 const h = React.createElement;
 const { createIconComponents } = require('../../icons.js');
 
-const { IconCheck, IconError, IconWarning, IconInfo } = createIconComponents(h);
+const { IconCheck, IconError, IconWarning, IconInfo, IconClose } = createIconComponents(h);
 
 const ICONS = {
   success: IconCheck,
@@ -76,16 +76,16 @@ function Toast({ text, icon, tone = 'info', anchor, holdMs = 3000, actions, onDo
       actions.map((action, i) =>
         h('button', {
           key: i,
-          className: 'rh-toast-action',
+          className: 'rh-btn rh-btn-ghost rh-btn-sm rh-toast-action',
           onClick: action.onClick,
         }, `${action.prefix ? action.prefix + ' ' : ''}${action.label}`)
       )
     ),
     h('button', {
-      className: 'rh-toast-close',
+      className: 'rh-btn rh-btn-ghost rh-btn-sm rh-btn-icon rh-toast-close',
       onClick: handleClose,
       'aria-label': '关闭通知',
-    }, '×')
+    }, h(IconClose, { size: 16 }))
   );
 }
 

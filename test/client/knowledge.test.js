@@ -7,7 +7,6 @@ const { createRoot } = require('react-dom/client');
 const { FileTreeSidebar } = require('../../src/client/components/FileTreeSidebar.js');
 const { SearchPanel } = require('../../src/client/components/SearchPanel.js');
 const { DocsViewerBody } = require('../../src/client/components/DocsViewerBody.js');
-const { WorkbenchPanel } = require('../../src/client/components/WorkbenchPanel.js');
 const { useKnowledge } = require('../../src/client/hooks/useKnowledge.js');
 const { act } = React;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -39,8 +38,8 @@ it('uses the same tree for preview and controlled multi-selection, including fil
   expect(preview).toHaveBeenCalledWith(expect.objectContaining({ path: req.path + '/nested/a.md' }));
   expect(a.checked).toBe(true);
   await click(container.querySelector('.rh-filter-toggle'));
-  const ext = container.querySelector('select');
-  await act(async () => { ext.value = '.json'; ext.dispatchEvent(new Event('change', { bubbles: true })); });
+  await click(container.querySelector('[aria-label="文件类型"]'));
+  await click([...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent === 'JSON'));
   expect(container.textContent).toContain('不在当前筛选结果');
   await click(container.querySelector('[aria-label="选择目录 nested"]'));
   expect(selected).toEqual(expect.arrayContaining([req.path + '/nested/a.md', req.path + '/nested/b.json', 'bob/2026-10-22-other/old.md']));
@@ -117,12 +116,11 @@ it('keeps cross-requirement selection and builds without fetching or submitting 
   expect(fetchMock.mock.calls.every(([url]) => !url.includes('/sessions'))).toBe(true);
 });
 
-it('removes analysis and search from workbench and wires independent rail entries and Ctrl+K', async () => {
-  await render(React.createElement(WorkbenchPanel, { IndexPanel: () => React.createElement('p', null, '需求索引') }));
-  expect(container.textContent).toBe('需求索引');
+it('keeps knowledge and search as independent rail entries without a workbench and supports Ctrl+K', async () => {
   vi.stubGlobal('fetch', vi.fn(async url => response(url.includes('/tree?') ? { tree: { developers: [{ name: 'alice', requirements: [req] }] } } : url.includes('/entries') ? { entries: [], candidates: [] } : url.includes('/sessions') ? { sessions: [] } : { ready: false })));
   await render(React.createElement(DocsViewerBody, { workspace: { id: 'ws', title: '工作区' }, docsDir: 'docs', workspaces: [], onSelectWorkspace: vi.fn(), onConfigChange: vi.fn() }));
   const button = text => [...container.querySelectorAll('.rh-rail-btn')].find(b => b.textContent === text);
+  expect(button('工作台')).toBeUndefined();
   expect(button('知识库')).toBeTruthy(); expect(button('搜索')).toBeTruthy();
   await click(button('知识库'));
   expect(container.querySelector('.rh-file-tree-sidebar')).toBeTruthy();

@@ -240,7 +240,7 @@ describe('abortSync', () => {
     expect(result.error).toContain('没有正在运行');
   });
 
-  it('should abort active sync and move to history', async () => {
+  it('keeps cancellation active until the run owner finishes cleanup, then archives it', async () => {
     existsSync.mockReturnValue(false);
     const sync = { id: 'sync-abort-active', workspaceId: 'ws9', requirementId: 'req9', status: 'running' };
 
@@ -252,7 +252,11 @@ describe('abortSync', () => {
     expect(result.success).toBe(true);
 
     const active = await getActiveSync('ws9', 'req9');
-    expect(active).toBeNull();
+    expect(active.status).toBe('cancelling');
+    expect(controller.signal.aborted).toBe(true);
+    expect(await getSyncHistory('ws9', 'req9')).toHaveLength(0);
+    await completeSync(sync.id, 'ws9', 'req9');
+    expect(await getActiveSync('ws9', 'req9')).toBeNull();
 
     const history = await getSyncHistory('ws9', 'req9');
     expect(history.length).toBe(1);

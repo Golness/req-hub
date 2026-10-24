@@ -4,12 +4,13 @@ const h = React.createElement;
 const { ROUTE } = require('../../constants.js');
 const { DiffViewer } = require('./DiffViewer.js');
 const { VersionSelect } = require('./VersionSelect.js');
+const { hasPublishedDocument } = require('../../../shared/sync-task.cjs');
 const DOC_TYPES = [['requirement', '需求文档'], ['design', '技术方案']];
 
 function SyncVersionCompare({ history, workspaceId, requirementId }) {
   const id = React.useId();
   const [docType, setDocType] = React.useState('requirement');
-  const versions = history.filter(sync => sync.status === 'completed' && sync.docType === docType);
+  const versions = history.filter(sync => hasPublishedDocument(sync) && sync.docType === docType);
   const [selection, setSelection] = React.useState(null);
   const [result, setResult] = React.useState(null);
   const [error, setError] = React.useState('');

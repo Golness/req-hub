@@ -4,6 +4,14 @@
  */
 
 import { vi } from 'vitest';
+import Module, { createRequire } from 'node:module';
+
+// Client host packages are runtime externals, not installed npm dependencies.
+const hostUiFixture = createRequire(import.meta.url).resolve('./fixtures/host-ui-primitives.cjs');
+const originalResolve = Module._resolveFilename;
+Module._resolveFilename = function (name, ...args) {
+  return name === '@deepseek-ai/dsh-client-ui-primitives' ? hostUiFixture : originalResolve.call(this, name, ...args);
+};
 
 // ─── Mock DSH Context ─────────────────────────────────────────────
 

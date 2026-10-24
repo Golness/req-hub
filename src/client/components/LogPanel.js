@@ -4,9 +4,8 @@ const React = require('react');
 const h = React.createElement;
 const { useState, useEffect } = React;
 const { ROUTE } = require('../constants.js');
-const { createIconComponents } = require('../icons.js');
 
-const { IconSearch, IconInfo, IconWarning, IconError } = createIconComponents(h);
+
 
 /**
  * @component LogPanel
@@ -56,16 +55,6 @@ function LogPanel({ onClose }) {
   }, [autoRefresh]);
 
   // 日志等级相关
-  const getLevelIcon = (level) => {
-    switch (level) {
-      case 'debug': return h(IconSearch, { size: 14 });
-      case 'info': return h(IconInfo, { size: 14 });
-      case 'warn': return h(IconWarning, { size: 14 });
-      case 'error': return h(IconError, { size: 14 });
-      default: return h(IconInfo, { size: 14 });
-    }
-  };
-
   const getLevelColor = (level) => {
     switch (level) {
       case 'debug': return 'var(--dsw-alias-label-secondary)';
@@ -194,11 +183,11 @@ function LogPanel({ onClose }) {
         ),
         h('div', { style: { display: 'flex', gap: 4 } },
           selectedLevels.length < 4 && h('button', {
-            className: 'rh-btn rh-btn-secondary rh-btn-xs',
+            className: 'rh-btn rh-btn-secondary rh-btn-sm',
             onClick: selectAllLevels,
           }, '全选'),
           selectedLevels.length > 0 && h('button', {
-            className: 'rh-btn rh-btn-secondary rh-btn-xs',
+            className: 'rh-btn rh-btn-secondary rh-btn-sm',
             onClick: clearAllLevels,
           }, '清除')
         )
@@ -214,7 +203,6 @@ function LogPanel({ onClose }) {
             onClick: () => toggleLevel(level),
             style: { '--rh-filter-color': getLevelColor(level) },
           }, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
-            getLevelIcon(level),
             h('span', null, `${getLevelLabel(level)} (${count})`)
           ));
         })
@@ -229,7 +217,7 @@ function LogPanel({ onClose }) {
           selectedTags.length > 0 ? `已选 ${selectedTags.length}/${Object.keys(tagCounts).length}` : '全部'
         ),
         selectedTags.length > 0 && h('button', {
-          className: 'rh-btn rh-btn-secondary rh-btn-xs',
+          className: 'rh-btn rh-btn-secondary rh-btn-sm',
           onClick: clearAllTags,
         }, '清除')
       ),
@@ -265,7 +253,7 @@ function LogPanel({ onClose }) {
               style: { borderLeft: `3px solid ${getLevelColor(log.level)}` }
             },
               h('div', { className: 'rh-log-item-header' },
-                h('span', { className: 'rh-log-icon' }, getLevelIcon(log.level)),
+
                 h('span', {
                   className: 'rh-log-time',
                   style: { color: getLevelColor(log.level) }

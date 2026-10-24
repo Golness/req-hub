@@ -10,7 +10,7 @@ const React = require('react');
 const h = React.createElement;
 const { createIconComponents } = require('../icons.js');
 
-const { IconClipboard, IconDesign, IconSearch, IconFile, IconFolder } = createIconComponents(h);
+const { IconClipboard, IconDesign, IconReview, IconApi, IconTest, IconFile, IconFolder } = createIconComponents(h);
 
 /**
  * Returns a React icon element corresponding to the given document type.
@@ -22,12 +22,12 @@ function getDocIcon(type, size) {
   const iconMap = {
     requirement: IconClipboard,
     design: IconDesign,
-    cr: IconSearch,
+    cr: IconReview,
     other: IconFile,
     prd: IconClipboard,
     tech: IconDesign,
-    api: IconSearch,
-    test: IconFile,
+    api: IconApi,
+    test: IconTest,
     folder: IconFolder,
   };
   const Icon = iconMap[type] || IconFile;

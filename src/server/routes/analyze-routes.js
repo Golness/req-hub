@@ -10,7 +10,6 @@ import { readFile, stat } from 'node:fs/promises';
 import { loadConfig } from '../config.js';
 import { buildTree, findRequirementPath } from '../tree.js';
 import { readRequirementDocs } from '../doc-reader.js';
-import { rebuildIndex } from '../index-manager.js';
 import { json, readBody } from '../utils.js';
 import { log } from '../logger.js';
 import { getScopedSkills } from '../prompts.js';

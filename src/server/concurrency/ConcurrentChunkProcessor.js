@@ -49,12 +49,12 @@ export class ConcurrentChunkProcessor {
     stats.endTime = Date.now();
     stats.duration = stats.endTime - stats.startTime;
 
-    // ⚠️ 修复 Issue #5: 保留失败 chunk 的位置信息
+    //  修复 Issue #5: 保留失败 chunk 的位置信息
     // 返回 hasFailedChunks 标志，让调用方知道是否有 chunk 失败
     // 调用方在 merge 前可以检查这个标志，决定是否将错误信息附加到 merge prompt
     const hasFailedChunks = stats.failed > 0;
 
-    // ⚠️ 修复 Issue #6: 过滤时只保留非 null 且非 undefined 的结果
+    //  修复 Issue #6: 过滤时只保留非 null 且非 undefined 的结果
     // 避免 processFn 返回 undefined 时 stats.completed 与实际 results.length 不一致
     const validResults = results.filter(r => r != null);
 
@@ -104,7 +104,7 @@ export class ConcurrentChunkProcessor {
       // 5. 执行实际处理
       const result = await processFn(chunk, index);
 
-      // ⚠️ 修复 Issue #6: 检查结果有效性
+      //  修复 Issue #6: 检查结果有效性
       if (result == null) {
         stats.failed++;
         errors.push({
@@ -137,7 +137,7 @@ export class ConcurrentChunkProcessor {
 
     } catch (error) {
       // 6. 错误处理：区分取消和真正的失败
-      if (error instanceof AbortError || error.name === 'AbortError') {
+      if (signal?.aborted || error instanceof AbortError || error.name === 'AbortError') {
         stats.skipped++;
         await onProgress?.({
           phase,

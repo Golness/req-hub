@@ -74,29 +74,31 @@ async function edit(value) {
 
 it('groups every registered prompt by rail feature and supports keyboard tabs', async () => {
   await renderSettings();
-  expect([...document.querySelectorAll('[role="tab"]')].map(el => el.textContent)).toEqual(['同步10', '工作台2', '模板1']);
-  expect(document.querySelectorAll('.rh-prompt-item')).toHaveLength(10);
+  expect([...document.querySelectorAll('[role="tab"]')].map(el => el.textContent)).toEqual(['同步11', '写作1']);
+  expect(document.querySelectorAll('.rh-prompt-item')).toHaveLength(11);
   expect(document.querySelectorAll('textarea')).toHaveLength(1);
   expect(document.body.textContent).not.toContain('Prompt 结构说明');
   expect(document.querySelector('.rh-prompt-reference').open).toBe(false);
   expect(save().disabled).toBe(true);
   await act(async () => tab('同步').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })));
-  expect(document.activeElement).toBe(tab('工作台'));
-  expect(document.querySelectorAll('.rh-prompt-item')).toHaveLength(2);
-  expect(document.querySelector('[role="tabpanel"]').getAttribute('aria-labelledby')).toBe(tab('工作台').id);
-  await click(tab('模板'));
-  expect(prompt('模板生成')).toBeTruthy();
+  expect(document.activeElement).toBe(tab('写作'));
+  expect(document.querySelectorAll('.rh-prompt-item')).toHaveLength(1);
+  expect(document.querySelector('[role="tabpanel"]').getAttribute('aria-labelledby')).toBe(tab('写作').id);
+  await click(tab('写作'));
+  expect(prompt('文档优化')).toBeTruthy();
 });
 
 it('retains drafts and selections across categories, inserts variables, and saves all drafts', async () => {
   await renderSettings();
-  await click(tab('工作台'));
-  await edit('分析草稿 {requirementId} {docsContent}');
-  await click(prompt('AI 语义搜索'));
-  await edit('搜索草稿 {query} {requirementsSummary}');
   await click(tab('同步'));
-  await click(tab('工作台'));
-  expect(document.querySelector('textarea').value).toContain('搜索草稿');
+  await click(prompt('需求分析'));
+  await edit('分析草稿 {requirementId} {docsContent}');
+  await click(tab('写作'));
+  await edit('写作草稿 {runtimeId} {docTypeName} {scopes} {instruction} {content}');
+  await click(tab('同步'));
+  await click(tab('写作'));
+  expect(document.querySelector('textarea').value).toContain('写作草稿');
+  await click(tab('同步'));
   await click(prompt('需求分析'));
   expect(document.querySelector('textarea').value).toContain('分析草稿');
   await edit('');
@@ -107,37 +109,39 @@ it('retains drafts and selections across categories, inserts variables, and save
   await edit('分析草稿 {requirementId} {docsContent}');
   await click(save());
   expect(config.ai.prompts.analyze).toContain('分析草稿');
-  expect(config.ai.prompts.search).toContain('搜索草稿');
+  expect(config.ai.prompts.writing).toContain('写作草稿');
   expect(save().disabled).toBe(true);
   expect(document.querySelector('.rh-settings-actions').textContent).toContain('已保存');
 });
 
 it('preserves the editor when returning from a skill preview', async () => {
   await renderSettings();
-  await click(tab('工作台'));
-  await click(prompt('AI 语义搜索'));
-  await edit('搜索草稿');
-  const select = document.querySelector('.rh-prompt-skill select');
-  await act(async () => { select.value = 'review'; select.dispatchEvent(new Event('change', { bubbles: true })); });
-  await click([...document.querySelectorAll('.rh-prompt-skill button')][0]);
+  await click(tab('同步'));
+  await click(prompt('需求分析'));
+  await click(tab('写作'));
+  await edit('写作草稿');
+  await click(document.querySelector('.rh-prompt-skill .rh-select-trigger'));
+  await click([...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent === 'review'));
+  await click([...document.querySelectorAll('.rh-prompt-skill button')].find(button => button.textContent === '预览 Skill'));
   expect(document.querySelector('.rh-settings-panel').style.display).toBe('none');
   expect(document.querySelectorAll('header .rh-header-back')).toHaveLength(1);
   expect(document.querySelector('.rh-preview .rh-header-back')).toBeNull();
   await click(document.querySelector('header [aria-label="返回设置"]'));
   expect(document.querySelector('header').childElementCount).toBe(0);
   expect(document.querySelector('.rh-settings-panel').style.display).toBe('');
-  expect(tab('工作台').getAttribute('aria-selected')).toBe('true');
-  expect(document.querySelector('textarea').value).toBe('搜索草稿');
+  expect(tab('写作').getAttribute('aria-selected')).toBe('true');
+  expect(document.querySelector('textarea').value).toBe('写作草稿');
 });
 
 it('persists reset through the merging config API and retains drafts on save failure', async () => {
   config.ai.prompts.analyze = '旧自定义内容';
   config.ai.skillBindings.analyze = 'review';
   await renderSettings();
-  await click(tab('工作台'));
+  await click(tab('同步'));
+  await click(prompt('需求分析'));
   await click(document.querySelector('.rh-prompt-editor-heading button'));
   expect(document.querySelector('textarea').value).toBe(PROMPT_REGISTRY.analyze.default);
-  expect(document.querySelector('.rh-prompt-skill select').value).toBe('');
+  expect(document.querySelector('.rh-prompt-skill .rh-select-trigger').textContent).toBe('不绑定');
   failSave = true;
   await click(save());
   expect(document.querySelector('.rh-settings-actions').textContent).toContain('保存失败');
@@ -149,7 +153,8 @@ it('persists reset through the merging config API and retains drafts on save fai
   await act(async () => root.unmount());
   root = null;
   await renderSettings();
-  await click(tab('工作台'));
+  await click(tab('同步'));
+  await click(prompt('需求分析'));
   expect(document.querySelector('textarea').value).toBe(PROMPT_REGISTRY.analyze.default);
 });
 
@@ -159,6 +164,6 @@ it('retries prompt registry failures without losing loaded settings', async () =
   expect(document.querySelector('[role="alert"]').textContent).toContain('Prompt 加载失败');
   failRegistry = false;
   await click([...document.querySelectorAll('button')].find(el => el.textContent === '重试'));
-  expect(document.querySelectorAll('[role="tab"]')).toHaveLength(3);
+  expect(document.querySelectorAll('[role="tab"]')).toHaveLength(2);
   expect(save().disabled).toBe(true);
 });

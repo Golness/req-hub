@@ -5,10 +5,7 @@ const h = React.createElement;
 const { HeaderBack } = require('./shared/HeaderBack.js');
 const { useState, useEffect } = React;
 const { ROUTE } = require('../constants.js');
-const { createIconComponents } = require('../icons.js');
 const { useAnalysis } = require('../hooks/useAnalysis.js');
-
-const { IconRobot, IconSync, IconChart, IconError, IconCheck, IconHourglass, IconSkip, IconPackage } = createIconComponents(h);
 
 /**
  * @component AnalyzePanel
@@ -107,7 +104,7 @@ function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
 
     if (metaData.error) {
       return h('div', { className: 'rh-op-panel' },
-        h('div', { style: { color: 'var(--dsw-alias-state-error-primary)', padding: 20, display: 'flex', alignItems: 'center', gap: 8 } }, h(IconError, { size: 16 }), metaData.error),
+        h('div', { style: { color: 'var(--dsw-alias-state-error-primary)', padding: 20, display: 'flex', alignItems: 'center', gap: 8 } }, metaData.error),
         h(HeaderBack, { onBack: () => setShowMeta(false), label: '返回' })
       );
     }
@@ -209,8 +206,8 @@ function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
 
     // 4.16: AI config display
     aiConfig && h('div', { className: 'rh-op-info' },
-      h('div', { style: { display: 'flex', alignItems: 'center', gap: 6 } }, h(IconRobot, { size: 14 }), ' Provider：', h('code', null, aiConfig.provider)),
-      h('div', { style: { display: 'flex', alignItems: 'center', gap: 6 } }, h(IconPackage, { size: 14 }), ' Model：', h('code', null, aiConfig.model))
+      h('div', { style: { display: 'flex', alignItems: 'center', gap: 6 } }, ' Provider：', h('code', null, aiConfig.provider)),
+      h('div', { style: { display: 'flex', alignItems: 'center', gap: 6 } }, ' Model：', h('code', null, aiConfig.model))
     ),
 
     h('div', { className: 'rh-btn-stack', style: { marginBottom: 12 } },
@@ -218,16 +215,16 @@ function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
         className: `rh-btn${selectedReq ? ' rh-btn-primary' : ''}`,
         onClick: handleAnalyzeSingle,
         disabled: analyzing || !selectedReq
-      }, analyzing && analysisMode === 'single' ? '分析中...' : h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconSync, { size: 14 }), ' 分析当前需求')),
+      }, analyzing && analysisMode === 'single' ? '分析中...' : ' 分析当前需求'),
       h('button', {
         className: 'rh-btn',
         onClick: handleAnalyzeAll,
         disabled: analyzing
-      }, analyzing && analysisMode === 'all' ? '分析中...' : h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconSync, { size: 14 }), ' 项目全量分析')),
+      }, analyzing && analysisMode === 'all' ? '分析中...' : ' 项目全量分析'),
       analyzing && h('button', {
         className: 'rh-btn rh-btn-danger-outline',
         onClick: cancelAnalysis,
-      }, '⛔ 终止分析'),
+      }, ' 终止分析'),
       h('button', { className: 'rh-btn', onClick: onClose }, '关闭')
     ),
 
@@ -237,11 +234,11 @@ function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
         className: 'rh-btn',
         onClick: () => handleViewMeta('single'),
         disabled: !selectedReq?.hasMeta
-      }, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconChart, { size: 14 }), ' 查看当前 Meta')),
+      }, ' 查看当前 Meta'),
       h('button', {
         className: 'rh-btn',
         onClick: () => handleViewMeta('all')
-      }, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconChart, { size: 14 }), ' 查看全量 Meta'))
+      }, ' 查看全量 Meta')
     ),
 
     // Analysis file list with real-time status
@@ -260,11 +257,11 @@ function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
               h('div', { className: 'rh-analysis-item-path' }, `${file.developer} / ${file.path}`)
             ),
             h('span', { className: `rh-status-tag ${status.status}` },
-              status.status === 'pending' && h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconHourglass, { size: 12 }), ' 等待分析'),
-              status.status === 'analyzing' && h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconSync, { size: 12 }), ' 正在分析'),
-              status.status === 'completed' && h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconCheck, { size: 12 }), ` 完成${status.elapsed ? ` (${status.elapsed}s)` : ''}`),
-              status.status === 'failed' && h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconError, { size: 12 }), ' 失败'),
-              status.status === 'cancelled' && h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconSkip, { size: 12 }), ' 已取消')
+              status.status === 'pending' && ' 等待分析',
+              status.status === 'analyzing' && ' 正在分析',
+              status.status === 'completed' && h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, ` 完成${status.elapsed ? ` (${status.elapsed}s)` : ''}`),
+              status.status === 'failed' && ' 失败',
+              status.status === 'cancelled' && ' 已取消'
             )
           ),
           status.status === 'failed' && status.error && h('div', { className: 'rh-analysis-item-error' },
@@ -274,7 +271,7 @@ function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
       })
     ),
 
-    error && h('div', { style: { color: 'var(--dsw-alias-state-error-primary)', fontSize: 'var(--rh-font-size)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 } }, h(IconError, { size: 14 }), error),
+    error && h('div', { style: { color: 'var(--dsw-alias-state-error-primary)', fontSize: 'var(--rh-font-size)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 } }, error),
     success && h('div', { style: { color: 'var(--dsw-alias-state-success-primary)', fontSize: 'var(--rh-font-size)', marginBottom: 8 } }, success)
   );
 }

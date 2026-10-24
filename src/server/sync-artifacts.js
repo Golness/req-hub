@@ -10,12 +10,14 @@ export const decodeDocument = bytes => new TextDecoder('utf-8', { fatal: true, i
 export class SyncArtifacts {
   constructor(root) { this.root = resolve(root); this.entries = new Map(); }
   async init() { await mkdir(this.root, { recursive: true }); this.realRoot = await realpath(this.root); return this; }
-  async put(id, value) {
+  async put(id, value, namedFile) {
     if (this.entries.has(id)) throw new Error('ARTIFACT_DUPLICATE: ' + id);
     const bytes = Buffer.isBuffer(value) ? value : Buffer.from(value, 'utf8');
     decodeDocument(bytes);
-    const file = 'artifact-' + hashBytes(Buffer.from(id)).slice(0, 24);
+    const file = namedFile || 'artifact-' + hashBytes(Buffer.from(id)).slice(0, 24);
+    if (namedFile && !/^sessions\/session-\d+(?:-turn-\d+)?\.md$/.test(namedFile)) throw new Error('ARTIFACT_FILE_NAME');
     const path = join(this.root, file);
+    if (namedFile) await mkdir(join(this.root, 'sessions'), { recursive: true });
     await writeFile(path, bytes, { flag: 'wx' });
     const entry = { id, file, bytes: bytes.length, sha256: hashBytes(bytes) };
     this.entries.set(id, entry);

@@ -7,7 +7,7 @@ const { ROUTE } = require('../constants.js');
 const { InputModal } = require('./InputModal.js');
 const { createIconComponents } = require('../icons.js');
 
-const { IconFolderOpen, IconTarget } = createIconComponents(h);
+const { IconFolderExternal, IconTarget } = createIconComponents(h);
 
 /**
  * @component
@@ -80,39 +80,40 @@ function TopBar({ docsDir, currentWorkspace, currentReq, onEditDocsDir, onChange
     h('div', { className: 'rh-topbar-left' },
       // 工作区
       h('span', { className: 'rh-topbar-label' }, '工作区:'),
-      h('span', {
-          className: `rh-topbar-value${currentWorkspace ? ' selected' : ' unselected'}`,
+      h('button', {
+          type: 'button',
+          className: `rh-btn rh-btn-sm rh-topbar-value${currentWorkspace ? ' selected' : ' unselected'}`,
           onClick: onChangeWorkspace,
           title: '点击切换工作区',
-          role: 'button',
           'aria-label': `工作区: ${currentWorkspace?.title || currentWorkspace?.id || '未选择'}`,
         }, currentWorkspace?.title || currentWorkspace?.id || '(未选择)'),
 
       // 项目路径
       h('span', { className: 'rh-topbar-label' }, '项目路径:'),
-      h('span', {
-          className: 'rh-topbar-value selected',
+      h('button', {
+          type: 'button',
+          className: 'rh-btn rh-btn-sm rh-topbar-value selected',
           onClick: () => setShowPathModal(true),
           title: '点击修改项目 docs 路径',
-          role: 'button',
           'aria-label': `项目路径: ${docsDir}`,
         }, docsDir),
 
       // 需求目录
       h('span', { className: 'rh-topbar-label' }, '需求目录:'),
-      h('span', {
-          className: `rh-topbar-value${currentReq ? ' selected' : ' unselected'}`,
+      h('button', {
+          type: 'button',
+          className: `rh-btn rh-btn-sm rh-topbar-value${currentReq ? ' selected' : ' unselected'}`,
           onClick: onChangeReq,
           title: '点击选择需求目录',
         }, currentReq ? `${currentReq.date?.slice(5)} ${currentReq.title}` : '(未选择)'),
 
       // 在文件资源管理器中打开按钮
       currentReq && h('button', {
-        className: 'rh-btn',
+        className: 'rh-btn rh-btn-sm rh-btn-icon rh-open-directory',
         onClick: handleOpenInExplorer,
         title: '在文件资源管理器中打开此需求目录',
-        style: { marginLeft: 8, padding: '2px 8px', fontSize: 'var(--rh-font-size-sm)', display: 'flex', alignItems: 'center', gap: 4 }
-      }, h(IconFolderOpen, { size: 14 }))
+        'aria-label': '打开需求目录',
+      }, h(IconFolderExternal, { size: 16 }))
     ),
 
     // 项目路径输入弹框

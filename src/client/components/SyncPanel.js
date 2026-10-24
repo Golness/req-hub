@@ -3,14 +3,18 @@
 const React = require('react');
 const h = React.createElement;
 const { HeaderBack } = require('./shared/HeaderBack.js');
-const { useState, useEffect } = React;
+const { useState, useEffect, useRef } = React;
+const syncTaskModel = require('../../shared/sync-task.cjs');
+const { readSyncEvents } = require('../utils/syncEvents.js');
+const { SyncVersionCompare } = require('./shared/SyncVersionCompare.js');
+const { DeleteSyncTaskButton } = require('./shared/DeleteSyncTaskButton.js');
 const { ROUTE } = require('../constants.js');
 const { DocsViewerContext } = require('../context.js');
 const { FilePreview } = require('./FilePreview.js');
 const { showToast } = require('./shared/ToastContainer.js');
 const { createIconComponents } = require('../icons.js');
 
-const { IconFile, IconSync, IconError, IconCheck, IconSkip, IconHourglass, IconUser, IconRobot, IconMerge, IconChart, IconCheckboxOn, IconCheckboxOff, IconBrain, IconWrench, IconComment, IconCode, IconChevronDown } = createIconComponents(h);
+const { IconSync, IconError, IconCheck, IconSkip, IconCancel, IconHourglass, IconChevronDown } = createIconComponents(h);
 
 // ─── SyncPanel ───────────────────────────────────────────────────
 // Sync requirement or design docs with code changes from git branch
@@ -26,12 +30,29 @@ const { IconFile, IconSync, IconError, IconCheck, IconSkip, IconHourglass, IconU
  * @param {Function} props.onClose - Callback invoked to close the panel
  * @returns {JSX.Element}
  */
-function SyncPanel({ workspaceId, selectedReq, onClose }) {
-  const [syncDocType, setSyncDocType] = useState(null); // null | 'requirement' | 'design'
+function SyncPanel({ workspaceId, selectedReq, onClose, focusedSync }) {
+  const [syncDocType, setSyncDocType] = useState(focusedSync && syncTaskModel.isSyncActive(focusedSync) ? focusedSync.docType : null);
   const [syncing, setSyncing] = useState(false);
-  const [view, setView] = useState('main'); // 'main' | 'history' | 'detail'
-  const [selectedHistorySync, setSelectedHistorySync] = useState(null);
-  const { refreshTree } = React.useContext(DocsViewerContext);
+  const [view, setView] = useState(focusedSync && !syncTaskModel.isSyncActive(focusedSync) ? 'detail' : 'main');
+  const [selectedHistorySync, setSelectedHistorySync] = useState(focusedSync || null);
+  const { refreshTree, syncActivity } = React.useContext(DocsViewerContext);
+  useEffect(() => {
+    const removed = event => {
+      const task = event.detail;
+      if (task.workspaceId !== workspaceId || task.requirementId !== selectedReq?.id) return;
+      if (syncDocType || selectedHistorySync?.snapshotDir === task.snapshotDir) {
+        setSyncDocType(null); setSyncing(false); setSelectedHistorySync(null); setView('main');
+      }
+    };
+    window.addEventListener('req-hub-sync-deleted', removed);
+    return () => window.removeEventListener('req-hub-sync-deleted', removed);
+  }, [workspaceId, selectedReq?.id, syncDocType, selectedHistorySync]);
+  useEffect(() => {
+    if (!focusedSync) return;
+    const active = syncTaskModel.isSyncActive(focusedSync);
+    setSelectedHistorySync(focusedSync); setView(active ? 'main' : 'detail');
+    setSyncDocType(active ? focusedSync.docType : null); setSyncing(active);
+  }, [focusedSync]);
 
   // Check for active sync on mount — if a running sync exists, skip directly to progress view
   useEffect(() => {
@@ -39,7 +60,7 @@ function SyncPanel({ workspaceId, selectedReq, onClose }) {
     fetch(`${ROUTE}/sync-active?workspaceId=${workspaceId}&requirementId=${encodeURIComponent(selectedReq.id)}`)
       .then(res => res.ok ? res.json() : null)
       .then(data => {
-        if (data && data.active && data.sync && data.sync.status === 'running') {
+        if (data && data.active && data.sync && syncTaskModel.isSyncActive(data.sync)) {
           setSyncDocType(data.sync.docType);
           setSyncing(true);
         }
@@ -102,6 +123,7 @@ function SyncPanel({ workspaceId, selectedReq, onClose }) {
 
   // Main view - Aligned with AnalyzePanel style
   return h('div', { className: 'rh-op-panel' },
+    syncActivity && h('p', { className: 'rh-sync-hint', role: 'status' }, '已有同步任务在后台运行，需求文档与技术方案同时只能执行一个任务；可在底部栏查看进度。'),
     // Requirement card (same as AnalyzePanel)
     selectedReq && h('div', { className: 'rh-req-card' },
       h('div', { className: 'rh-req-card-title' }, selectedReq.title),
@@ -114,12 +136,14 @@ function SyncPanel({ workspaceId, selectedReq, onClose }) {
     h('div', { className: 'rh-btn-stack', style: { marginBottom: 12 } },
       h('button', {
         className: 'rh-btn',
+        disabled: !!syncActivity,
         onClick: () => setSyncDocType('requirement'),
-      }, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconSync, { size: 14 }), ' 同步需求文档')),
+      }, '同步需求文档'),
       h('button', {
         className: 'rh-btn',
+        disabled: !!syncActivity,
         onClick: () => setSyncDocType('design'),
-      }, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconSync, { size: 14 }), ' 同步技术方案'))
+      }, '同步技术方案')
     ),
 
     // History button
@@ -136,7 +160,7 @@ function SyncPanel({ workspaceId, selectedReq, onClose }) {
 /**
  * @component
  * Displays the conversation turns of a session in an expandable list format.
- * Each turn shows user input and summary with timestamps, and can be expanded/collapsed.
+ * Each turn shows ordered human input and labeled intermediate/final assistant text.
  * Supports expand all / collapse all functionality.
  * @param {Object} props - Component props
  * @param {string} props.sessionId - The session ID to load turns for
@@ -144,7 +168,7 @@ function SyncPanel({ workspaceId, selectedReq, onClose }) {
  * @param {Function} props.onBack - Callback invoked to return to the previous view
  * @returns {JSX.Element}
  */
-function SessionTurnsView({ sessionId, sessionTitle, onBack }) {
+function SessionTurnsView({ sessionId, sessionTitle, snapshotVersion, onBack }) {
   const [turnsData, setTurnsData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -158,16 +182,16 @@ function SessionTurnsView({ sessionId, sessionTitle, onBack }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${ROUTE}/session-turns?sessionId=${sessionId}`);
+      const res = await fetch(`${ROUTE}/session-turns?${new URLSearchParams({ sessionId, version: snapshotVersion })}`);
+      const data = await res.json();
       if (res.ok) {
-        const data = await res.json();
         if (data.success) {
           setTurnsData(data);
         } else {
           setError(data.error || '加载失败');
         }
       } else {
-        setError('加载失败');
+        setError(data.error || '加载失败');
       }
     } catch (e) {
       console.error('Failed to load session turns:', e);
@@ -239,8 +263,8 @@ function SessionTurnsView({ sessionId, sessionTitle, onBack }) {
         h('span', null, `约 ${((turnsData.totalTokens || 0) / 1000).toFixed(1)}k tokens`),
         h('span', { style: { marginLeft: 'auto' }},
           expandedTurns.size === turnsData.turnCount
-            ? h('button', { className: 'rh-btn', onClick: collapseAll, style: { fontSize: 'var(--rh-font-size-sm)', padding: '2px 8px' }}, '全部收起')
-            : h('button', { className: 'rh-btn', onClick: expandAll, style: { fontSize: 'var(--rh-font-size-sm)', padding: '2px 8px' }}, '全部展开')
+            ? h('button', { className: 'rh-btn rh-btn-ghost rh-btn-sm', onClick: collapseAll}, '全部收起')
+            : h('button', { className: 'rh-btn rh-btn-ghost rh-btn-sm', onClick: expandAll}, '全部展开')
         )
       )
     ),
@@ -250,10 +274,7 @@ function SessionTurnsView({ sessionId, sessionTitle, onBack }) {
       turnsData.turns.map((turn, idx) => {
         const isExpanded = expandedTurns.has(turn.turnNumber);
         const time = turn.time ? new Date(turn.time).toLocaleString() : '';
-        const endTime = turn.endTime ? new Date(turn.endTime).toLocaleString() : '';
-        // 兼容两种数据格式：sessionQuery 返回 content，sessions 服务返回 userInput
-        const userInput = turn.userInput || turn.content || '';
-        const summary = turn.summary || '';
+        const userInput = turn.messages?.find(message => message.role === 'user')?.text || '';
 
         return h('div', {
           key: idx,
@@ -289,81 +310,29 @@ function SessionTurnsView({ sessionId, sessionTitle, onBack }) {
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
               color: 'var(--dsw-alias-label-primary)',
-            }}, (turn.userInput || turn.content || '').substring(0, 100)),
+            }}, userInput.substring(0, 100)),
+            !turn.syncable && h('span', { style: { color: 'var(--dsw-alias-label-secondary)' } }, '未完成有效回复，不参与同步'),
             h('span', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', flexShrink: 0 }}, time),
             h('span', { style: {
               fontSize: 'var(--rh-font-size-sm)',
               color: 'var(--dsw-alias-label-secondary)',
               transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
               transition: 'transform 0.2s',
-            }}, h(IconChevronDown, { size: 12, style: { transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}))
+            }}, h(IconChevronDown, { size: 12 }))
           ),
 
           // Turn content (expanded)
           isExpanded && h('div', { style: { padding: '12px 14px', background: 'var(--dsw-alias-bg-layer-1)' }},
-            // User input
-            h('div', { style: { marginBottom: 12 }},
+            (turn.messages || []).map((message, messageIndex) => h('div', {
+              key: messageIndex, style: { marginBottom: 12 },
+            },
+              h('div', { style: { fontSize: 'var(--rh-font-size-sm)', fontWeight: 600, color: 'var(--dsw-alias-label-secondary)', marginBottom: 6 } }, message.label),
               h('div', { style: {
-                fontSize: 'var(--rh-font-size-sm)',
-                fontWeight: 600,
-                color: 'var(--dsw-alias-label-secondary)',
-                marginBottom: 6,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-              }},
-                h('span', { style: { color: 'var(--rh-accent)' }}, '●'),
-                '用户输入'
-              ),
-              h('div', {
-                style: {
-                  fontSize: 'var(--rh-font-size)',
-                  lineHeight: 1.6,
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                  padding: '10px 12px',
-                  background: 'var(--dsw-alias-bg-layer-2)',
-                  borderRadius: 6,
-                  borderLeft: '3px solid var(--rh-accent)',
-                }
-              }, turn.userInput || turn.content || '(无内容)')
-            ),
-
-            // Summary
-            turn.summary && h('div', null,
-              h('div', { style: {
-                fontSize: 'var(--rh-font-size-sm)',
-                fontWeight: 600,
-                color: 'var(--dsw-alias-label-secondary)',
-                marginBottom: 6,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-              }},
-                h('span', { style: { color: 'var(--dsw-alias-state-success-primary)' }}, '●'),
-                '轮次总结'
-              ),
-              h('div', {
-                style: {
-                  fontSize: 'var(--rh-font-size)',
-                  lineHeight: 1.6,
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                  padding: '10px 12px',
-                  background: 'var(--dsw-alias-bg-layer-2)',
-                  borderRadius: 6,
-                  borderLeft: '3px solid var(--dsw-alias-state-success-primary)',
-                }
-              }, turn.summary || '(无总结)'),
-              endTime && h('div', {
-                style: {
-                  fontSize: 'var(--rh-font-size-sm)',
-                  color: 'var(--dsw-alias-label-secondary)',
-                  marginTop: 6,
-                  textAlign: 'right',
-                }
-              }, `结束时间: ${endTime}`)
-            )
+                fontSize: 'var(--rh-font-size)', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                padding: '10px 12px', background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 6,
+                borderLeft: '3px solid ' + (message.kind === 'final' ? 'var(--dsw-alias-state-success-primary)' : 'var(--rh-accent)'),
+              } }, message.text)
+            ))
           )
         );
       })
@@ -487,7 +456,7 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
               alignItems: 'center',
               gap: 4,
             }
-          }, step.livenessStage === 'liveness_stale' ? '⚠' : '●', ` ${step.lastActivityDesc || ''}`),
+          }, step.livenessStage === 'liveness_stale' ? '暂无新活动' : '运行中', ` ${step.lastActivityDesc || ''}`),
           // 分块次数标签
           hasChunks && h('span', {
             onClick: (e) => { e.stopPropagation(); toggleChunks(step.phase); },
@@ -534,7 +503,7 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
                 className: 'rh-sync-step-file-link',
                 href: '#',
                 onClick: (e) => { e.preventDefault(); onViewFile && onViewFile(fileName); },
-              }, `📄 ${fileName}`)
+              }, fileName)
             )
           ),
 
@@ -578,7 +547,7 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
                     chunk.status === 'running' && h(IconSync, { size: 12, color: 'var(--rh-accent)', className: 'rh-spin' }),
                     chunk.status === 'completed' && h(IconCheck, { size: 12, color: 'var(--dsw-alias-state-success-primary)' }),
                     chunk.status === 'failed' && h(IconError, { size: 12, color: 'var(--dsw-alias-state-error-primary)' }),
-                    chunk.status === 'aborted' && h(IconSkip, { size: 12, color: 'var(--dsw-alias-state-warning-primary)' }),
+                    chunk.status === 'aborted' && h(IconCancel, { size: 12, color: 'var(--dsw-alias-state-warning-primary)' }),
                     // 块号 + 状态文字
                     h('span', { style: { fontWeight: 600, fontSize: 'var(--rh-font-size-sm)' }},
                       `块 ${ci + 1}`,
@@ -603,11 +572,11 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
                   chunk.sessionId && h('div', {
                     style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-tertiary)', fontFamily: 'var(--rh-font-code)', marginBottom: 4 },
                     title: `Subagent Session: ${chunk.sessionId}`,
-                  }, `🤖 ${chunk.sessionId.slice(0, 20)}...`),
+                  }, `子会话 ${chunk.sessionId.slice(0, 20)}...`),
                   // 错误信息
                   chunk.status === 'failed' && chunk.error && h('div', {
                     style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-state-error-primary)', marginTop: 2 },
-                  }, `❌ ${chunk.error}`),
+                  }, chunk.error),
                   // 文件列表
                   chunk.files && h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 4 }},
                     chunk.files.slice(0, 5).map((f, fi) =>
@@ -633,7 +602,7 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
                         style: {
                           color: m.role === 'user' ? 'var(--dsw-alias-state-info-primary)' : 'var(--rh-accent)',
                         }
-                      }, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, m.role === 'user' ? h(IconUser, { size: 12 }) : h(IconRobot, { size: 12 }), ` ${m.preview?.substring(0, 30) || ''}...`))
+                      }, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, m.role === 'user' ? '用户：' : '助手：', ` ${m.preview?.substring(0, 30) || ''}...`))
                     ),
                     chunk.messages.length > 3 && h('span', {
                       style: { color: 'var(--dsw-alias-label-secondary)' }
@@ -654,8 +623,6 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
     })
   );
 }
-
-
 
 // ─── SyncProgressView - Active sync progress display ────────────
 /**
@@ -695,16 +662,17 @@ function SyncProgressView({ sync, onBack, onViewFile, workspaceId, requirementId
       const res = await fetch(`${ROUTE}/sync-abort`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+          body: JSON.stringify({
           workspaceId,
           requirementId,
           syncId: sync.id,
+            snapshotDir: sync.snapshotDir,
         }),
       });
       const data = await res.json();
       if (data.success) {
         setShowAbortConfirm(false);
-        showToast({ tone: 'warning', text: '同步任务已终止', holdMs: 3000 });
+        showToast({ tone: 'warning', text: data.status === 'cancelling' ? '正在终止同步任务…' : '同步任务已终止', holdMs: 3000 });
         onSyncAborted?.();
       } else {
         showToast({ tone: 'error', text: data.error || '终止失败', holdMs: 3000 });
@@ -727,14 +695,15 @@ function SyncProgressView({ sync, onBack, onViewFile, workspaceId, requirementId
       h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }},
         h(HeaderBack, { onBack }),
         h('span', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, flex: 1, display: 'flex', alignItems: 'center', gap: 4 } },
-          sync.status === 'running'
-            ? h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconSync, { size: 14 }), ' 同步进行中')
+          syncTaskModel.isSyncActive(sync)
+            ? h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconSync, { size: 14 }), sync.status === 'cancelling' ? ' 正在终止…' : ' 同步进行中')
             : sync.status === 'completed'
               ? h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconCheck, { size: 14 }), ' 同步完成')
               : sync.status === 'aborted'
-                ? h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--dsw-alias-state-warning-primary)' } }, '⬛', ' 已终止')
+                ? h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--dsw-alias-state-warning-primary)' } }, h(IconCancel, { size: 14 }), ' 已终止')
                 : h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconError, { size: 14 }), ' 同步失败')
         ),
+        h(DeleteSyncTaskButton, { task: { ...sync, workspaceId, requirementId }, onDeleted: onBack }),
       ),
       h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', display: 'flex', gap: 16 }},
         h('span', null, '类型：', sync.docTypeName),
@@ -768,6 +737,8 @@ function SyncProgressView({ sync, onBack, onViewFile, workspaceId, requirementId
     ),
     // Steps
     h('div', { style: { flex: 1, overflow: 'auto', padding: 16 }},
+      sync.error && h('div', { className: 'rh-knowledge-error', role: 'alert' }, sync.error),
+      ['failed', 'aborted'].includes(sync.status) && sync.publishState === 'state_committed' && h('div', { className: 'rh-op-info' }, '文档已发布；本次任务未全部完成，详见步骤状态。'),
       h(SyncStepList, {
         steps: sync.steps,
         generatedFiles: sync.generatedFiles,
@@ -789,9 +760,6 @@ function SyncProgressView({ sync, onBack, onViewFile, workspaceId, requirementId
         className: 'rh-btn rh-btn-danger-outline',
         style: {
           width: '100%',
-          padding: '10px 16px',
-          fontSize: 'var(--rh-font-size)',
-          fontWeight: 600,
         },
         onClick: () => setShowAbortConfirm(true),
       }, '终止同步任务')
@@ -809,7 +777,7 @@ function SyncProgressView({ sync, onBack, onViewFile, workspaceId, requirementId
         onClick: e => e.stopPropagation(),
       },
         h('div', { className: 'rh-confirm-header' },
-          h('span', { className: 'rh-confirm-warning-icon', style: { fontSize: 18 } }, '⚠'),
+
           h('h3', { className: 'rh-confirm-title' }, '确认终止同步？'),
         ),
         h('div', { className: 'rh-confirm-body' },
@@ -872,6 +840,7 @@ function SyncHistoryView({ onBack, onSelectSync, workspaceId, requirementId }) {
     ),
     // List
     h('div', { style: { flex: 1, overflow: 'auto', padding: 16 }},
+      !loading && history.length > 0 && h(SyncVersionCompare, { history, workspaceId, requirementId }),
       loading
         ? h('div', { style: { textAlign: 'center', padding: 40, color: 'var(--dsw-alias-label-secondary)' }}, '加载中...')
         : history.length === 0
@@ -893,13 +862,14 @@ function SyncHistoryView({ onBack, onSelectSync, workspaceId, requirementId }) {
                     h('span', { style: { fontSize: 16, display: 'inline-flex' }},
                       sync.status === 'completed' ? h(IconCheck, { size: 16, color: 'var(--dsw-alias-state-success-primary)' })
                         : sync.status === 'failed' ? h(IconError, { size: 16, color: 'var(--dsw-alias-state-error-primary)' })
-                        : sync.status === 'aborted' ? h('span', { style: { fontSize: 'var(--rh-font-size-title)', color: 'var(--dsw-alias-state-warning-primary)' } }, '⬛')
+                        : sync.status === 'aborted' ? h(IconCancel, { size: 16, color: 'var(--dsw-alias-state-warning-primary)' })
                         : h(IconSync, { size: 16, color: 'var(--rh-accent)' })
                     ),
                     h('span', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, flex: 1 }}, sync.docTypeName),
                     h('span', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)' }},
                       new Date(sync.startedAt).toLocaleString()
-                    )
+                    ),
+                    h(DeleteSyncTaskButton, { task: { ...sync, workspaceId, requirementId }, onDeleted: task => setHistory(previous => previous.filter(item => item.snapshotDir !== task.snapshotDir || item.id !== task.id)) })
                   ),
                   h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', display: 'flex', gap: 12 }},
                     h('span', null, (() => {
@@ -943,7 +913,7 @@ function SyncDetailView({ sync, onBack, workspaceId, requirementPath }) {
       }},
         h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 }},
           h(HeaderBack, { onBack: () => setViewingFile(null), label: '返回' }),
-          h('span', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, flex: 1, display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconFile, { size: 14 }), ' ', viewingFile.split('/').pop())
+          h('span', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, flex: 1, display: 'inline-flex', alignItems: 'center', gap: 4 } }, ' ', viewingFile.split('/').pop())
         )
       ),
       h('div', { style: { flex: 1, overflow: 'hidden' }},
@@ -976,7 +946,7 @@ function SyncDetailView({ sync, onBack, workspaceId, requirementPath }) {
  * Main phased sync UI that provides session selection, branch info display,
  * and multi-phase sync execution with real-time progress tracking via SSE.
  * Supports viewing sync progress, history, detail, and generated files across
- * multiple views. Allows optional post-sync operations like analysis and indexing.
+ * multiple views.
  * @param {Object} props - Component props
  * @param {string} props.workspaceId - The workspace ID
  * @param {Object} props.selectedReq - The selected requirement object
@@ -988,12 +958,18 @@ function SyncDetailView({ sync, onBack, workspaceId, requirementPath }) {
  * @returns {JSX.Element}
  */
 function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing, onClose, refreshTree }) {
+  const { syncActivity } = React.useContext(DocsViewerContext);
   const [sessions, setSessions] = useState([]);
   const [selectedSessions, setSelectedSessions] = useState([]);
   const [sessionSearch, setSessionSearch] = useState('');
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [error, setError] = useState(null);
   const [viewingSession, setViewingSession] = useState(null);
+  const selectedSessionVersions = useRef({});
+  const pollRef = useRef(null);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => () => clearInterval(pollRef.current), []);
   const [view, setView] = useState('select'); // 'select' | 'progress' | 'history' | 'detail' | 'file'
   const [currentSync, setCurrentSync] = useState(null);
   const [selectedHistorySync, setSelectedHistorySync] = useState(null);
@@ -1006,8 +982,6 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
   const [commitSearch, setCommitSearch] = useState('');
   const [commitRevision, setCommitRevision] = useState(0);
   const [includeWorkingChanges, setIncludeWorkingChanges] = useState(true);
-  const [runAnalysis, setRunAnalysis] = useState(false);
-  const [runIndex, setRunIndex] = useState(false);
 
   const docTypeName = activeTab === 'requirement' ? '需求文档' : '技术方案';
 
@@ -1022,7 +996,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
           setView('progress');
           if (setSyncing) setSyncing(true);
           // If sync is still running, connect to SSE to get updates
-          if (data.sync.status === 'running') {
+          if (syncTaskModel.isSyncActive(data.sync)) {
             connectToSyncSSE(data.sync.id);
           }
         }
@@ -1051,7 +1025,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
   const commitsReady = !!commitState.data && commitState.key === comparisonKey && !commitState.loading;
   const availableCommits = commitsReady ? commitState.data.commits : [];
   const visibleCommits = availableCommits.filter(commit => `${commit.hash} ${commit.subject} ${commit.author}`.toLowerCase().includes(commitSearch.toLowerCase().trim()));
-  const canSync = !!branchInfo.targetBranch && !!baseBranch.trim() && commitsReady && (selectedCommits.length > 0 || selectedSessions.length > 0 || includeWorkingChanges && commitState.data.hasUncommitted);
+  const canSync = !syncActivity && !!branchInfo.targetBranch && !!baseBranch.trim() && commitsReady && (selectedCommits.length > 0 || selectedSessions.length > 0 || includeWorkingChanges && commitState.data.hasUncommitted);
 
   useEffect(() => {
     setSelectedCommits([]);
@@ -1096,6 +1070,10 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
   };
 
   const toggleSession = (sessionId) => {
+    const session = sessions.find(item => item.id === sessionId);
+    if (!selectedSessions.includes(sessionId) && (!session?.snapshotVersion || !session.syncTurnCount)) return;
+    if (selectedSessions.includes(sessionId)) delete selectedSessionVersions.current[sessionId];
+    else selectedSessionVersions.current[sessionId] = session.snapshotVersion;
     setSelectedSessions(prev =>
       prev.includes(sessionId)
         ? prev.filter(id => id !== sessionId)
@@ -1103,74 +1081,36 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
     );
   };
 
-  const connectToSyncSSE = async (syncId) => {
-    // The SSE connection is already established by the POST request
-    // We just need to poll for updates since SSE is tied to the POST
-    const pollInterval = setInterval(async () => {
+  const connectToSyncSSE = syncId => {
+    clearInterval(pollRef.current);
+    let fetching = false;
+    const poll = async () => {
+      if (fetching) return;
+      fetching = true;
       try {
-        const res = await fetch(`${ROUTE}/sync-active?workspaceId=${workspaceId}&requirementId=${encodeURIComponent(selectedReq.id)}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.active && data.sync) {
-            setCurrentSync({ ...data.sync });
-            if (data.sync.status !== 'running') {
-              clearInterval(pollInterval);
-              if (setSyncing) setSyncing(false);
-              refreshTree();
-              // Toast 通知：同步完成/失败
-              if (data.sync.status === 'completed') {
-                showToast({
-                  tone: 'success',
-                  text: `${data.sync.docTypeName || '文档'}同步完成`,
-                  holdMs: 4000,
-                  actions: [{ label: '查看详情', onClick: () => {} }],
-                });
-              } else if (data.sync.status === 'failed') {
-                showToast({ tone: 'error', text: '同步失败，请检查日志', holdMs: 5000 });
-              }
-            }
-          } else {
-            // Sync completed, fetch from history
-            clearInterval(pollInterval);
-            if (setSyncing) setSyncing(false);
-            // Try to get the completed sync
-            const histRes = await fetch(`${ROUTE}/sync-detail?id=${syncId}&workspaceId=${workspaceId}&requirementId=${encodeURIComponent(selectedReq.id)}`);
-            if (histRes.ok) {
-              const histData = await histRes.json();
-              if (histData.sync) {
-                setCurrentSync(histData.sync);
-              }
-            }
-            refreshTree();
-          }
+        const response = await fetch(`${ROUTE}/sync-detail?id=${syncId}&workspaceId=${workspaceId}&requirementId=${encodeURIComponent(selectedReq.id)}`);
+        if (!response.ok) throw new Error('读取同步状态失败');
+        const { sync } = await response.json();
+        if (!sync) throw new Error('任务状态暂不可用');
+        setCurrentSync(sync);
+        if (!syncTaskModel.isSyncActive(sync)) {
+          clearInterval(pollRef.current); setSyncing(false); refreshTree();
         }
-      } catch (e) {
-        console.error('Poll error:', e);
-      }
-    }, 1000);
-    return pollInterval;
+      } catch (error) { setError(error.message); }
+      finally { fetching = false; }
+    };
+    pollRef.current = setInterval(poll, 1000);
+    return pollRef.current;
   };
 
   const handlePhasedSync = async () => {
     if (!canSync || syncing) return;
+    window.dispatchEvent(new Event('req-hub-sync-change'));
     setError(null);
     setView('progress');
     if (setSyncing) setSyncing(true);
 
-    // Initialize with pending steps — only include session-related steps when sessions are selected
-    const hasSessions = selectedSessions.length > 0;
-    const steps = [
-      { phase: 'init', label: h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconWrench, { size: 14 }), ' 同步检查'), status: 'running', text: '正在启动...', files: [], chunks: null },
-      { phase: 'code_analysis', label: h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconCode, { size: 14 }), ' 代码差异分析'), status: 'pending', text: '', files: [], chunks: null },
-      ...(hasSessions ? [
-        { phase: 'discussion_analysis', label: h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconComment, { size: 14 }), ' 讨论差异分析'), status: 'pending', text: '', files: [], chunks: null },
-      ] : []),
-      { phase: 'merge', label: h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconMerge, { size: 14 }), ' 增量合并'), status: 'pending', text: '', files: [], chunks: null },
-      { phase: 'validate', label: '补丁与字节校验', status: 'pending', text: '', files: [], chunks: null },
-      { phase: 'publish', label: '一致性发布', status: 'pending', text: '', files: [], chunks: null },
-    ];
-    if (runAnalysis) steps.push({ phase: 'analysis', label: h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconBrain, { size: 14 }), ' 构建分析'), status: 'pending', text: '', files: [] });
-    if (runIndex) steps.push({ phase: 'index', label: h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconChart, { size: 14 }), ' 构建索引'), status: 'pending', text: '', files: [] });
+    const steps = syncTaskModel.createSyncSteps({ sessionIds: selectedSessions });
 
     const initialSync = {
       id: `sync-${Date.now()}`,
@@ -1179,14 +1119,16 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
       docType: activeTab,
       docTypeName,
       sessionIds: selectedSessions,
+      sessionVersions: Object.fromEntries(selectedSessions.map(id => [id, selectedSessionVersions.current[id]])),
       startedAt: Date.now(),
       status: 'running',
       steps,
       generatedFiles: [],
-      runAnalysis,
-      runIndex,
     };
     setCurrentSync(initialSync);
+    let latestSync = initialSync, confirmedId = null;
+    let terminalReceived = false;
+    let taskDeleted = false;
 
     try {
       // 获取当前会话 ID
@@ -1222,10 +1164,13 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
           baseCommit: commitState.data.baseline,
           includeWorkingChanges,
           sessionIds: selectedSessions,
-          runAnalysis,
-          runIndex,
+          sessionVersions: Object.fromEntries(selectedSessions.map(id => [id, selectedSessionVersions.current[id]])),
         }),
       });
+      if (!mounted.current) {
+        if (response.body) await readSyncEvents(response.body, () => {});
+        return;
+      }
 
       // 检查响应类型
       const contentType = response.headers.get('content-type');
@@ -1241,11 +1186,12 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
           return;
         }
         if (data.active && data.sync) {
+          if (response.status === 409) throw new Error(data.message || '已有同步任务在后台运行，请在底部栏查看');
           setCurrentSync(data.sync);
           setView('progress');
           if (setSyncing) setSyncing(true);
           // 如果任务还在运行，开始轮询
-          if (data.sync.status === 'running') {
+          if (syncTaskModel.isSyncActive(data.sync)) {
             connectToSyncSSE(data.sync.id);
           }
         } else {
@@ -1259,135 +1205,57 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
       }
 
       // SSE 流处理
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const eventData = JSON.parse(line.slice(6));
-
-            if (eventData.type === 'sync_started') {
-              // Server confirms the actual syncId — update local state so abort uses the correct ID
-              setCurrentSync(prev => prev ? { ...prev, id: eventData.syncId } : prev);
-            } else if (eventData.type === 'chunk_status') {
-              // Chunk-level subagent status update
-              setCurrentSync(prev => {
-                if (!prev) return prev;
-                const newSteps = prev.steps.map(s => {
-                  if (s.phase !== eventData.phase || !s.chunks) return s;
-                  const newChunks = [...s.chunks];
-                  if (newChunks[eventData.chunkIndex]) {
-                    newChunks[eventData.chunkIndex] = {
-                      ...newChunks[eventData.chunkIndex],
-                      status: eventData.status,
-                      sessionId: eventData.sessionId || newChunks[eventData.chunkIndex].sessionId,
-                      error: eventData.error,
-                    };
-                  }
-                  return { ...s, chunks: newChunks };
-                });
-                return { ...prev, steps: newSteps };
-              });
-            } else if (eventData.type === 'step') {
-              // Update step in current sync
-              setCurrentSync(prev => {
-                if (!prev) return prev;
-                const newSteps = prev.steps.map(s => {
-                  if (s.phase === eventData.phase) {
-                    return { ...s, ...eventData };
-                  }
-                  return s;
-                });
-                return { ...prev, steps: newSteps };
-              });
-            } else if (eventData.type === 'liveness') {
-              // Liveness event — update the step's liveness info
-              setCurrentSync(prev => {
-                if (!prev) return prev;
-                const newSteps = prev.steps.map(s => {
-                  if (s.phase === eventData.phase) {
-                    return {
-                      ...s,
-                      livenessStage: eventData.livenessStage,
-                      lastActivityDesc: eventData.lastActivityDesc,
-                      staleCount: eventData.staleCount,
-                      stalenessDuration: eventData.stalenessDuration,
-                    };
-                  }
-                  return s;
-                });
-                return { ...prev, steps: newSteps };
-              });
-            } else if (eventData.type === 'file') {
-              // Add file to current sync
-              setCurrentSync(prev => {
-                if (!prev) return prev;
-                const newGeneratedFiles = [...(prev.generatedFiles || []), { phase: eventData.phase, fileName: eventData.fileName }];
-                const newSteps = prev.steps.map(s => {
-                  if (s.phase === eventData.phase) {
-                    return { ...s, files: [...(s.files || []), eventData.fileName] };
-                  }
-                  return s;
-                });
-                return { ...prev, generatedFiles: newGeneratedFiles, steps: newSteps };
-              });
-            } else if (eventData.type === 'done') {
-              // Sync completed - fetch final state from server
-              const detailRes = await fetch(`${ROUTE}/sync-detail?id=${eventData.syncId}&workspaceId=${workspaceId}&requirementId=${encodeURIComponent(selectedReq.id)}`);
-              if (detailRes.ok) {
-                const detailData = await detailRes.json();
-                if (detailData.sync) {
-                  setCurrentSync(detailData.sync);
-                }
-              }
-              if (setSyncing) setSyncing(false);
-              refreshTree();
-            } else if (eventData.type === 'error') {
-              throw new Error(eventData.error);
-            }
-          } catch (e) {
-            if (e.message && !e.message.includes('Failed to parse')) {
-              console.error('SSE parse error:', e.message);
-              setError(e.message);
-              if (setSyncing) setSyncing(false);
-            }
-          }
+      await readSyncEvents(response.body, async event => {
+        if (!mounted.current) return;
+        if (event.type === 'deleted') {
+          taskDeleted = true; terminalReceived = true;
+          setCurrentSync(null); setSyncing(false); setView('select');
+          return;
         }
-      }
-
-      // Process remaining buffer
-      if (buffer.trim()) {
+        if (event.type === 'sync_started') {
+          window.dispatchEvent(new Event('req-hub-sync-change'));
+          confirmedId = event.syncId;
+          latestSync = { ...latestSync, id: confirmedId };
+        }
+        if (event.sync) {
+          latestSync = event.sync; confirmedId = event.sync.id;
+          setCurrentSync(latestSync);
+        } else if (event.type === 'step') {
+          latestSync = structuredClone(latestSync);
+          syncTaskModel.updateSyncTask(latestSync, { type: 'step', phase: event.phase, updates: event });
+        }
+        setCurrentSync({ ...latestSync });
+        if (event.type === 'error') {
+          terminalReceived = !syncTaskModel.isSyncActive(latestSync);
+          setError(event.error);
+          if (!terminalReceived) throw new Error(event.error);
+        }
+        if (event.type === 'done') {
+          terminalReceived = !syncTaskModel.isSyncActive(latestSync);
+          if (!terminalReceived) throw new Error('同步结束事件缺少任务终态');
+          refreshTree();
+        }
+      });
+      if (!mounted.current || taskDeleted) return;
+      if (!terminalReceived) throw new Error('同步连接已断开，正在恢复任务状态');
+      setSyncing(false);
+      window.dispatchEvent(new Event('req-hub-sync-change'));
+    } catch (error) {
+      if (!mounted.current || taskDeleted) return;
+      setError(error.message || '分阶段同步失败');
+      if (confirmedId) {
         try {
-          const eventData = JSON.parse(buffer.trim().replace(/^data: /, ''));
-          if (eventData.type === 'done') {
-            const detailRes = await fetch(`${ROUTE}/sync-detail?id=${eventData.syncId}&workspaceId=${workspaceId}&requirementId=${encodeURIComponent(selectedReq.id)}`);
-            if (detailRes.ok) {
-              const detailData = await detailRes.json();
-              if (detailData.sync) {
-                setCurrentSync(detailData.sync);
-              }
-            }
-            if (setSyncing) setSyncing(false);
-            refreshTree();
-          }
-        } catch { /* ignore */ }
+          const response = await fetch(`${ROUTE}/sync-detail?id=${confirmedId}&workspaceId=${workspaceId}&requirementId=${encodeURIComponent(selectedReq.id)}`);
+          if (response.ok) { const data = await response.json(); if (data.sync) latestSync = data.sync; }
+        } catch { /* Keep polling a known task; a network error is not a task failure. */ }
+        setCurrentSync(latestSync);
+        if (syncTaskModel.isSyncActive(latestSync)) { setSyncing(true); connectToSyncSSE(confirmedId); }
+        else setSyncing(false);
+      } else {
+        setView('select'); setCurrentSync(null); setSyncing(false);
       }
-    } catch (e) {
-      console.error('Phased sync failed:', e);
-      setError(e.message || '分阶段同步失败');
-      setView('select'); setCurrentSync(null);
-      if (setSyncing) setSyncing(false);
     }
+
   };
 
   // Secondary page: viewing session turns
@@ -1396,6 +1264,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
     return h(SessionTurnsView, {
       sessionId: viewingSession.id,
       sessionTitle: session?.title || '会话内容',
+      snapshotVersion: selectedSessionVersions.current[viewingSession.id] || viewingSession.snapshotVersion,
       onBack: () => setViewingSession(null),
     });
   }
@@ -1414,7 +1283,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
             setViewingFile(null);
             setView('progress');
           }, label: '返回' }),
-          h('span', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, flex: 1, display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconFile, { size: 14 }), ' ', viewingFile.split('/').pop())
+          h('span', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, flex: 1, display: 'inline-flex', alignItems: 'center', gap: 4 } }, ' ', viewingFile.split('/').pop())
         )
       ),
       h('div', { style: { flex: 1, overflow: 'hidden' }},
@@ -1467,9 +1336,12 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
         setView('file');
       },
       onSyncAborted: () => {
-        setSyncing(false);
-        setView('select');
-        setCurrentSync(null);
+        setCurrentSync(previous => {
+          if (!previous) return previous;
+          const next = structuredClone(previous);
+          syncTaskModel.updateSyncTask(next, { type: 'cancel' });
+          return next;
+        });
       },
     });
   }
@@ -1495,7 +1367,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
       fontSize: 'var(--rh-font-size)'
     }},
       h('div', { className: 'rh-sync-branch-row', style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }},
-        h('span', { className: 'rh-sync-branch-label', style: { fontWeight: 600, color: 'var(--dsw-alias-label-primary)', display: 'flex', alignItems: 'center', gap: 4 }}, h(IconMerge, { size: 14 }), ' 目标分支：'),
+        h('span', { className: 'rh-sync-branch-label', style: { fontWeight: 600, color: 'var(--dsw-alias-label-primary)', display: 'flex', alignItems: 'center', gap: 4 }}, ' 目标分支：'),
         h('code', { style: {
           flex: 1,
           color: branchInfo.targetBranch ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-error-primary)',
@@ -1503,16 +1375,16 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
         }}, branchInfo.targetBranch || '未找到对应分支')
       ),
       h('div', { className: 'rh-sync-branch-row', style: { display: 'flex', alignItems: 'center', gap: 8 }},
-        h('span', { className: 'rh-sync-branch-label', style: { fontWeight: 600, color: 'var(--dsw-alias-label-primary)', display: 'flex', alignItems: 'center', gap: 4 }}, h(IconChart, { size: 14 }), ' 基准分支：'),
+        h('span', { className: 'rh-sync-branch-label', style: { fontWeight: 600, color: 'var(--dsw-alias-label-primary)', display: 'flex', alignItems: 'center', gap: 4 }}, ' 基准分支：'),
         h('input', { className: 'rh-search-input', 'aria-label': '同步基准分支', placeholder: '填写基准分支，如 main 或 origin/develop', value: baseBranch, disabled: syncing, onChange: event => { baseBranchEdited.current = true; setBaseBranch(event.target.value); } })
       ),
       !baseBranch.trim() && branchInfo.baseBranchHint && h('p', { className: 'rh-sync-hint', role: 'status' }, branchInfo.baseBranchHint),
       branchInfo.targetBranchError && h('p', { className: 'rh-error', role: 'alert' }, branchInfo.targetBranchError)
     ),
 
-    h('section', { className: 'rh-sync-commits', 'aria-label': '选择同步提交' },
-      h('div', { className: 'rh-sync-commits-heading' },
-        h('strong', null, '选择代码提交'),
+    h('section', { className: 'rh-sync-source-section rh-sync-commits', 'aria-label': '选择同步提交' },
+      h('div', { className: 'rh-sync-section-heading rh-sync-commits-heading' },
+        h('h3', { className: 'rh-sync-section-title' }, '选择代码提交'),
         h('span', { className: 'rh-sync-hint' }, `已选 ${selectedCommits.length} / ${availableCommits.length}`),
         h('button', { type: 'button', className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: !commitsReady || syncing, onClick: () => setSelectedCommits(availableCommits.map(commit => commit.hash)) }, '全选'),
         h('button', { type: 'button', className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: !commitsReady || syncing, onClick: () => setSelectedCommits([]) }, '清空'),
@@ -1533,8 +1405,12 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
           commitState.data.hasUncommitted && h('label', { className: 'rh-sync-working-option' }, h('input', { type: 'checkbox', checked: includeWorkingChanges, disabled: syncing, onChange: event => setIncludeWorkingChanges(event.target.checked) }), '包含当前工作区未提交改动'))),
 
     // Session selector
-    h('div', { style: { marginBottom: 12 } },
-      h('div', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, marginBottom: 6 } }, '选择相关会话（可选）'),
+    h('section', { className: 'rh-sync-source-section rh-sync-sessions', 'aria-label': '选择相关会话' },
+      h('div', { className: 'rh-sync-section-heading' },
+        h('h3', { className: 'rh-sync-section-title' }, '选择相关会话（可选）'),
+        h('button', { type: 'button', className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: loadingSessions || syncing,
+          onClick: () => { setSelectedSessions([]); selectedSessionVersions.current = {}; loadSessions(); } }, '刷新会话')),
+      h('p', { className: 'rh-sync-hint' }, '同步用户输入、助手中间回复及最终回复；未完成有效回复的轮次不参与同步。'),
       h('input', {
         className: 'rh-search-input',
         type: 'text',
@@ -1571,14 +1447,14 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
                     display: 'flex',
                     alignItems: 'center',
                     gap: 8,
-                    background: selectedSessions.includes(s.id) ? 'var(--rh-accent-bg)' : 'transparent',
+                    background: selectedSessions.includes(s.id) ? 'var(--dsw-alias-interactive-bg-active)' : 'transparent',
                     color: selectedSessions.includes(s.id) ? 'var(--rh-accent)' : 'var(--dsw-alias-label-primary)',
                   }
                 },
-                  h('span', { style: { fontSize: 'var(--rh-font-size-title)', display: 'inline-flex' } }, selectedSessions.includes(s.id) ? h(IconCheckboxOn, { size: 14 }) : h(IconCheckboxOff, { size: 14 })),
+                  h('span', { style: { fontSize: 'var(--rh-font-size-title)', display: 'inline-flex' } }, h('input', { type: 'checkbox', checked: selectedSessions.includes(s.id), disabled: !selectedSessions.includes(s.id) && (!s.snapshotVersion || !s.syncTurnCount), readOnly: true, tabIndex: -1, 'aria-label': `选择会话 ${s.title || s.id}` })),
                   h('span', { style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 } }, s.title),
                   h('span', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)' } },
-                    `${s.eventCount || 0} 事件`
+                    s.snapshotError ? '读取失败' : `${s.turnCount ?? 0} 轮（可同步 ${s.syncTurnCount ?? 0} 轮）`
                   ),
                   h('span', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', flexShrink: 0 } },
                     new Date(s.createdAt).toLocaleDateString()
@@ -1599,33 +1475,6 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
       )
     ),
 
-    // Post-sync options
-    h('div', { style: { marginBottom: 12, padding: '10px', background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 6 } },
-      h('div', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, marginBottom: 8 } }, '同步后操作'),
-      h('label', {
-        style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, cursor: 'pointer', fontSize: 'var(--rh-font-size)' }
-      },
-        h('input', {
-          type: 'checkbox',
-          checked: runAnalysis,
-          onChange: (e) => setRunAnalysis(e.target.checked),
-          style: { cursor: 'pointer' }
-        }),
-        h('span', null, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconBrain, { size: 14 }), ' 构建分析（生成 .meta.json）'))
-      ),
-      h('label', {
-        style: { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 'var(--rh-font-size)' }
-      },
-        h('input', {
-          type: 'checkbox',
-          checked: runIndex,
-          onChange: (e) => setRunIndex(e.target.checked),
-          style: { cursor: 'pointer' }
-        }),
-        h('span', null, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconChart, { size: 14 }), ' 构建索引（重建搜索索引）'))
-      )
-    ),
-
     // Action buttons
     h('div', { style: { marginBottom: 12 } },
       h('button', {
@@ -1633,7 +1482,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
         onClick: handlePhasedSync,
         disabled: syncing || !canSync,
         style: { width: '100%' },
-      }, syncing ? '同步中...' : h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconBrain, { size: 14 }), ` 开始同步${docTypeName}`))
+      }, syncing ? '同步中...' : ` 开始同步${docTypeName}`)
     ),
 
     error && h('div', { style: { color: 'var(--dsw-alias-state-error-primary)', fontSize: 'var(--rh-font-size)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 } }, h(IconError, { size: 14 }), error),

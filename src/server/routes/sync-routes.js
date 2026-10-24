@@ -1,3 +1,8 @@
+import taskModel from '../../shared/sync-task.cjs';
+import { SyncLifecycle } from '../sync-lifecycle.js';
+import { syncSupervisor } from '../sync-supervisor.js';
+import { planSyncTaskCleanup } from '../sync-task-cleanup.js';
+import { installSyncTools } from '../sync-controlled-tools.js';
 import { readDocumentVersion, publishDocument, atomicWrite } from '../sync-document-validator.js';
 /**
  * Document sync routes module.
@@ -6,7 +11,7 @@ import { readDocumentVersion, publishDocument, atomicWrite } from '../sync-docum
  * @module routes/sync-routes
  */
 
-import { resolve } from 'node:path';
+import { resolve, relative } from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { loadConfig } from '../config.js';
@@ -17,23 +22,24 @@ import { buildSyncTimeline } from '../sync-timeline.js';
 import { compareSyncSnapshots } from '../sync-snapshots.js';
 import { PhasedSyncEngine } from '../phased-sync-engine.js';
 import { listRelatedSessions } from '../session-selector.js';
-import { extractSessionTurns, extractMultipleSessionTurns, calculateTurnsTokens } from '../session-utils.js';
+import { readSessionSnapshot, extractMultipleSessionTurns } from '../session-utils.js';
 import { json, readBody } from '../utils.js';
 import { log } from '../logger.js';
 import {
   loadState,
   getActiveSync,
-  completeSync,
-  updateSyncProgress,
   getSyncHistory,
   getSyncById,
   setAbortController,
   deleteAbortController,
   abortSync,
+  recoverSyncTask,
+  getAbortController,
+  getCachedActiveSyncs,
+  removeSyncTask,
+  isSyncTaskRemoved,
+  getCachedRequirementPath,
 } from '../sync-state.js';
-import { buildTree } from '../tree.js';
-import { rebuildIndex } from '../index-manager.js';
-import { analyzeRequirement } from '../analyze-engine.js';
 import { charsToTokens, formatTokens } from '../token-utils.js';
 
 /**
@@ -49,7 +55,77 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
   // 从 ctx 获取 sessionQuery 服务
   const sessionQuery = ctx?.sessionQuery;
 
-  return [
+  const pendingSyncs = new Set(), controllers = new Map();
+  let closed = false;
+  const ownerScope = {};
+  const reconcileOrphans = async () => {
+    for (const task of getCachedActiveSyncs()) {
+      const owner = syncSupervisor.owner;
+      if (owner && owner.fields.workspaceId === task.workspaceId && owner.fields.requirementId === task.requirementId
+        && (!owner.task || owner.task.id === task.id && owner.task.snapshotDir === task.snapshotDir)) continue;
+      await recoverSyncTask(task, 'SYNC_OWNER_MISSING: 同步任务已无执行者，已回收残留状态');
+      syncSupervisor.remember(task);
+    }
+  };
+  const watchdog = setInterval(() => { void syncSupervisor.check().catch(error => log.sync.error('任务监管恢复失败：' + error.message)); }, 15000);
+  watchdog.unref?.();
+  const routes = [
+    {
+      kind: 'exact', path: '/req-hub/sync-delete',
+      async handler(req, res) {
+        if (req.method !== 'POST') return json(res, { error: 'method not allowed' }, 405);
+        try {
+          const input = JSON.parse(await readBody(req));
+          if (!input.syncId && !input.notificationId) return json(res, { error: 'missing task identity' }, 400);
+          const pending = syncSupervisor.snapshot().active;
+          if (input.notificationId && pending?.notificationId === input.notificationId && pending.workspaceId === input.workspaceId && pending.requirementId === input.requirementId && !pending.id) {
+            syncSupervisor.remove(pending); return json(res, { success: true });
+          }
+          const workspace = registry.list().find(item => item.id === input.workspaceId);
+          const cachedPath = getCachedRequirementPath(input.workspaceId, input.requirementId);
+          if ((!workspace && !cachedPath) || !input.requirementId) return json(res, { error: 'workspace or requirement not found' }, 404);
+          const config = await loadConfig(), reqDir = cachedPath || await findRequirementDir(resolve(workspace.path, config.docsDir || 'docs'), input.requirementId);
+          if (!reqDir) return json(res, { error: 'requirement not found' }, 404);
+          await loadState(input.workspaceId, input.requirementId, reqDir);
+          let task = input.syncId ? await getSyncById(input.syncId, input.workspaceId, input.requirementId) : null;
+          if (!task && input.syncId && pending?.id === input.syncId && pending.workspaceId === input.workspaceId && pending.requirementId === input.requirementId) task = pending;
+          if (!task && input.notificationId) {
+            const active = syncSupervisor.snapshot().active;
+            if (active?.notificationId === input.notificationId && active.workspaceId === input.workspaceId && active.requirementId === input.requirementId) {
+              syncSupervisor.remove(active); return json(res, { success: true });
+            }
+          }
+          if (!task) {
+            syncSupervisor.remove({ id: input.syncId, snapshotDir: input.snapshotDir, workspaceId: input.workspaceId, requirementId: input.requirementId, notificationId: input.notificationId });
+            return json(res, { success: true });
+          }
+          if (input.snapshotDir !== task.snapshotDir) return json(res, { error: '同步任务已切换，请刷新状态' }, 409);
+          let cleanup = async () => {};
+          try { cleanup = await planSyncTaskCleanup(reqDir, task, () => getCachedActiveSyncs().filter(item => !item.removed).map(item => item.snapshotDir)); }
+          catch (error) { log.sync.warn('任务目录无法安全定位，仅移除任务记录：' + error.message); }
+          if (syncSupervisor.owner?.task && syncSupervisor.owner.task.snapshotDir === task.snapshotDir && syncSupervisor.owner.task.id === task.id) syncSupervisor.owner.cleanup = cleanup;
+          syncSupervisor.remove(task);
+          await removeSyncTask(task);
+          const clean = async () => {
+            try { await cleanup(); }
+            catch (error) {
+              log.sync.warn('删除任务文件暂未完成，将后台重试：' + error.message);
+              const retry = setTimeout(clean, 2000); retry.unref?.();
+            }
+          };
+          await clean();
+          json(res, { success: true });
+        } catch (error) { log.sync.error('删除同步任务失败：' + error.message); json(res, { error: error.message }, 500); }
+      },
+    },
+    {
+      kind: 'exact', path: '/req-hub/sync-overview',
+      async handler(req, res) {
+        if (req.method !== 'GET') return json(res, { error: 'method not allowed' }, 405);
+        try { await syncSupervisor.check(); await reconcileOrphans(); json(res, syncSupervisor.snapshot()); }
+        catch (error) { json(res, { error: error.message }, 500); }
+      },
+    },
     // GET /git-branch - 获取 Git 分支信息
     {
       kind: 'exact',
@@ -396,7 +472,6 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
 
         const url = new URL(req.url, 'http://localhost');
         const sessionId = url.searchParams.get('sessionId');
-        const debug = url.searchParams.get('debug') === 'true';
 
         if (!sessionId) {
           json(res, { error: 'missing sessionId' }, 400);
@@ -404,31 +479,11 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
         }
 
         try {
-          // 调试模式：返回原始事件数据
-          if (debug) {
-            const logSnapshot = await sessionQuery.readSession(sessionId);
-            const events = logSnapshot.events;
-            const userMsgs = events.filter(e => e.type === 'user/message');
-            json(res, {
-              eventCount: events.length,
-              eventTypes: [...new Set(events.map(e => e.type))],
-              userMessageCount: userMsgs.length,
-              firstUserMessage: userMsgs[0] || null,
-              secondUserMessage: userMsgs[1] || null,
-            });
-            return;
+          const snapshot = await readSessionSnapshot(sessionQuery, sessionId, sessions);
+          if (url.searchParams.get('version') !== snapshot.version) {
+            return json(res, { success: false, error: 'SESSION_CHANGED: 会话已变化，请刷新会话列表后重新选择' }, 409);
           }
-
-          // 使用统一的提取方法
-          const turns = await extractSessionTurns(sessionQuery, sessionId);
-          const totalTokens = calculateTurnsTokens(turns);
-
-          json(res, {
-            success: true,
-            turns,
-            turnCount: turns.length,
-            totalTokens,
-          });
+          json(res, { success: true, ...snapshot });
         } catch (e) {
           log.sync.error(`获取会话轮次失败: ${e.message}`);
           json(res, { success: false, error: e.message }, 500);
@@ -457,15 +512,21 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
             req.destroy();
           }
         });
+        let detachRequest;
+        const detached = new Promise(resolve => { detachRequest = resolve; });
 
-        req.on('end', async () => {
+        const executeSync = async () => {
           let syncTask;
           let syncId;
+          let lifecycle;
+          let abortController;
+          let sendEvent = () => {};
           let workspaceId;
           let requirementId;
+          let lease;
           try {
             const input = JSON.parse(body);
-            const { docType, sessionIds = [], runAnalysis = false, runIndex = false } = input;
+            const { docType, sessionIds = [] } = input;
             ({ workspaceId, requirementId } = input);
 
             if (!workspaceId || !requirementId || !docType) {
@@ -481,11 +542,37 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
               return;
             }
 
+            await syncSupervisor.check();
+            lease = syncSupervisor.acquire({ workspaceId, requirementId, docType, docTypeName: docType === 'requirement' ? '需求文档' : '技术方案' });
+            if (!lease) return json(res, { active: true, sync: syncSupervisor.snapshot().active, message: '已有同步任务正在运行，需求文档与技术方案共用一个执行名额' }, 409);
+            lease.scope = ownerScope;
+            lease.onRecovered = reason => {
+              if (syncTask) deleteAbortController(workspaceId, requirementId, syncId, abortController);
+              controllers.delete(abortController);
+              if (res.headersSent && !res.writableEnded && !res.destroyed) {
+                try { res.write(`data: ${JSON.stringify(lease.deleted ? { type: 'deleted', syncId, snapshotDir: syncTask?.snapshotDir } : { type: 'error', error: reason, sync: syncTask })}\n\n`); } catch { /* disconnected client */ }
+              }
+              try { res.end(); } catch { /* disconnected client */ }
+              detachRequest();
+            };
+            abortController = lease.controller;
+            lease.revoke = () => installSyncTools(ctx)?.revoke(abortController.signal);
+
             const config = await loadConfig();
             const docsRoot = resolve(workspace.path, config.docsDir || 'docs');
             const reqDir = await findRequirementDir(docsRoot, requirementId);
             if (!reqDir) { json(res, { error: '需求目录未找到' }, 404); return; }
             if (!llm) { json(res, { error: 'LLM 不可用' }, 503); return; }
+            if (!Array.isArray(sessionIds) || sessionIds.some(id => typeof id !== 'string') || new Set(sessionIds).size !== sessionIds.length) {
+              return json(res, { error: 'SESSION_SELECTION_INVALID: 会话选择无效' }, 400);
+            }
+            const sessionInput = await extractMultipleSessionTurns(sessionQuery, sessionIds, { sessions });
+            for (const snapshot of sessionInput.snapshots) {
+              if (input.sessionVersions?.[snapshot.sessionId] !== snapshot.version) {
+                return json(res, { error: 'SESSION_CHANGED: 会话已变化，请刷新会话列表后重新选择' }, 409);
+              }
+              if (!snapshot.syncTurnCount) return json(res, { error: `SESSION_EMPTY: ${snapshot.sessionId} 没有可同步的完整轮次` }, 400);
+            }
             const docTypeName = docType === 'requirement' ? '需求文档' : '技术方案';
 
             const hasSessions = sessionIds.length > 0;
@@ -494,7 +581,9 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
               requirementId,
               docType,
               docTypeName,
+              requirementPath: relative(docsRoot, reqDir).replaceAll('\\', '/'),
               sessionIds,
+              sessionSnapshots: sessionInput.snapshots.map(({ sessionId, version, syncTurnCount }) => ({ sessionId, version, syncTurnCount })),
               baseBranch: input.baseBranch?.trim() || await defaultSyncBaseBranch(workspace.path),
               commitHashes: input.commitHashes,
               branchTip: input.branchTip,
@@ -502,28 +591,32 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
               includeWorkingChanges: input.includeWorkingChanges !== false,
               startedAt: Date.now(),
               status: 'running', // running | completed | failed
-              steps: [
-                { phase: 'init', label: '同步检查', status: 'pending', text: '', files: [], chunks: null },
-                { phase: 'code_analysis', label: '代码差异分析', status: 'pending', text: '', files: [], chunks: null },
-                ...(hasSessions ? [
-                  { phase: 'discussion_analysis', label: '讨论差异分析', status: 'pending', text: '', files: [], chunks: null },
-                ] : []),
-                { phase: 'merge', label: '隔离文档局部编辑', status: 'pending', text: '', files: [], chunks: null },
-                { phase: 'validate', label: '补丁与字节校验', status: 'pending', text: '', files: [], chunks: null },
-                { phase: 'publish', label: '一致性发布', status: 'pending', text: '', files: [], chunks: null },
-                ...(runAnalysis ? [{ phase: 'analysis', label: '构建分析', status: 'pending', text: '', files: [], chunks: null }] : []),
-                ...(runIndex ? [{ phase: 'index', label: '构建索引', status: 'pending', text: '', files: [], chunks: null }] : []),
-              ],
+              steps: taskModel.createSyncSteps({ sessionIds }),
               generatedFiles: [],
-              runAnalysis,
-              runIndex,
             };
 
-            const prepared = await beginCommitSync(workspace.path, reqDir, fields);
+            if (closed) throw new Error('插件正在卸载，无法启动同步');
+            syncSupervisor.assert(lease);
+            await loadState(workspaceId, requirementId, reqDir);
+            const orphan = await getActiveSync(workspaceId, requirementId);
+            if (orphan) await recoverSyncTask(orphan, 'SYNC_OWNER_MISSING: 原同步任务已无执行者，已回收残留状态');
+            const staleController = getAbortController(workspaceId, requirementId);
+            if (staleController) {
+              staleController.controller.abort();
+              deleteAbortController(workspaceId, requirementId, staleController.syncId, staleController.controller);
+            }
+            let prepared = await beginCommitSync(workspace.path, reqDir, fields, { signal: abortController.signal });
+            syncSupervisor.assert(lease);
+            if (prepared.active) {
+              await recoverSyncTask(prepared.sync, 'SYNC_OWNER_MISSING: 原同步任务已无执行者，已回收残留状态');
+              prepared = await beginCommitSync(workspace.path, reqDir, fields, { signal: abortController.signal });
+            }
             if (prepared.active || prepared.skipped) { json(res, prepared); return; }
             syncTask = prepared.sync;
             syncId = syncTask.id;
-            const abortController = new AbortController();
+            syncSupervisor.attach(lease, syncTask, reason => recoverSyncTask(syncTask, reason));
+            controllers.set(abortController, syncTask);
+            if (closed) abortController.abort();
             setAbortController(workspaceId, requirementId, abortController, syncId);
             const { branchName, commits, codeDiff, uncommittedChanges, sourceSnapshots } = prepared;
 
@@ -534,30 +627,16 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
               'Connection': 'keep-alive'
             });
 
-            const sendEvent = (data) => {
-              res.write(`data: ${JSON.stringify(data)}\n\n`);
+            sendEvent = data => {
+              if (syncSupervisor.owner !== lease) return;
+              syncSupervisor.touch(lease);
+              if (res.destroyed || res.writableEnded) return;
+              try { res.write(`data: ${JSON.stringify(data)}\n\n`); }
+              catch (error) { log.sync.debug('同步连接已断开，任务继续持久化执行：' + error.message); }
             };
-
-            // Helper to update step and persist
-            const updateStep = async (phase, updates) => {
-              const step = syncTask.steps.find(s => s.phase === phase);
-              if (step) {
-                Object.assign(step, updates);
-              }
-              await updateSyncProgress(syncId, { steps: syncTask.steps, generatedFiles: syncTask.generatedFiles }, workspaceId, requirementId);
-              sendEvent({ type: 'step', phase, ...updates });
-            };
-
-            const addFile = async (phase, fileName) => {
-              if (syncTask.generatedFiles.some(file => file.phase === phase && file.fileName === fileName)) return;
-              const step = syncTask.steps.find(s => s.phase === phase);
-              if (step) {
-                step.files.push(fileName);
-              }
-              syncTask.generatedFiles.push({ phase, fileName });
-              await updateSyncProgress(syncId, { steps: syncTask.steps, generatedFiles: syncTask.generatedFiles }, workspaceId, requirementId);
-              sendEvent({ type: 'file', phase, fileName });
-            };
+            lifecycle = new SyncLifecycle(syncTask, sendEvent);
+            const updateStep = (phase, updates) => lifecycle.step(phase, updates);
+            const addFile = (phase, fileName) => lifecycle.file(phase, fileName);
 
             sendEvent({ type: 'sync_started', syncId, commitHash: syncTask.commitHash });
             await updateStep('init', { status: 'running', text: '读取已冻结的需求分支提交...' });
@@ -588,17 +667,11 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
             if (isNewDoc) initText += '，新建文档';
 
             // ─── Step 2: Session Extract ──────────────────────────
-            let sessionTurns = [];
+            const sessionTurns = sessionInput.turns;
             if (sessionIds.length > 0) {
               await updateStep('init', { status: 'running', text: `提取 ${sessionIds.length} 个会话内容...` });
 
               try {
-                // 使用统一的提取方法，分析时不截断摘要（maxSummaryChars: -1）
-                const result = await extractMultipleSessionTurns(sessionQuery, sessionIds, {
-                  maxSummaryChars: -1 // 不截断
-                });
-                sessionTurns = result.turns;
-
                 await updateStep('init', {
                   status: 'running',
                   text: `${sessionTurns.length} 个轮次已提取，正在检查分块输入预算...`
@@ -622,15 +695,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
 
             // 获取父 Agent（用于 subagent 委托）
             const parentAgent = agents?.get(sessionId);
-            if (!parentAgent) {
-              await updateStep('init', { status: 'failed', text: '会话不存在或已结束，请在活跃的 DSH 会话中调用此功能' });
-              syncTask.status = 'failed';
-              await completeSync(syncId, workspaceId, requirementId);
-              deleteAbortController(workspaceId, requirementId);
-              sendEvent({ type: 'error', error: '会话不存在或已结束，请在活跃的 DSH 会话中调用此功能' });
-              res.end();
-              return;
-            }
+            if (!parentAgent) throw new Error('会话不存在或已结束，请在活跃的 DSH 会话中调用此功能');
 
             if (abortController.signal.aborted) throw new Error('同步已终止');
 
@@ -641,6 +706,8 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
               ctx,
               parentAgent,
               signal: abortController.signal,
+              onActivity: () => syncSupervisor.touch(lease),
+              assertActive: () => syncSupervisor.assert(lease),
             });
 
             await updateStep('init', { status: 'running', text: '检查代码与会话的完整 prompt，按 150K 输入预算分块...' });
@@ -649,6 +716,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
               syncContext: { taskId: syncId, branchName, targetSha: syncTask.commitHash, baseSha: syncTask.baselineCommit, attempt: syncTask.snapshotDir },
               hasUncommitted: uncommittedChanges.hasChanges, syncDir,
             });
+            for (const file of preparedChunks.sessionFiles) await addFile('init', `sync-logs/${syncDirName}/${file}`);
             await updateStep('code_analysis', {
               chunks: preparedChunks.code.map(c => ({ index: c.index, tokens: c.tokens, files: c.details.map(d => ({ file: d.file, tokens: d.tokens })) })),
             });
@@ -673,214 +741,30 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
               hasUncommitted: uncommittedChanges.hasChanges,
               reqDir,
               syncDir,
-              onProgress: async (progress) => {
-                // Map engine progress to our step system
-                const { phase, status, content } = progress;
-                if (status === 'output_file') {
-                  await addFile(phase, `sync-logs/${syncDirName}/${progress.fileName}`);
-                  return;
-                }
-                if (status === 'skipped') {
-                  await updateStep(phase, { status: 'skipped', text: progress.reason || '无内容需要处理' });
-                  return;
-                }
-
-                if (phase === 'validate') {
-                  await updateStep(phase, { status: status === 'started' ? 'running' : status, text: progress.error || (status === 'completed' ? '精确回放与范围校验通过' : '校验候选文档与标准补丁...') });
-                  return;
-                }
-                // 处理块级 subagent 身份事件
-                if (status === 'chunk_subagent') {
-                  const chunkStatusMap = syncTask.chunkStatusMap || (syncTask.chunkStatusMap = {});
-                  if (!chunkStatusMap[phase]) chunkStatusMap[phase] = {};
-                  if (!chunkStatusMap[phase][progress.chunkIndex]) chunkStatusMap[phase][progress.chunkIndex] = {};
-                  chunkStatusMap[phase][progress.chunkIndex].sessionId = progress.sessionId;
-                  chunkStatusMap[phase][progress.chunkIndex].status = 'running';
-
-                  // 同步更新 step.chunks，确保前端能立即渲染
-                  const step = syncTask.steps.find(s => s.phase === phase);
-                  if (step && step.chunks && step.chunks[progress.chunkIndex]) {
-                    step.chunks[progress.chunkIndex] = {
-                      ...step.chunks[progress.chunkIndex],
-                      sessionId: progress.sessionId,
-                      status: 'running',
-                    };
-                  }
-
-                  sendEvent({ type: 'chunk_status', phase, chunkIndex: progress.chunkIndex, status: 'running', sessionId: progress.sessionId });
-                  return;
-                }
-
-                // 处理块级状态更新事件
-                if (status === 'chunk_completed' || status === 'chunk_failed' || status === 'chunk_aborted') {
-                  const chunkStatus = status === 'chunk_completed' ? 'completed' : status === 'chunk_failed' ? 'failed' : 'aborted';
-                  const chunkStatusMap = syncTask.chunkStatusMap || (syncTask.chunkStatusMap = {});
-                  if (!chunkStatusMap[phase]) chunkStatusMap[phase] = {};
-                  if (!chunkStatusMap[phase][progress.chunk - 1]) chunkStatusMap[phase][progress.chunk - 1] = {};
-                  chunkStatusMap[phase][progress.chunk - 1].status = chunkStatus;
-                  if (status === 'chunk_failed') chunkStatusMap[phase][progress.chunk - 1].error = progress.error;
-
-                  // 同步更新 step.chunks
-                  const step = syncTask.steps.find(s => s.phase === phase);
-                  if (step && step.chunks && step.chunks[progress.chunk - 1]) {
-                    step.chunks[progress.chunk - 1] = {
-                      ...step.chunks[progress.chunk - 1],
-                      status: chunkStatus,
-                      error: progress.error,
-                    };
-                  }
-
-                  sendEvent({ type: 'chunk_status', phase, chunkIndex: progress.chunk - 1, status: chunkStatus, error: progress.error });
-                  return;
-                }
-
-                // 处理排队等待事件
-                if (status === 'waiting_for_slot') {
-                  const chunkStatusMap = syncTask.chunkStatusMap || (syncTask.chunkStatusMap = {});
-                  if (!chunkStatusMap[phase]) chunkStatusMap[phase] = {};
-                  if (!chunkStatusMap[phase][progress.chunk - 1]) chunkStatusMap[phase][progress.chunk - 1] = {};
-                  chunkStatusMap[phase][progress.chunk - 1].status = 'queued';
-
-                  // 同步更新 step.chunks
-                  const step = syncTask.steps.find(s => s.phase === phase);
-                  if (step && step.chunks && step.chunks[progress.chunk - 1]) {
-                    step.chunks[progress.chunk - 1] = {
-                      ...step.chunks[progress.chunk - 1],
-                      status: 'queued',
-                    };
-                  }
-
-                  sendEvent({ type: 'chunk_status', phase, chunkIndex: progress.chunk - 1, status: 'queued' });
-                  return;
-                }
-
-                // Track subagent sessionId for abort interrupt
-                if (progress.sessionId) {
-                  syncTask.currentSubagentSessionId = progress.sessionId;
-                }
-
-                // 处理 liveness 事件 — 转发到前端
-                if (status === 'liveness') {
-                  sendEvent({
-                    type: 'liveness',
-                    phase,
-                    livenessStage: progress.livenessStage,
-                    sessionId: progress.sessionId,
-                    lastActivityDesc: progress.lastActivityDesc,
-                    staleCount: progress.staleCount,
-                    stalenessDuration: progress.stalenessDuration,
-                  });
-                  return;
-                }
-
-                // 处理 code_analysis 阶段
-                if (phase === 'code_analysis') {
-                  if (status === 'started') {
-                    await updateStep('code_analysis', {
-                      status: 'running',
-                      text: `AI 分析代码差异点... (约 ${formatTokens(progress.codeTokens)} tokens，${progress.codeFiles} 个文件)`,
-                    });
-                  } else if (status === 'chunked') {
-                    // 分块信息
-                    await updateStep('code_analysis', {
-                      text: `代码分块完成，共 ${progress.totalChunks} 块`,
-                      chunks: progress.chunks,
-                      totalTokens: progress.totalTokens,
-                    });
-                  } else if (status === 'processing_chunk') {
-                    await updateStep('code_analysis', {
-                      text: progress.message || '分析差异点中...',
-                      chunkInfo: progress.chunkInfo,
-                    });
-                  } else if (status === 'merging_chunks') {
-                    await updateStep('code_analysis', { text: '合并差异点...' });
-                  } else if (status === 'completed') {
-                    await updateStep('code_analysis', { status: 'completed', text: '代码差异分析完成' });
-                    // 合并 subagent 已直接写入 code-diffs.md，无需再次保存
-                    await addFile('code_analysis', `sync-logs/${syncDirName}/code-diffs.md`);
-                  } else if (status === 'failed') {
-                    await updateStep('code_analysis', { status: 'failed', text: '代码差异分析失败' });
-                  }
-                }
-                // 处理 discussion_analysis 阶段
-                else if (phase === 'discussion_analysis') {
-                  if (status === 'started') {
-                    await updateStep('discussion_analysis', { status: 'running', text: 'AI 分析讨论差异点...' });
-                  } else if (status === 'chunked') {
-                    // 分块信息
-                    await updateStep('discussion_analysis', {
-                      text: `讨论分块完成，共 ${progress.totalChunks} 块`,
-                      chunks: progress.chunks,
-                      totalTokens: progress.totalTokens,
-                    });
-                  } else if (status === 'processing_chunk') {
-                    await updateStep('discussion_analysis', {
-                      text: progress.message || '分析差异点中...',
-                      chunkInfo: progress.chunkInfo,
-                    });
-                  } else if (status === 'merging_chunks') {
-                    await updateStep('discussion_analysis', { text: '合并差异点...' });
-                  } else if (status === 'completed') {
-                    await updateStep('discussion_analysis', { status: 'completed', text: '讨论差异分析完成' });
-                    // 合并 subagent 已直接写入 discussion-diffs.md，无需再次保存
-                    await addFile('discussion_analysis', `sync-logs/${syncDirName}/discussion-diffs.md`);
-                  } else if (status === 'failed') {
-                    await updateStep('discussion_analysis', { status: 'failed', text: '讨论差异分析失败' });
-                  }
-                } else if (phase === 'merge') {
-                  if (status === 'started') {
-                    await updateStep('merge', { status: 'running', text: 'AI 合并变更到文档...' });
-                  } else if (status === 'completed') {
-                    await updateStep('merge', { status: 'completed', text: '文档合并完成' });
-                  } else if (status === 'failed') {
-                    await updateStep('merge', { status: 'failed', text: '文档合并失败' });
-                  }
-                }
+              onProgress: async progress => {
+                if (progress.status === 'output_file') return addFile(progress.phase, `sync-logs/${syncDirName}/${progress.fileName}`);
+                await lifecycle.progress(progress);
               }
             });
 
-            if (result.aborted || abortController.signal.aborted) {
-              deleteAbortController(workspaceId, requirementId);
-              sendEvent({ type: 'error', error: '同步已终止' });
-              res.end();
-              return;
-            }
+            if (result.aborted || abortController.signal.aborted) throw new Error('同步已终止');
             if (result.errors?.length || typeof result.mergedDoc !== 'string') {
-              throw new Error(result.errors?.map(item => item.error).join('；') || '未生成有效文档快照');
+              const failure = new Error(result.errors?.map(item => item.error).join('；') || '未生成有效文档快照');
+              failure.phase = result.errors?.[0]?.phase; throw failure;
             }
             if (result.patchFile) await addFile('merge', `sync-logs/${syncDirName}/${result.patchFile}`);
             if (result.appliedDiffFile) await addFile('merge', `sync-logs/${syncDirName}/${result.appliedDiffFile}`);
             if (result.schemaVersion !== 2 || !result.validation || !Buffer.isBuffer(result.candidateBytes)) throw new Error('SYNC_V2_RESULT_REQUIRED');
-            Object.assign(syncTask, { originalHash: result.validation.originalHash, candidateHash: result.validation.candidateHash, publishState: 'prepared' });
-            await updateSyncProgress(syncId, { originalHash: syncTask.originalHash, candidateHash: syncTask.candidateHash, publishState: 'prepared' }, workspaceId, requirementId);
+            await lifecycle.metadata({ originalHash: result.validation.originalHash, candidateHash: result.validation.candidateHash, publishState: 'prepared' });
             await updateStep('publish', { status: 'running', text: '检查文档版本并发布...' });
+            syncSupervisor.assert(lease);
             await publishDocument({ docPath, syncDir, fileName: docFileName, original: originalVersion,
-              candidateBytes: result.candidateBytes, validation: result.validation, signal: abortController.signal });
-            syncTask.publishState = 'document_written';
+              candidateBytes: result.candidateBytes, validation: result.validation, signal: abortController.signal, assertActive: () => syncSupervisor.assert(lease) });
+            await lifecycle.metadata({ publishState: 'document_written' });
             await updateStep('publish', { status: 'completed', text: '正式文档与成功快照一致' });
             await addFile('merge', `sync-logs/${syncDirName}/${docFileName}`);
 
-            // 持久化 chunk 状态到 steps（用于页面刷新恢复）
-            if (syncTask.chunkStatusMap) {
-              for (const [phaseKey, chunks] of Object.entries(syncTask.chunkStatusMap)) {
-                const step = syncTask.steps.find(s => s.phase === phaseKey);
-                if (step && step.chunks) {
-                  step.chunks = step.chunks.map((c, i) => ({
-                    ...c,
-                    ...(chunks[i] || {}),
-                  }));
-                }
-              }
-              await updateSyncProgress(syncId, { steps: syncTask.steps }, workspaceId, requirementId);
-            }
-
-            // The core document transaction is committed before optional analysis/index work.
-            syncTask.status = 'completed';
-            syncTask.stats = result.stats;
-            syncTask.publishState = 'state_committed';
-            await updateSyncProgress(syncId, { status: 'completed', stats: result.stats, publishState: 'state_committed' }, workspaceId, requirementId);
-            await completeSync(syncId, workspaceId, requirementId);
-            deleteAbortController(workspaceId, requirementId);
+            await lifecycle.metadata({ stats: result.stats, publishState: 'state_committed' });
 
             try {
               const journalPath = join(syncDir, 'publish-journal.json');
@@ -888,81 +772,14 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
               await atomicWrite(journalPath, JSON.stringify({ ...journal, stage: 'state_committed' }, null, 2));
             } catch (error) { log.sync.warn('发布日志收尾失败，可在重启时核验: ' + error.message); }
 
-            // ─── Step 6: Build Analysis (optional) ─────────────────
-            if (runAnalysis) {
-              try {
-                await updateStep('analysis', { status: 'running', text: 'AI 分析需求文档...' });
-
-                const docsRoot = resolve(workspace.path, config.docsDir || 'docs');
-                const tree = await buildTree(docsRoot);
-
-                // Find the requirement in tree
-                let reqInfo = null;
-                for (const dev of tree.developers) {
-                  for (const req of dev.requirements) {
-                    if (req.id === requirementId) {
-                      reqInfo = { id: req.id, developer: dev.name, path: req.path };
-                      break;
-                    }
-                  }
-                  if (reqInfo) break;
-                }
-
-                if (!reqInfo) {
-                  await updateStep('analysis', { status: 'failed', text: '未找到需求目录' });
-                } else {
-                  const parentAgent = agents?.get(sessionId);
-                  if (!parentAgent) {
-                    await updateStep('analysis', { status: 'failed', text: '会话不存在或已结束' });
-                  } else {
-                    const reqPath = join(docsRoot, reqInfo.path);
-                    const result = await analyzeRequirement({
-                      ctx,
-                      llm,
-                      config,
-                      parentAgent,
-                      reqPath,
-                      requirementId,
-                      cwd: workspace.path,
-                    });
-
-                    if (result.success) {
-                      await addFile('analysis', '.meta.json');
-                      await updateStep('analysis', { status: 'completed', text: `分析完成：${result.meta?.summary || '已生成'}` });
-                    } else {
-                      await updateStep('analysis', { status: 'failed', text: result.error || '分析失败' });
-                    }
-                  }
-                }
-              } catch (e) {
-                log.analysis.error(`构建分析失败: ${e.message}`);
-                await updateStep('analysis', { status: 'failed', text: `分析失败: ${e.message}` });
-              }
-            }
-
-            // ─── Step 8: Build Index (optional) ─────────────────
-            if (runIndex) {
-              try {
-                await updateStep('index', { status: 'running', text: '重建搜索索引...' });
-
-                const docsRoot = resolve(workspace.path, config.docsDir || 'docs');
-                const tree = await buildTree(docsRoot);
-                const index = await rebuildIndex(docsRoot, tree);
-
-                await updateStep('index', {
-                  status: 'completed',
-                  text: `索引重建完成：${index.requirements.length} 需求，${Object.keys(index.featureIndex).length} 功能点`
-                });
-              } catch (e) {
-                log.index.error(`构建索引失败: ${e.message}`);
-                await updateStep('index', { status: 'failed', text: `索引失败: ${e.message}` });
-              }
-            }
-
-            log.sync.info(`${docTypeName}分阶段同步完成`);
+            abortController.signal.throwIfAborted();
+            await lifecycle.finish();
+            log.sync.info(`${docTypeName}分阶段同步结束：${syncTask.status}`);
 
             sendEvent({
               type: 'done',
+              sync: syncTask,
+              status: syncTask.status,
               syncId,
               docType,
               stats: result.stats,
@@ -973,24 +790,15 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
           } catch (e) {
             log.sync.error(`分阶段同步失败: ${e.message}`);
 
-            // 标记任务失败并清理状态
-            if (syncTask) {
-              if (syncTask.status !== 'aborted' && syncTask.publishState !== 'state_committed') syncTask.status = 'failed';
-              syncTask.error = e.message;
-              const checking = syncTask.steps.find(step => step.phase === 'init' && step.status === 'running');
-              if (checking) {
-                Object.assign(checking, { status: 'failed', text: e.message });
-                if (res.headersSent) res.write(`data: ${JSON.stringify({ type: 'step', phase: 'init', status: 'failed', text: e.message })}\n\n`);
-              }
-              try { await completeSync(syncId, workspaceId, requirementId); } catch (persistError) { log.sync.error(persistError.message); }
+            if (syncTask && !isSyncTaskRemoved(syncTask)) {
+              lifecycle ||= new SyncLifecycle(syncTask, sendEvent);
+              try { await lifecycle.finish({ status: abortController?.signal.aborted ? 'aborted' : 'failed', error: e.message, phase: e.phase }); }
+              catch (persistError) { log.sync.error('同步终态持久化失败：' + persistError.message); }
             }
-
-            // Clean up abort controller
-            if (syncTask) deleteAbortController(workspaceId, requirementId);
 
             if (res.headersSent) {
               try {
-                res.write(`data: ${JSON.stringify({ type: 'error', error: e.message })}\n\n`);
+                sendEvent({ type: 'error', error: e.message, sync: syncTask });
               } catch { /* ignore */ }
             } else {
               const status = /^(?:COMMIT_LIST_CHANGED|INPUT_CHANGED):/.test(e.message) ? 409
@@ -998,7 +806,17 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
               json(res, { error: e.message }, status);
             }
             try { res.end(); } catch { /* ignore */ }
+          } finally {
+            if (syncTask) deleteAbortController(workspaceId, requirementId, syncId, abortController);
+            controllers.delete(abortController);
+            if (lease) syncSupervisor.release(lease);
+            if (lease?.deleted) await lease.cleanup?.().catch(error => log.sync.debug('删除任务收尾清理：' + error.message));
           }
+        };
+        req.on('end', () => {
+          const execution = Promise.race([executeSync(), detached]); pendingSyncs.add(execution);
+          void execution.finally(() => pendingSyncs.delete(execution)).catch(error => log.sync.error(error.message));
+          return execution;
         });
       }
     },
@@ -1016,7 +834,11 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
 
         try {
           const raw = await readBody(req);
-          const { workspaceId, requirementId, syncId } = JSON.parse(raw);
+          const { workspaceId, requirementId, syncId, snapshotDir } = JSON.parse(raw);
+          if (snapshotDir) {
+            const task = await getSyncById(syncId, workspaceId, requirementId);
+            if (!task || task.snapshotDir !== snapshotDir) return json(res, { success: false, error: '同步任务已切换，请刷新状态' }, 409);
+          }
 
           if (!workspaceId || !requirementId || !syncId) {
             json(res, { error: 'missing workspaceId, requirementId or syncId' }, 400);
@@ -1075,6 +897,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
             await loadState(workspaceId, requirementId, reqDir);
           }
 
+          await syncSupervisor.check(); await reconcileOrphans();
           const activeSync = await getActiveSync(workspaceId, requirementId);
           json(res, { active: !!activeSync, sync: activeSync });
         } catch (e) {
@@ -1256,6 +1079,19 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx) {
       }
     }
   ];
+  routes.dispose = async () => {
+    closed = true;
+    clearInterval(watchdog);
+    const owner = syncSupervisor.owner?.scope === ownerScope ? syncSupervisor.owner : null;
+    owner?.controller.abort();
+    for (const [controller, task] of controllers) {
+      controller.abort();
+      await abortSync(task.id, task.workspaceId, task.requirementId);
+    }
+    const grace = setTimeout(() => { if (owner) void syncSupervisor.expire(owner, 'SYNC_SHUTDOWN_TIMEOUT: 插件退出时同步未能正常收尾，已回收').catch(error => log.sync.error(error.message)); }, syncSupervisor.limits.cancelling);
+    try { await Promise.allSettled([...pendingSyncs]); } finally { clearTimeout(grace); }
+  };
+  return routes;
 }
 
 

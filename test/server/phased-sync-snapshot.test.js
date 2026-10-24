@@ -73,4 +73,10 @@ describe('v2 frozen evidence and isolated candidates', () => {
     const { result, harness } = await run('requirement', {}, { sessionTurns: [{ sessionId: 'big', turnNumber: 1, userInput: 'x'.repeat(160000) }] });
     expect(result.errors[0].phase).toBe('init'); expect(harness.requests).toHaveLength(0);
   });
+  it('includes all intermediate replies in the file-read budget and rejects an oversized full turn before spawning', async () => {
+    const { result, harness } = await run('requirement', {}, { sessionTurns: [{ sessionId: 'big', turnNumber: 1, syncable: true,
+      messages: [{ role:'user',label:'用户输入',text:'小输入' },{role:'assistant',label:'助手中间回复 1',text:'中'.repeat(60000)},
+        {role:'assistant',label:'助手最终回复',text:'短回复'}] }] });
+    expect(result.errors[0].phase).toBe('init');expect(result.errors[0].error).toContain('big');expect(harness.requests).toHaveLength(0);
+  });
 });

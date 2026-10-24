@@ -10,6 +10,7 @@ import { PROMPT_REGISTRY } from './prompts.js';
 import { SyncArtifacts } from './sync-artifacts.js';
 import { assertSyncCapabilities, installSyncTools, SYNC_TOOLS, OUTPUT_LIMIT, REQUEST_RESERVE } from './sync-controlled-tools.js';
 import { indexDocument, validateChanges, validateCandidate } from './sync-document-validator.js';
+import { renderSessionDocument, renderSessionTurn } from './session-utils.js';
 
 function countTokens(text) { return charsToTokens(text.length); }
 
@@ -90,7 +91,7 @@ export async function chunkTurns(turns, options) {
     if (!sessions.has(name)) sessions.set(name, { name, items: [], splittable: true });
     sessions.get(name).items.push(turn);
   }
-  return packSyncChunks([...sessions.values()], { ...options, details: turn => ({ type: 'turn', sessionId: turn.sessionId, turnNumber: turn.turnNumber, tokens: estimateTextTokens(turn.userInput || '') + estimateTextTokens(turn.summary || ''), userInputPreview: (turn.userInput || '').slice(0, 100), time: turn.time }) });
+  return packSyncChunks([...sessions.values()], { ...options, details: turn => ({ type: 'turn', sessionId: turn.sessionId, turnNumber: turn.turnNumber, tokens: estimateTextTokens(renderSessionTurn(turn)), userInputPreview: (turn.messages?.find(message => message.role === 'user')?.text || turn.userInput || '').slice(0, 100) }) });
 }
 
 export class PhasedSyncEngine {
@@ -110,7 +111,8 @@ export class PhasedSyncEngine {
     return prompt;
   }
   async prepareSyncChunks(options) {
-    assertSyncCapabilities(this.ctx, this.config);
+    this.assertActive?.();
+    this.nativeEditor = assertSyncCapabilities(this.ctx, this.config, this.parentAgent);
     this.signal?.throwIfAborted();
     const { docType, syncDir, currentDoc = '', commits = [], sourceSnapshots = [], codeDiff = '', sessionTurns = [] } = options;
     if (!['requirement', 'design'].includes(docType)) throw new Error('DOCUMENT_TYPE');
@@ -142,10 +144,26 @@ export class PhasedSyncEngine {
       }
       codeFiles.push({ file: file.file, content: file.content, required, context });
     }
-    const turns = [];
+    const turns = [], sessionFiles = [], sessionGroups = new Map();
+    for (const turn of sessionTurns) {
+      if (turn.syncable === false) throw new Error('SESSION_TURN_INCOMPLETE: ' + turn.sessionId);
+      const key = turn.sessionId || '未提供会话标识';
+      if (!sessionGroups.has(key)) sessionGroups.set(key, []);
+      sessionGroups.get(key).push(turn);
+    }
+    const sessionNumbers = new Map();
+    for (const [sessionId, group] of sessionGroups) {
+      const number = sessionNumbers.size + 1; sessionNumbers.set(sessionId, number);
+      const file = `sessions/session-${number}.md`;
+      await store.put('session.document.' + number, renderSessionDocument(sessionId, group), file);
+      sessionFiles.push('input/' + file);
+    }
     for (const [i, turn] of sessionTurns.entries()) {
       const id = 'session.turn.' + i;
-      await store.put(id, JSON.stringify(turn));
+      const sessionId = turn.sessionId || '未提供会话标识';
+      const file = `sessions/session-${sessionNumbers.get(sessionId)}-turn-${i + 1}.md`;
+      await store.put(id, renderSessionDocument(sessionId, [turn]), file);
+      sessionFiles.push('input/' + file);
       turns.push({ ...turn, required: [id], context: [] });
     }
     // All ten rendered contracts and Skills are checked before any model is started.
@@ -179,13 +197,14 @@ export class PhasedSyncEngine {
     // Binary reduction: every merge node reads at most two bounded reports and indices.
     const mergeCost = fixed + commonCost + 4 * OUTPUT_LIMIT;
     if (code.length + discussion.length > 1 && mergeCost >= MAX_SYNC_INPUT_TOKENS) throw new Error('MERGE_INPUT_TOO_LARGE: 汇总上界超出预算');
-    const plan = { schemaVersion: 2, task: options.syncContext || {}, store, code, discussion, common, blocks, originalBytes, templates, fixed, commonCost };
+    const plan = { schemaVersion: 2, task: options.syncContext || {}, store, code, discussion, common, blocks, originalBytes, templates, fixed, commonCost, sessionFiles };
     await store.manifest({ docType, task: plan.task, blocks, codeChunks: code.map(c => c.id), discussionChunks: discussion.map(c => c.id), budget: { limit: MAX_SYNC_INPUT_TOKENS, reserve: REQUEST_RESERVE, commonCost, mergeCost } });
     await writeFile(join(syncDir, docType === 'design' ? 'design.md.prev' : 'requirement.md.prev'), originalBytes);
     this.signal?.throwIfAborted();
     return plan;
   }
   async executeTask(key, variables, options = {}) {
+    this.assertActive?.();
     if (!this.parentAgent) throw new Error('缺少父 Agent，无法执行同步');
     const result = await executeTask(this.ctx, this.llm, this.getStageConfig(key), {
       promptKey: key, variables, preparedPromptData: options.preparedPromptData,
@@ -194,7 +213,7 @@ export class PhasedSyncEngine {
       syncV2: true, liveness: { enabled: false },
       toolFilter: { allow: SYNC_TOOLS }, description: '同步 v2: ' + key,
       callbacks: { onProgress: progress => {
-        if (progress.stage === 'executing') options.onSubagentStart?.(progress.sessionId);
+        if (progress.stage === 'executing') return options.onSubagentStart?.(progress.sessionId);
       } },
     });
     if (result.isError) throw new Error(result.diagnostic || 'SYNC_SUBAGENT_FAILED');
@@ -214,12 +233,14 @@ export class PhasedSyncEngine {
       const run = async (key, stage, which, mergeInputs = null, edit = null) => {
         this.signal?.throwIfAborted();
         const reportPath = join(syncDir, stage.id + '.md'), changesPath = join(syncDir, stage.id + '.json');
-        const runtime = installSyncTools(this.ctx).create({ store, allowed: stage.allowed, required: stage.required,
+        this.assertActive?.();
+        const runtime = installSyncTools(this.ctx).create({ store, allowed: stage.allowed, required: stage.required, signal: this.signal, onActivity: this.onActivity, assertActive: this.assertActive,
+          nativeEditor: this.nativeEditor, parentAgent: this.parentAgent,
           outputs: edit ? {} : { report: reportPath, changes: changesPath }, ...edit });
         try {
           const variables = { runtimeId: runtime.id, manifestId: stage.manifestId, reportId: 'report', changesId: 'changes' };
           const preparedPromptData = await this.preparePrompt(key, variables);
-          await this.executeTask(key, variables, { preparedPromptData, onSubagentStart: sessionId => progress({ phase: which, status: 'chunk_subagent', chunkIndex: stage.index || 0, sessionId }) });
+          await this.executeTask(key, variables, { preparedPromptData, onSubagentStart: sessionId => progress({ phase: which, status: Number.isInteger(stage.index) ? 'chunk_subagent' : 'summary_subagent', chunkIndex: stage.index, sessionId }) });
           await runtime.assertCoverage();
           result.stats.totalLLMCalls++;
           if (edit) return runtime.journal;
@@ -247,7 +268,7 @@ export class PhasedSyncEngine {
         } finally { runtime.close(); }
       };
       let mergeNumber = 0;
-      const consolidate = async (inputs, source) => {
+      const consolidate = async (inputs, source, targetPhase = source === 'code' ? 'code_analysis' : 'discussion_analysis') => {
         while (inputs.length > 1) {
           const next = [];
           for (let i = 0; i < inputs.length; i += 2) {
@@ -257,7 +278,7 @@ export class PhasedSyncEngine {
             const required = [...common, ...pair.flatMap(input => [input.reportId, input.changesId])];
             await store.put(manifestId, JSON.stringify({ schemaVersion: 2, required, outputIds: ['report', 'changes'] }));
             const stage = { id, manifestId, required: [manifestId, ...required], allowed: [manifestId, ...required] };
-            next.push(await run(`phased-${source}-analysis-merge-${docType}`, stage, source === 'code' ? 'code_analysis' : 'discussion_analysis', pair));
+            next.push(await run(`phased-${source}-analysis-merge-${docType}`, stage, targetPhase, pair));
           }
           inputs = next;
         }
@@ -272,6 +293,7 @@ export class PhasedSyncEngine {
         await progress({ phase, status: 'started', codeFiles: chunks.flatMap(c => c.items).length, codeTokens: chunks.reduce((n, c) => n + c.tokens, 0) });
         const processor = new ConcurrentChunkProcessor({ maxConcurrency: 3 });
         const processed = await processor.processAll(chunks, (chunk, index) => run(`phased-${source}-analysis-${docType}`, chunk, phase), { signal: this.signal, onProgress: progress, phase });
+        this.signal?.throwIfAborted();
         if (processed.errors.length) throw new Error(processed.errors.map(error => error.error).join('；'));
         const combined = await consolidate(processed.results, source);
         const canonical = source === 'code' ? 'code-diffs.md' : 'discussion-diffs.md';
@@ -280,14 +302,15 @@ export class PhasedSyncEngine {
         all.push(combined); await progress({ phase, status: 'completed' });
       }
       phase = 'merge';
-      const combined = await consolidate(all, 'code');
+      await progress({ phase, status: 'started' });
+      const combined = await consolidate(all, 'code', phase);
       const changes = combined?.index.changes || [];
+      this.signal?.throwIfAborted();
       await writeFile(join(syncDir, 'change-plan.json'), JSON.stringify(combined?.index || { changes: [], pending: [] }, null, 2));
       await emitFile(phase, 'change-plan.json'); await emitFile(phase, fileName + '.prev');
       const candidatePath = join(syncDir, 'candidate-' + fileName);
       await writeFile(candidatePath, originalBytes);
       if (changes.length) {
-        await progress({ phase, status: 'started' });
         const planId = 'validated.plan'; await store.put(planId, JSON.stringify(combined.index));
         const required = [...common, planId, combined.reportId];
         const manifestId = 'manifest.edit';
@@ -299,7 +322,9 @@ export class PhasedSyncEngine {
       }
       const candidateBytes = await readFile(candidatePath);
       await emitFile(phase, 'candidate-' + fileName);
+      await progress({ phase: 'merge', status: changes.length ? 'completed' : 'skipped', reason: '无可执行变更' });
       phase = 'validate';
+      this.signal?.throwIfAborted();
       await progress({ phase, status: 'started' });
       const validation = validateCandidate(originalBytes, candidateBytes, fileName, changes, blocks);
       for (const name of ['document.patch', 'applied-document.diff']) { await writeFile(join(syncDir, name), validation.patch, 'utf8'); await emitFile(phase, name); }
@@ -308,10 +333,9 @@ export class PhasedSyncEngine {
       await progress({ phase, status: 'completed' });
       result.mergedDoc = candidateBytes.toString('utf8'); result.candidateBytes = candidateBytes; result.validation = validation;
       result.originalBytes = originalBytes; result.patchFile = 'document.patch'; result.appliedDiffFile = 'applied-document.diff';
-      await progress({ phase: 'merge', status: changes.length ? 'completed' : 'skipped', reason: '无可执行变更' });
     } catch (error) {
       result.errors.push({ phase, error: error.message });
-      await progress({ phase, status: 'failed', error: error.message });
+      await progress({ phase, status: this.signal?.aborted ? 'aborted' : 'failed', error: error.message });
       if (this.signal?.aborted) { result.aborted = true; result.stopReason = 'aborted'; }
     }
     return result;

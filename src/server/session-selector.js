@@ -5,6 +5,14 @@
  */
 
 import { log } from './logger.js';
+import { readSessionSnapshot } from './session-utils.js';
+
+async function syncDetails(sessionQuery, sessionId, sessions) {
+  try {
+    const snapshot = await readSessionSnapshot(sessionQuery, sessionId, sessions);
+    return { turnCount: snapshot.turnCount, syncTurnCount: snapshot.syncTurnCount, snapshotVersion: snapshot.version };
+  } catch (error) { return { turnCount: null, syncTurnCount: 0, snapshotError: error.message }; }
+}
 
 /**
  * @typedef {Object} SessionInfo
@@ -15,7 +23,9 @@ import { log } from './logger.js';
  * @property {string|null} parentSession - Parent session ID if subagent
  * @property {boolean} isLive - Whether session is currently active
  * @property {boolean} isPersisted - Whether session is persisted to disk
- * @property {number} [eventCount] - Number of events (for live sessions)
+ * @property {number|null} [turnCount] - Number of conversation turns
+ * @property {number} [syncTurnCount] - Number of complete, syncable turns
+ * @property {string} [snapshotVersion] - Hash of the previewed conversation projection
  */
 
 /**
@@ -59,7 +69,7 @@ export async function listRelatedSessions(sessions, workspacePath, options = {})
       });
       
       // 并行获取会话标题
-      const titlePromises = filtered.slice(0, limit).map(async (record) => {
+      const titlePromises = filtered.sort((a,b) => (b.header.createdAt || 0) - (a.header.createdAt || 0)).map(async (record) => {
         let title = '(无标题)';
         try {
           const titleSnapshot = await sessionQuery.readTitle(record.header.id);
@@ -85,7 +95,8 @@ export async function listRelatedSessions(sessions, workspacePath, options = {})
       sessionsWithDetails.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       
       log.session.info(`找到 ${sessionsWithDetails.length} 个相关会话（使用 sessionQuery）`);
-      return sessionsWithDetails;
+      return Promise.all(sessionsWithDetails.filter(session => !query || session.title.toLowerCase().includes(query.toLowerCase())).slice(0, limit)
+        .map(async session => ({ ...session, ...await syncDetails(sessionQuery, session.id, sessions) })));
     } catch (e) {
       log.session.error(`sessionQuery 列出会话失败: ${e.message}`);
       // 继续使用 sessions 服务作为后备
@@ -119,22 +130,22 @@ export async function listRelatedSessions(sessions, workspacePath, options = {})
     });
     
     // 转换为统一格式
-    const sessionsWithDetails = filtered.slice(0, limit).map(s => ({
+    const sessionsWithDetails = await Promise.all(filtered.sort((a,b) => (b.header.createdAt || 0) - (a.header.createdAt || 0)).slice(0, limit).map(async s => ({
       id: s.header.id,
       title: '(活跃会话)',
       createdAt: s.header.createdAt,
-      eventCount: s.seq || 0,
+      ...await syncDetails(null, s.header.id, sessions),
       cwd: s.header.cwd || '',
       parentSession: s.header.parentSession || null,
       isLive: true,
       isPersisted: false,
-    }));
+    })));
     
     // 按创建时间倒序
     sessionsWithDetails.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     
     log.session.info(`找到 ${sessionsWithDetails.length} 个相关活跃会话（使用 sessions 服务）`);
-    return sessionsWithDetails;
+    return sessionsWithDetails.filter(session => !query || session.title.toLowerCase().includes(query.toLowerCase())).slice(0, limit);
   } catch (e) {
     log.session.error(`列出会话失败: ${e.message}`);
     return [];

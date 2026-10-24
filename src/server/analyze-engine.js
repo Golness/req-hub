@@ -40,7 +40,7 @@ import { log } from './logger.js';
  * @returns {Promise<AnalyzeResult>} Analysis result
  */
 export async function analyzeRequirement(options) {
-  const { ctx, llm, config, parentAgent, reqPath, requirementId, cwd, scopedSkills } = options;
+  const { ctx, llm, config, parentAgent, reqPath, requirementId, cwd, scopedSkills, signal } = options;
   const startTime = Date.now();
 
   try {
@@ -62,6 +62,7 @@ export async function analyzeRequirement(options) {
       parentAgent,
       cwd,
       scopedSkills,
+      signal,
       description: `分析需求文档: ${requirementId}`,
     });
 
@@ -80,6 +81,7 @@ export async function analyzeRequirement(options) {
 
     // 5. 写入 .meta.json（注意：writeMetaJson 需要文件路径）
     const metaFilePath = join(reqPath, '.meta.json');
+    signal?.throwIfAborted();
     await writeMetaJson(metaFilePath, validated);
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);

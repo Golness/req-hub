@@ -1,13 +1,14 @@
 'use strict';
 
 const React = require('react');
+const { Select } = require('./shared/Select.js');
 const h = React.createElement;
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 const { ROUTE } = require('../constants.js');
 const { getDocIcon } = require('../utils/getDocIcon.js');
 const { createIconComponents } = require('../icons.js');
 
-const { IconFolder, IconFolderOpen, IconFile, IconClose, IconChevronRight } = createIconComponents(h);
+const { IconFolder, IconFolderOpen, IconChevronRight, IconChevronDown } = createIconComponents(h);
 
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 400;
@@ -365,7 +366,7 @@ function FileTreeSidebar({ workspaceId, selectedReq, onSelectFile, multiSelect =
       onClick: () => setExpanded(!expanded),
       'aria-label': expanded ? '收起文件树' : '展开文件树',
       title: expanded ? '收起' : '展开',
-    }, expanded ? '‹' : '›'),
+    }, h(IconChevronRight, { size: 16, style: { transform: expanded ? 'rotate(180deg)' : undefined } })),
 
     // Content
     expanded && h('div', { className: 'rh-file-tree-content' },
@@ -375,23 +376,21 @@ function FileTreeSidebar({ workspaceId, selectedReq, onSelectFile, multiSelect =
         h('button', { className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: !selectedPaths.length, onClick: () => onSelectionChange?.([]) }, '清空选择')),
       // Filters (collapsible, default collapsed)
       h('div', { className: 'rh-file-tree-filters' },
-        h('div', {
-          className: 'rh-filter-toggle',
+        h('button', {
+          type: 'button',
+          className: 'rh-btn rh-btn-ghost rh-btn-sm rh-filter-toggle',
           onClick: () => setShowFilters(!showFilters),
-          role: 'button',
           'aria-expanded': showFilters,
         },
           h('span', null, '筛选'),
-          h('span', {
-            className: `rh-filter-arrow${showFilters ? ' expanded' : ''}`,
-          }, '▾')
+          h(IconChevronDown, { size: 16, className: `rh-filter-arrow${showFilters ? ' expanded' : ''}` })
         ),
         showFilters && h('div', { className: 'rh-filter-content' },
           // Extension filter
           h('div', { className: 'rh-filter-group' },
             h('label', { className: 'rh-filter-label' }, '类型:'),
-            h('select', {
-              className: 'rh-filter-select',
+            h(Select, {
+              className: 'rh-filter-select', 'aria-label': '文件类型',
               value: filterExt,
               onChange: (e) => setFilterExt(e.target.value),
             },
@@ -399,14 +398,17 @@ function FileTreeSidebar({ workspaceId, selectedReq, onSelectFile, multiSelect =
               h('option', { value: '.md' }, 'Markdown'),
               h('option', { value: '.html' }, 'HTML'),
               h('option', { value: '.txt' }, '文本'),
-              h('option', { value: '.json' }, 'JSON')
+              h('option', { value: '.json' }, 'JSON'),
+              h('option', { value: '.pdf' }, 'PDF'),
+              h('option', { value: '.docx' }, 'Word'),
+              h('option', { value: '.xlsx' }, 'Excel')
             )
           ),
           // Document type filter
           h('div', { className: 'rh-filter-group' },
             h('label', { className: 'rh-filter-label' }, '文档:'),
-            h('select', {
-              className: 'rh-filter-select',
+            h(Select, {
+              className: 'rh-filter-select', 'aria-label': '文档类型',
               value: filterType,
               onChange: (e) => setFilterType(e.target.value),
             },
@@ -422,20 +424,23 @@ function FileTreeSidebar({ workspaceId, selectedReq, onSelectFile, multiSelect =
             h('label', { className: 'rh-filter-label' }, '排序:'),
             h('div', { className: 'rh-sort-buttons' },
               h('button', {
-                className: `rh-sort-btn${sortBy === 'none' ? ' active' : ''}`,
+                className: `rh-btn rh-btn-ghost rh-btn-sm rh-sort-btn${sortBy === 'none' ? ' active' : ''}`,
+                'aria-pressed': sortBy === 'none',
                 onClick: () => setSortBy('none'),
                 title: '不排序',
-              }, '—'),
+              }, '默认'),
               h('button', {
-                className: `rh-sort-btn${sortBy === 'mtime-asc' ? ' active' : ''}`,
+                className: `rh-btn rh-btn-ghost rh-btn-sm rh-sort-btn${sortBy === 'mtime-asc' ? ' active' : ''}`,
+                'aria-pressed': sortBy === 'mtime-asc',
                 onClick: () => setSortBy('mtime-asc'),
                 title: '编辑时间升序',
-              }, '↑'),
+              }, '最早'),
               h('button', {
-                className: `rh-sort-btn${sortBy === 'mtime-desc' ? ' active' : ''}`,
+                className: `rh-btn rh-btn-ghost rh-btn-sm rh-sort-btn${sortBy === 'mtime-desc' ? ' active' : ''}`,
+                'aria-pressed': sortBy === 'mtime-desc',
                 onClick: () => setSortBy('mtime-desc'),
                 title: '编辑时间降序',
-              }, '↓')
+              }, '最新')
             )
           )
         )

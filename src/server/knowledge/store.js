@@ -83,8 +83,10 @@ export class KnowledgeStore {
     if (!row) return null;
     const origin = this.db.prepare('SELECT workspace_id,workspace_title FROM scopes WHERE id=?').get(row.scope_id);
     const provenance = { workspaceId: origin.workspace_id, workspaceTitle: origin.workspace_title };
+    const snapshot = this.db.prepare('SELECT snapshot FROM document_versions WHERE document_id=? AND version=?').get(row.id, row.version);
+    const locations = snapshot ? JSON.parse(snapshot.snapshot).locations : undefined;
     return { id: row.id, ...provenance, title: row.title, body: row.body, type: 'document', tags: [], version: row.version, updatedAt: row.updated_at,
-      sources: [{ ...provenance, relativePath: row.path, sourceHash: row.source_hash, status: row.source_status, coordinate: row.coordinate, startLine: 1, endLine: row.body.split('\n').length }] };
+      sources: [{ ...provenance, relativePath: row.path, sourceHash: row.source_hash, status: row.source_status, coordinate: row.coordinate, startLine: 1, endLine: row.body.split('\n').length, ...(locations?.length ? { locations } : {}) }] };
   }
   entry(id) {
     const entry = this.rowEntry(this.db.prepare('SELECT d.*,s.hash AS source_hash,s.status AS source_status FROM documents d JOIN sources s ON s.scope_id=d.scope_id AND s.path=d.path WHERE d.id=? AND (? IS NULL OR d.scope_id=?)').get(id, ...this.scopeArgs()));
@@ -97,12 +99,12 @@ export class KnowledgeStore {
       const old = this.db.prepare('SELECT * FROM documents WHERE scope_id=? AND path=?').get(this.scopeId, source.relativePath);
       const title = posix.basename(source.relativePath);
       const id = old?.id || randomUUID();
-      const changed = !old || previous?.hash !== source.contentHash || old.body !== source.text;
+      const changed = !old || previous?.hash !== source.contentHash || old.body !== source.text || previous?.fingerprint !== fingerprint;
       const version = old ? old.version + (changed ? 1 : 0) : 1;
       const timestamp = now();
       this.db.prepare("INSERT INTO sources VALUES (?,?,?,?,'active',?) ON CONFLICT(scope_id,path) DO UPDATE SET hash=excluded.hash,fingerprint=excluded.fingerprint,status='active',updated_at=excluded.updated_at").run(this.scopeId, source.relativePath, source.contentHash, fingerprint, timestamp);
       this.db.prepare('INSERT INTO documents VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(scope_id,path) DO UPDATE SET title=excluded.title,body=excluded.body,version=excluded.version,coordinate=excluded.coordinate,updated_at=excluded.updated_at').run(id, this.scopeId, source.relativePath, title, source.text, version, source.coordinate || 'source', timestamp);
-      this.db.prepare('INSERT OR IGNORE INTO document_versions VALUES (?,?,?)').run(id, version, JSON.stringify({ title, body: source.text, relativePath: source.relativePath, sourceHash: source.contentHash, updatedAt: timestamp }));
+      this.db.prepare('INSERT OR IGNORE INTO document_versions VALUES (?,?,?)').run(id, version, JSON.stringify({ title, body: source.text, relativePath: source.relativePath, sourceHash: source.contentHash, updatedAt: timestamp, locations: source.locations, warnings: source.warnings }));
       this.db.prepare('DELETE FROM document_fts WHERE id=?').run(id);
       if (source.text.trim()) this.db.prepare('INSERT INTO document_fts VALUES (?,?,?,?)').run(id, title, source.text, source.relativePath);
       return { entryIds: [id], documentId: id, characterCount: source.text.length };
@@ -140,6 +142,8 @@ export class KnowledgeStore {
       const start = Math.max(0, index - 60);
       // Search returns an excerpt; full body remains available through the detail endpoint.
       const { body, ...summary } = entry;
+      const line = body.slice(0, index).split('\n').length;
+      summary.sources = summary.sources.map(source => ({ ...source, ...(source.locations ? { locations: source.locations.filter(location => location.startLine <= line && location.endLine >= line).slice(0, 3) } : {}) }));
       return { ...summary, score: relevanceScore({ ...entry, tags: [row.path] }, text), snippet: body.slice(start, start + 240) };
     }).sort((a,b) => b.score-a.score || b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
     return { hits: hits.slice(0, limit), hasMore: hits.length > limit, knowledgeReady: this.status().ready };

@@ -2,6 +2,7 @@
 
 const React = require('react');
 const h = React.createElement;
+const { IconChevronRight } = require('../icons.js').createIconComponents(h);
 const { useState, useCallback } = React;
 
 /**
@@ -54,10 +55,11 @@ function JsonViewer({ data, initialExpandLevel = 2 }) {
 
       const expanded = isExpanded(path);
       return h('div', null,
-        h('span', {
-          style: { cursor: 'pointer', userSelect: 'none' },
+        h('button', {
+          type: 'button', className: 'rh-json-toggle',
+          'aria-label': expanded ? '收起节点' : '展开节点', 'aria-expanded': expanded,
           onClick: () => togglePath(path)
-        }, expanded ? '▼' : '▶'),
+        }, h(IconChevronRight, { size: 12, style: { transform: expanded ? 'rotate(90deg)' : 'none' } })),
         h('span', { className: 'rh-json-punctuation' }, ` Array(${value.length}) [`),
         expanded && h('div', { style: { marginLeft: indent * 20 } },
           value.map((item, index) =>
@@ -81,10 +83,11 @@ function JsonViewer({ data, initialExpandLevel = 2 }) {
 
       const expanded = isExpanded(path);
       return h('div', null,
-        h('span', {
-          style: { cursor: 'pointer', userSelect: 'none' },
+        h('button', {
+          type: 'button', className: 'rh-json-toggle',
+          'aria-label': expanded ? '收起节点' : '展开节点', 'aria-expanded': expanded,
           onClick: () => togglePath(path)
-        }, expanded ? '▼' : '▶'),
+        }, h(IconChevronRight, { size: 12, style: { transform: expanded ? 'rotate(90deg)' : 'none' } })),
         h('span', { className: 'rh-json-punctuation' }, ` Object {`),
         expanded && h('div', { style: { marginLeft: indent * 20 } },
           keys.map((key, index) =>

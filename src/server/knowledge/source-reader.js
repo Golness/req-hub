@@ -1,8 +1,9 @@
 import { open, realpath } from 'node:fs/promises';
 import { resolve, relative, isAbsolute, extname } from 'node:path';
 import { createHash } from 'node:crypto';
+import { BINARY_EXTENSIONS, MAX_BINARY_BYTES, parseBinary } from './binary-parser.js';
 
-export const SUPPORTED_EXTENSIONS = new Set(['.md', '.txt', '.text', '.html', '.htm', '.json']);
+export const SUPPORTED_EXTENSIONS = new Set(['.md', '.txt', '.text', '.html', '.htm', '.json', ...BINARY_EXTENSIONS]);
 export const MAX_FILE_BYTES = 2 * 1024 * 1024;
 export const MAX_BUILD_FILES = 200;
 export const hash = value => createHash('sha256').update(value).digest('hex');
@@ -23,8 +24,13 @@ export function inside(root, path) {
   return rel !== '' && rel !== '..' && !rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) && !isAbsolute(rel);
 }
 
-export async function readSource(docsRoot, input) {
+export async function readSource(docsRoot, input, { metadataOnly = false, signal } = {}) {
+  signal?.throwIfAborted();
   const relativePath = normalizeSourcePath(input);
+  const extension = extname(relativePath).toLowerCase();
+  const binary = BINARY_EXTENSIONS.has(extension);
+  const limit = binary ? MAX_BINARY_BYTES : MAX_FILE_BYTES;
+  const oversized = () => knowledgeError(`文件超过 ${binary ? 20 : 2} MiB 限制`, 413);
   const root = await realpath(docsRoot);
   const path = await realpath(resolve(root, relativePath));
   if (!inside(root, path)) throw knowledgeError('文件路径越界');
@@ -32,17 +38,22 @@ export async function readSource(docsRoot, input) {
   try {
     const stat = await file.stat();
     if (!stat.isFile()) throw knowledgeError('所选项不是文件');
-    if (stat.size > MAX_FILE_BYTES) throw knowledgeError('文件超过 2 MiB 限制', 413);
+    if (stat.size > limit) throw oversized();
     // Bounded read also covers a file that grows after stat().
-    const buffer = Buffer.alloc(MAX_FILE_BYTES + 1);
+    const buffer = Buffer.alloc(Math.min(stat.size + 1, limit + 1));
     let offset = 0;
     while (offset < buffer.length) {
       const { bytesRead } = await file.read(buffer, offset, buffer.length - offset, offset);
       if (!bytesRead) break;
       offset += bytesRead;
     }
-    if (offset > MAX_FILE_BYTES) throw knowledgeError('文件超过 2 MiB 限制', 413);
+    if (offset > limit) throw oversized();
+    // Detect growth beyond the allocated snapshot as well as the byte limit.
+    if (offset === buffer.length) throw knowledgeError('读取期间文件大小已改变，请重试', 409);
     const bytes = buffer.subarray(0, offset);
+    const metadata = { relativePath, contentHash: hash(bytes), mtime: stat.mtime.toISOString() };
+    if (metadataOnly) return metadata;
+    if (binary) return { ...metadata, ...await parseBinary(bytes, extension, { signal }) };
     if (bytes.includes(0)) throw knowledgeError('文件包含二进制内容');
     const raw = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
     let text = raw;
@@ -54,6 +65,6 @@ export async function readSource(docsRoot, input) {
     } else if (/\.json$/i.test(relativePath)) {
       text = JSON.stringify(JSON.parse(raw), null, 2);
     }
-    return { relativePath, contentHash: hash(bytes), mtime: stat.mtime.toISOString(), coordinate: /\.(html?|json)$/i.test(relativePath) ? 'extracted' : 'source', text };
+    return { ...metadata, coordinate: /\.(html?|json)$/i.test(relativePath) ? 'extracted' : 'source', text };
   } finally { await file.close(); }
 }

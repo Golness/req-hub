@@ -6,9 +6,6 @@ const { useState, useEffect } = React;
 
 const { ROUTE } = require('../constants.js');
 const { DocsViewerContext } = require('../context.js');
-const { createIconComponents } = require('../icons.js');
-
-const { IconFolder, IconError, IconMerge } = createIconComponents(h);
 
 // 解析分支名，返回 { developer, date, title, requirementId } 或 null
 // 与服务端 src/server/utils.js 的 parseBranchName 保持一致
@@ -245,9 +242,7 @@ function CreateDirForm({ workspaceId, docsDir, onClose, initialCreateBranch, onC
           marginBottom: previewPath ? 6 : 0,
         }
       },
-        h('span', { style: { display: 'flex', alignItems: 'center' } },
-          h(IconMerge, { size: 12, style: { marginRight: 4 } })
-        ),
+
         h('span', null, createBranch ? '将创建分支:' : '分支名:'),
         h('code', {
           style: {
@@ -271,9 +266,7 @@ function CreateDirForm({ workspaceId, docsDir, onClose, initialCreateBranch, onC
           color: 'var(--dsw-alias-label-secondary)',
         }
       },
-        h('span', { style: { display: 'flex', alignItems: 'center' } },
-          h(IconFolder, { size: 12, style: { marginRight: 4 } })
-        ),
+
         h('span', null, '将创建目录:'),
         h('code', {
           style: {
@@ -304,7 +297,7 @@ function CreateDirForm({ workspaceId, docsDir, onClose, initialCreateBranch, onC
         alignItems: 'center',
         gap: 6,
       }
-    }, h(IconError, { size: 14 }), error),
+    }, error),
     success && h('div', {
       style: {
         padding: '8px 12px',
@@ -321,7 +314,7 @@ function CreateDirForm({ workspaceId, docsDir, onClose, initialCreateBranch, onC
     // 操作按钮
     h('div', { style: { display: 'flex', gap: 12 } },
       h('button', { className: 'rh-btn rh-btn-primary', onClick: handleCreateClick, disabled: loading, style: { flex: 1 } },
-        loading ? '创建中...' : h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, h(IconFolder, { size: 14 }), ' 创建')),
+        loading ? '创建中...' : ' 创建'),
       h('button', { className: 'rh-btn', onClick: onClose, style: { flex: 1 } }, '取消')
     ),
 

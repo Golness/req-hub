@@ -9,9 +9,8 @@ const { ROUTE, MARKED_SCRIPT_ID, MERMAID_SCRIPT_ID, HIGHLIGHT_SCRIPT_ID } = requ
 const { useScript } = require('../hooks/useScript.js');
 const { getMermaidTheme } = require('../utils/getMermaidTheme.js');
 const { sanitizeHtml } = require('../utils/sanitizeHtml.js');
-const { createIconComponents } = require('../icons.js');
 
-const { IconLink } = createIconComponents(h);
+
 const { Spinner } = require('./Spinner.js');
 
 // ─── SkillPreview (Markdown + Mermaid) ───────────────
@@ -169,7 +168,7 @@ function SkillPreview({ skillName, workspaceId, onBack }) {
     }},
       h(HeaderBack, { onBack: onBack, label: '返回设置' }),
       h('div', { style: { flex: 1 } },
-        h('div', { style: { fontWeight: 600, fontSize: 'var(--rh-font-size)', display: 'flex', alignItems: 'center', gap: 4 } }, h(IconLink, { size: 14 }), ` ${skillName}`),
+        h('div', { style: { fontWeight: 600, fontSize: 'var(--rh-font-size)', display: 'flex', alignItems: 'center', gap: 4 } }, ` ${skillName}`),
         description && h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', marginTop: 2 } }, description)
       )
     ),

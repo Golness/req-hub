@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { resolve, relative, isAbsolute } from 'node:path';
+import taskModel from '../shared/sync-task.cjs';
 
 export async function readSyncSnapshot(reqDir, sync) {
   const fileName = sync.docType === 'requirement' ? 'requirement.md' : 'design.md';
@@ -14,7 +15,7 @@ export async function readSyncSnapshot(reqDir, sync) {
 export async function compareSyncSnapshots(reqDir, history, id1, id2) {
   const oldSync = history.find(sync => sync.id === id1);
   const newSync = history.find(sync => sync.id === id2);
-  if (!oldSync || !newSync || oldSync.schemaVersion !== 2 || newSync.schemaVersion !== 2 || id1 === id2 || oldSync.status !== 'completed' || newSync.status !== 'completed'
+  if (!oldSync || !newSync || oldSync.schemaVersion !== 2 || newSync.schemaVersion !== 2 || id1 === id2 || !taskModel.hasPublishedDocument(oldSync) || !taskModel.hasPublishedDocument(newSync)
     || !['requirement', 'design'].includes(oldSync.docType) || oldSync.docType !== newSync.docType) {
     const error = new Error('仅支持同类文档两个不同的成功同步版本对比');
     error.statusCode = 400;

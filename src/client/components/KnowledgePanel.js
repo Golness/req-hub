@@ -1,6 +1,7 @@
 'use strict';
 const React = require('react');
 const h = React.createElement;
+const { formatSourceLocation } = require('../utils/formatSourceLocation.js');
 const { HeaderBack } = require('./shared/HeaderBack.js');
 const { FilePreview } = require('./FilePreview.js');
 const { EmptyState } = require('./shared/EmptyState.js');
@@ -44,10 +45,10 @@ function KnowledgePanel({ workspaceId, knowledge, selectedFile, onPreviewClose }
           knowledge.job.files.map(file => h('div', { className: 'rh-knowledge-file-status', key: file.relativePath },
             h('span', { title: file.relativePath }, file.relativePath), h('span', null, LABELS[file.status] || file.status),
             file.characterCount !== undefined && h('span', null, `${file.characterCount} 字符`),
-            (file.error || file.reason) && h('small', null, file.error || file.reason)))),
+            (file.error || file.reason) && h('small', null, file.error || file.reason), file.warnings?.length > 0 && h('small', null, file.warnings.join('；'))))),
         !data && !error && h(Skeleton, { lines: 3 }),
         data?.entries?.length ? h('section', { 'aria-label': '已入库文档' }, h('h3', null, '已入库文档（最近 100 条）'), data.entries.map(entry => h('details', { className: 'rh-result-card', key: entry.id },
-          h('summary', null, entry.title, ` · v${entry.version}`), h('div', { className: 'rh-knowledge-text' }, entry.body), entry.sources.map((source, i) => h('p', { key: i }, `${source.relativePath} · ${source.coordinate === 'extracted' ? '提取正文行' : '行'} ${source.startLine}–${source.endLine}`)))))
+          h('summary', null, entry.title, ` · v${entry.version}`), h('div', { className: 'rh-knowledge-text' }, entry.body), entry.sources.map((source, i) => h('p', { key: i }, `${source.relativePath} · ${formatSourceLocation(source)}`)))))
           : data && !knowledge.job && h(EmptyState, { title: '当前工作区尚未构建知识库', description: '在左侧文件树勾选文件，然后点击右上角“分析”。' }))
   );
 }

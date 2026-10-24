@@ -52,8 +52,7 @@ const LOG_TAGS = {
   'task-executor': '任务执行器',
   session: '会话',
   search: '搜索',
-  template: '模板',
-  index: '索引',
+  writing: '写作',
   doc: '文档',
   state: '状态',
 };
@@ -208,14 +207,12 @@ export function addLog(type, message, data = null) {
     tag = 'sync';
   } else if (message.includes('分析') || message.includes('AI')) {
     tag = 'analysis';
-  } else if (message.includes('索引')) {
-    tag = 'index';
   } else if (message.includes('会话') || message.includes('session')) {
     tag = 'session';
   } else if (message.includes('目录') || message.includes('创建')) {
     tag = 'tree';
-  } else if (message.includes('模板')) {
-    tag = 'template';
+  } else if (message.includes('写作')) {
+    tag = 'writing';
   } else if (message.includes('启动') || message.includes('卸载')) {
     tag = 'startup';
   }
@@ -239,8 +236,6 @@ export const log = {
   taskExecutor: createLogger('task-executor'),
   session: createLogger('session'),
   search: createLogger('search'),
-  template: createLogger('template'),
-  index: createLogger('index'),
   doc: createLogger('doc'),
   state: createLogger('state'),
   concurrency: createLogger('concurrency'),

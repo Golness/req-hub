@@ -9,7 +9,7 @@ const { Spinner } = require('./Spinner.js');
 const { getDocIcon } = require('../utils/getDocIcon.js');
 const { createIconComponents } = require('../icons.js');
 
-const { IconFolder, IconFolderOpen, IconFile, IconChevronRight } = createIconComponents(h);
+const { IconFolderOpen, IconChevronRight } = createIconComponents(h);
 
 /**
  * @component DocTree
@@ -111,7 +111,7 @@ function DocTree({ workspaceId, docsDir, selectedReqId, onSelectReq, selectedFil
   return h('div', { className: 'rh-doc-tree', role: 'tree', 'aria-label': '文档目录树' },
     tree.developers.length === 0
       ? h('div', { className: 'rh-empty', style: { minHeight: 80 } },
-          h('span', { className: 'rh-empty-icon' }, h(IconFolder, { size: 32 })),
+
           `No ${docsDir}/ directory or no requirements found.`)
       : tree.developers.map(dev => {
           const isDevExpanded = !!expandedDevs[dev.name];
@@ -121,7 +121,7 @@ function DocTree({ workspaceId, docsDir, selectedReqId, onSelectReq, selectedFil
                 h('span', { style: { width: 10, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' } },
                   h(IconChevronRight, { size: 10, style: { transform: isDevExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 } })
                 ),
-                h(IconFolder, { size: 14, style: { flexShrink: 0 } }),
+
                 h('span', null, ` ${dev.name}`)
               ),
               h('span', { className: 'rh-dev-count' }, `(${dev.requirementCount})`)
@@ -146,7 +146,7 @@ function DocTree({ workspaceId, docsDir, selectedReqId, onSelectReq, selectedFil
                     h(IconFolderOpen, { size: 14, style: { flexShrink: 0 } }),
                     h('span', null, ` ${req.date.slice(5)} ${req.title}`)
                   ),
-                  req.fileCount > 0 && h('span', { className: 'rh-dev-count', style: { display: 'inline-flex', alignItems: 'center', gap: 2 } }, h(IconFile, { size: 14 }), ` ${req.fileCount}`)
+                  req.fileCount > 0 && h('span', { className: 'rh-dev-count', style: { display: 'inline-flex', alignItems: 'center', gap: 2 } }, `${req.fileCount} 个文件`)
                 ),
                 isReqExpanded && h('div', null,
                   req.files.length > 0

@@ -18,6 +18,9 @@ export function installSyncTools(ctx) {
     exec.signal?.throwIfAborted();
     const runtime = sessions.get(exec.agent?.session?.id);
     if (!runtime || runtime.closed) throw new Error('SYNC_TOOL_DENIED');
+    runtime.assertActive?.();
+    runtime.signal?.throwIfAborted();
+    runtime.onActivity?.();
     return runtime;
   };
   const schemas = {
@@ -43,6 +46,7 @@ export function installSyncTools(ctx) {
   }));
   disposers.push(ctx.on('llm/stream', async function* (request, next) {
     const marker = JSON.stringify(request.messages || []).match(/REQHUB_SYNC_V2=([a-f0-9-]{36})/);
+    if (marker && !runtimes.has(marker[1])) throw new Error('SYNC_RUNTIME_CLOSED');
     let runtime = sessions.get(request.sessionId);
     if (!runtime && marker && runtimes.has(marker[1])) {
       runtime = runtimes.get(marker[1]);
@@ -52,7 +56,10 @@ export function installSyncTools(ctx) {
       sessions.set(request.sessionId, runtime);
     }
     if (runtime) {
+      runtime.assertActive?.();
       if (runtime.closed) throw new Error('SYNC_RUNTIME_CLOSED');
+      runtime.signal?.throwIfAborted();
+      runtime.onActivity?.();
       const surface = { messages: request.messages, system: request.system, tools: request.tools, toolHistory: request.toolHistory };
       const cost = estimateSubagentInputTokens(JSON.stringify(surface));
       if (cost + REQUEST_RESERVE >= MAX_SYNC_INPUT_TOKENS) throw new Error('SYNC_REQUEST_BUDGET_EXCEEDED');
@@ -64,13 +71,17 @@ export function installSyncTools(ctx) {
     yield* next();
   }, { global: true, prepend: true }));
   const installation = {
+    revoke(signal) { for (const runtime of [...runtimes.values()]) if (runtime.signal === signal) runtime.close(); },
     create(options) {
+      options.signal?.throwIfAborted();
       const runtime = new SyncRuntime(ctx, options);
       const close = runtime.close.bind(runtime);
       runtime.close = () => {
+        options.signal?.removeEventListener('abort', runtime.close);
         close(); runtimes.delete(runtime.id);
-        if (runtime.sessionId) sessions.set(runtime.sessionId, { closed: true });
+        if (runtime.sessionId) sessions.delete(runtime.sessionId);
       };
+      options.signal?.addEventListener('abort', runtime.close, { once: true });
       runtimes.set(runtime.id, runtime); return runtime;
     },
     dispose() { for (const dispose of disposers.reverse()) dispose(); installations.delete(ctx); },
@@ -79,12 +90,30 @@ export function installSyncTools(ctx) {
   return installation;
 }
 
-export function assertSyncCapabilities(ctx, config = {}) {
-  const provider = ctx?.subagents?.getProvider?.(config.ai?.delegation?.provider || 'spawn');
-  if (!provider?.capabilities?.toolFilter || provider.inheritsParentContext !== false
-    || !ctx?.tools?.get?.('str_replace_editor') || !installSyncTools(ctx)) {
-    throw new Error('CAPABILITY_UNSUPPORTED: 同步 v2 需要零父上下文、工具隔离、本地受控工具与原生 str_replace_editor');
+function resolveSyncEditor(ctx, parentAgent) {
+  const get = name => ctx?.tools?.get?.(name, parentAgent);
+  const editor = get('str_replace_editor');
+  if (typeof editor?.execute === 'function') return { kind: 'str_replace_editor', editor };
+  const edit = get('edit'), write = get('write'), read = get('read');
+  if ([edit, write, read].every(tool => typeof tool?.execute === 'function')) return { kind: 'edit', editor: edit, writer: write, reader: read };
+  return null;
+}
+
+export function assertSyncCapabilities(ctx, config = {}, parentAgent) {
+  const name = config.ai?.delegation?.provider || 'spawn';
+  const provider = ctx?.subagents?.getProvider?.(name), missing = [];
+  if (!provider) missing.push(`子代理 provider「${name}」未注册`);
+  else {
+    if (!provider.capabilities?.toolFilter) missing.push(`provider「${name}」不支持工具隔离 toolFilter`);
+    if (provider.inheritsParentContext !== false) missing.push(`provider「${name}」未声明零父上下文（inheritsParentContext=false）`);
   }
+  const nativeEditor = resolveSyncEditor(ctx, parentAgent);
+  if (!nativeEditor) missing.push('当前会话缺少原生文件工具：需要 str_replace_editor 或 read + edit + write，请在 Agent 预设中启用对应文件工具');
+  for (const method of ['register', 'guard']) if (typeof ctx?.tools?.[method] !== 'function') missing.push(`宿主缺少 tools.${method}，无法安装受控工具`);
+  if (typeof ctx?.on !== 'function') missing.push('宿主缺少事件接口，无法校验子代理上下文');
+  if (missing.length) throw new Error(`CAPABILITY_UNSUPPORTED: ${missing.join('；')}`);
+  if (!installSyncTools(ctx)) throw new Error('CAPABILITY_UNSUPPORTED: 同步受控工具安装失败');
+  return nativeEditor;
 }
 
 class SyncRuntime {
@@ -92,7 +121,7 @@ class SyncRuntime {
     Object.assign(this, options);
     this.ctx = ctx; this.id = randomUUID(); this.coverage = new Map(); this.contextCost = 0;
     this.exposedSinceRequest = 0; this.journal = []; this.outputWritten = new Set();
-    this.nativeEditor = ctx.tools.get('str_replace_editor');
+    this.nativeEditor = options.nativeEditor || resolveSyncEditor(ctx, options.parentAgent);
   }
   charge(value) {
     const amount = estimateSubagentInputTokens(JSON.stringify(value)) + 128;
@@ -135,9 +164,18 @@ class SyncRuntime {
     if (hashBytes(before) !== expectedHash) throw new Error('CANDIDATE_HASH_CONFLICT');
     // Reuse Harness's editor; no replacement algorithm or patch matching is implemented here.
     try {
-      const args = before.length ? { command: 'str_replace', path: this.candidatePath, old_str: oldText, new_str: newText }
-        : { command: 'insert', path: this.candidatePath, insert_line: 0, new_str: newText };
-      await this.nativeEditor.execute(args, exec);
+      if (!this.nativeEditor) throw new Error('NATIVE_EDITOR_UNAVAILABLE');
+      if (this.nativeEditor.kind === 'str_replace_editor') {
+        const args = before.length ? { command: 'str_replace', path: this.candidatePath, old_str: oldText, new_str: newText }
+          : { command: 'insert', path: this.candidatePath, insert_line: 0, new_str: newText };
+        await this.nativeEditor.editor.execute(args, exec);
+      } else {
+        // The host's observation policy needs a native read in this child's session.
+        await this.nativeEditor.reader.execute({ file_path: this.candidatePath, offset: 1, limit: 1 }, exec);
+        exec.signal?.throwIfAborted();
+        if (before.length) await this.nativeEditor.editor.execute({ file_path: this.candidatePath, old_string: oldText, new_string: newText, replace_all: false }, exec);
+        else await this.nativeEditor.writer.execute({ file_path: this.candidatePath, content: newText }, exec);
+      }
       exec.signal?.throwIfAborted();
       const after = await readFile(this.candidatePath);
       assertEditInBlock(this.originalBytes, before, after, blockId, this.blocks);

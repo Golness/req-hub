@@ -115,6 +115,7 @@ describe('commit-based sync', () => {
     setAbortController(fields.workspaceId, requirementId, new AbortController(), firstRun.sync.id);
     await abortSync(firstRun.sync.id, fields.workspaceId, requirementId);
     await expect(beginCommitSync(repo, reqDir, fields)).rejects.toThrow('正在终止');
+    await completeSync(firstRun.sync.id, fields.workspaceId, requirementId, firstRun.sync.snapshotDir);
     deleteAbortController(fields.workspaceId, requirementId);
     const retry = await beginCommitSync(repo, reqDir, fields);
     expect(retry.sync.id).toBe(firstRun.sync.id);

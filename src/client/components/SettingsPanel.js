@@ -1,18 +1,16 @@
 'use strict';
 
 const React = require('react');
+const { Select } = require('./shared/Select.js');
 const h = React.createElement;
 const { HeaderBack } = require('./shared/HeaderBack.js');
 const { useState, useEffect, useRef, useLayoutEffect } = React;
 const { ROUTE, MARKED_SCRIPT_ID, MERMAID_SCRIPT_ID, HIGHLIGHT_SCRIPT_ID } = require('../constants.js');
-const { createIconComponents } = require('../icons.js');
 const { useScript } = require('../hooks/useScript.js');
 const { getMermaidTheme } = require('../utils/getMermaidTheme.js');
 const { sanitizeHtml } = require('../utils/sanitizeHtml.js');
 const { Spinner } = require('./Spinner.js');
 const { PromptManager } = require('./PromptManager.js');
-
-const { IconLink } = createIconComponents(h);
 
 // ─── SkillPreview (Markdown + Mermaid) ───────────────
 /**
@@ -169,7 +167,7 @@ function SkillPreview({ skillName, workspaceId, onBack }) {
     }},
       h(HeaderBack, { onBack: onBack, label: '返回设置' }),
       h('div', { style: { flex: 1 } },
-        h('div', { style: { fontWeight: 600, fontSize: 'var(--rh-font-size)', display: 'flex', alignItems: 'center', gap: 4 } }, h(IconLink, { size: 14 }), ` ${skillName}`),
+        h('div', { style: { fontWeight: 600, fontSize: 'var(--rh-font-size)', display: 'flex', alignItems: 'center', gap: 4 } }, ` ${skillName}`),
         description && h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', marginTop: 2 } }, description)
       )
     ),
@@ -403,7 +401,7 @@ function SettingsPanel({ workspaceId, onClose }) {
           : !llmConfig
             ? h('span', { className: 'rh-prompt-description' }, '加载中…')
             : h(React.Fragment, null,
-                h('select', {
+                h(Select, {
                   id: 'rh-settings-model', className: 'rh-form-select',
                   value: settings.ai.selectedModel, disabled: savedSettings === null,
                   onChange: event => setSettings(prev => ({ ...prev, ai: { ...prev.ai, selectedModel: event.target.value } })),

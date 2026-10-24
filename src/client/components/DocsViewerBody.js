@@ -8,16 +8,16 @@ const { ROUTE } = require('../constants.js');
 const { DocsViewerContext } = require('../context.js');
 const { createIconComponents } = require('../icons.js');
 
-const { IconFolder, IconSync, IconFile, IconSearch, IconWrench, IconClipboard, IconScroll, IconSettings, IconClose } = createIconComponents(h);
+const { IconPlus, IconSync, IconEye, IconBooks, IconSearch, IconEdit, IconLog, IconSettings } = createIconComponents(h);
 
 const { parseBranchName } = require('../utils/parseBranchName.js');
 const { TopBar } = require('./TopBar.js');
 const { CreateDirForm } = require('./CreateDirForm.js');
 const { FilePreview } = require('./FilePreview.js');
 const { SyncPanel } = require('./SyncPanel.js');
-const { TracePanel } = require('./TracePanel.js');
-const { WorkbenchPanel } = require('./WorkbenchPanel.js');
-const { TemplatesPanel } = require('./TemplatesPanel.js');
+const { SyncStatusBar } = require('./SyncStatusBar.js');
+const { useSyncMonitor } = require('../hooks/useSyncMonitor.js');
+const { WritingPanel } = require('./WritingPanel.js');
 const { LogPanel } = require('./LogPanel.js');
 const { SettingsPanel } = require('./SettingsPanel.js');
 const { WorkspaceModal } = require('./WorkspaceModal.js');
@@ -26,7 +26,6 @@ const { FileTreeSidebar } = require('./FileTreeSidebar.js');
 const { ConfirmModal } = require('./ConfirmModal.js');  // 保留兼容，新代码使用 showConfirm()
 const { KnowledgePanel } = require('./KnowledgePanel.js');
 const { useKnowledge } = require('../hooks/useKnowledge.js');
-const { IndexPanel } = require('./IndexPanel.js');
 const { SearchPanel } = require('./SearchPanel.js');
 const { EmptyState } = require('./shared/EmptyState.js');
 const { Breadcrumb } = require('./shared/Breadcrumb.js');
@@ -39,7 +38,7 @@ const { setupKeyboardShortcuts } = require('../utils/keyboardShortcuts.js');
 /**
  * @component DocsViewerBody
  * @description Main container component for the document viewer. Manages workspace state, requirement selection,
- * file preview, and multiple operation panels (create, sync, trace, workbench, templates, log, settings).
+ * file preview, and multiple operation panels (create, sync, writing, log, settings).
  * Provides context for child components and handles cross-component communication.
  * @param {Object} props - Component props
  * @param {Object} props.workspace - The current workspace object with id, path, and title
@@ -52,20 +51,45 @@ const { setupKeyboardShortcuts } = require('../utils/keyboardShortcuts.js');
  */
 function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSelectWorkspace, initialReqId }) {
   const [activePanel, setActivePanel] = useState(null);
+  const writingMounted = useRef(false);
+  if (activePanel === 'writing') writingMounted.current = true;
   const knowledge = useKnowledge(workspace.id);
+  const syncMonitor = useSyncMonitor();
+  const [focusedSync, setFocusedSync] = useState(null);
+  const pendingSyncNavigation = useRef(null), selectionRevision = useRef(0), focusedSyncRef = useRef(null);
+  focusedSyncRef.current = focusedSync;
+  useEffect(() => {
+    const removed = event => {
+      const task = event.detail;
+      setFocusedSync(previous => previous?.workspaceId === task.workspaceId && previous?.requirementId === task.requirementId && previous?.snapshotDir === task.snapshotDir ? null : previous);
+    };
+    window.addEventListener('req-hub-sync-deleted', removed);
+    return () => window.removeEventListener('req-hub-sync-deleted', removed);
+  }, []);
+  useEffect(() => {
+    if (!focusedSync || pendingSyncNavigation.current !== focusedSync) return;
+    if (focusedSync.workspaceId !== workspace.id) {
+      const target = workspaces.find(item => item.id === focusedSync.workspaceId);
+      if (target) onSelectWorkspace(target);
+      else { pendingSyncNavigation.current = null; setFocusedSync(null); showToast({ tone: 'warning', text: '任务所属工作区当前不可用，请先恢复工作区。' }); }
+      return;
+    }
+    setSelectedReq({ id: focusedSync.requirementId, title: focusedSync.requirementId, path: focusedSync.requirementPath || focusedSync.requirementId });
+    setSelectedFile(null); setShowFileTree(false); setActivePanel('sync');
+    pendingSyncNavigation.current = null;
+  }, [focusedSync, workspace.id]);
   useEffect(() => { setSelectedFile(null); setShowFileTree(false); }, [workspace.id]);
-  const [templatesTab, setTemplatesTab] = useState('requirement');
   const [previewToolbarTarget, setPreviewToolbarTarget] = useState(null);
   const [headerBackTarget, setHeaderBackTarget] = useState(null);
   const [selectedReq, setSelectedReq] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [syncHint, setSyncHint] = useState(null);
   const [totalReqs, setTotalReqs] = useState(0);
-  const [indexStatus, setIndexStatus] = useState(null);
   const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
   const [showReqDirModal, setShowReqDirModal] = useState(false);
   const [showFileTree, setShowFileTree] = useState(false);
   const [showToc, setShowToc] = useState(false);
-  const [expandedGroup, setExpandedGroup] = useState(null); // 'workbench' | 'templates' | null
+  const [expandedGroup, setExpandedGroup] = useState(null); // expanded rail group
   const [initialCreateBranch, setInitialCreateBranch] = useState(false); // 新建面板是否默认勾选"新建分支"
   const threeZoneRef = useRef(null);
 
@@ -73,24 +97,42 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
   const refreshTreeRef = useRef(() => {});
   const refreshSelectedReqRef = useRef(() => {});
 
+  // Recheck on returning home; only confirmed commits for this exact selection show a sync action.
+  const syncHintKey = JSON.stringify([workspace.id, docsDir, selectedReq?.id]);
+  const hasSyncCommits = syncHint?.key === syncHintKey && syncHint.hasCommits;
+  useEffect(() => {
+    if (!selectedReq || activePanel || selectedFile) return;
+    const controller = new AbortController();
+    setSyncHint(null);
+    const params = new URLSearchParams({ workspaceId: workspace.id, requirementId: selectedReq.id });
+    fetch(`${ROUTE}/sync-commits?${params}`, { signal: controller.signal })
+      .then(response => response.ok ? response.json() : null)
+      .then(data => {
+        if (!controller.signal.aborted) setSyncHint({ key: syncHintKey, hasCommits: Array.isArray(data?.commits) && data.commits.length > 0 });
+      }).catch(() => {});
+    return () => controller.abort();
+  }, [syncHintKey, activePanel, selectedFile]);
+
   // Auto-select requirement from config (initialReqId) or first available
   const isInitialMount = useRef(true);
   useEffect(() => {
     let cancelled = false;
+    const revision = selectionRevision.current;
     (async () => {
       try {
         const res = await fetch(`${ROUTE}/tree?workspaceId=${encodeURIComponent(workspace.id)}&t=${Date.now()}`);
         if (!res.ok) return;
         const data = await res.json();
-        if (cancelled || !data.tree?.developers) return;
+        if (cancelled || revision !== selectionRevision.current || !data.tree?.developers) return;
 
         let found = null;
 
         // Try to restore from config
-        if (initialReqId) {
+        const restoreId = focusedSyncRef.current?.workspaceId === workspace.id ? focusedSyncRef.current.requirementId : initialReqId;
+        if (restoreId) {
           for (const dev of data.tree.developers) {
             for (const req of dev.requirements) {
-              if (req.id === initialReqId) {
+              if (req.id === restoreId) {
                 found = { ...req, developer: dev.name };
                 break;
               }
@@ -115,21 +157,6 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
     })();
     return () => { cancelled = true; };
   }, [workspace.id, initialReqId]);
-
-  // Fetch index status
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`${ROUTE}/index-status?workspaceId=${encodeURIComponent(workspace.id)}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (!cancelled) setIndexStatus(data);
-        }
-      } catch { /* ignore */ }
-    })();
-    return () => { cancelled = true; };
-  }, [workspace.id]);
 
   // Fetch total requirements count
   useEffect(() => {
@@ -172,14 +199,8 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
     return cleanup;
   }, [activePanel, showFileTree]);
 
-  const refreshIndexStatus = () => {
-    fetch(`${ROUTE}/index-status?workspaceId=${encodeURIComponent(workspace.id)}`)
-      .then(res => res.ok ? res.json() : null)
-      .then(data => { if (data) setIndexStatus(data); })
-      .catch(() => {});
-  };
-
   const handleSelectReq = async (req) => {
+    selectionRevision.current++; pendingSyncNavigation.current = null; setFocusedSync(null);
     setSelectedReq(req);
     setSelectedFile(null);
     // Save to config (只保存需求选择，不触发重新加载)
@@ -427,7 +448,7 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
 
       if (!isValidBranch) {
         // 分支名不符合规范 → 跳转到新建功能，默认勾选新建分支
-        console.warn('[定位会话需求] ❌ 分支名不符合规范，跳转到新建功能:', branch);
+        console.warn('[定位会话需求]  分支名不符合规范，跳转到新建功能:', branch);
         if (targetWorkspace.id !== workspace.id) {
           // 等待工作区切换完成
           await new Promise(resolve => setTimeout(resolve, 200));
@@ -442,7 +463,7 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
         return;
       }
 
-      console.log('[定位会话需求] ✅ 分支名符合规范，继续查找需求目录');
+      console.log('[定位会话需求]  分支名符合规范，继续查找需求目录');
 
       const { developer, date, title, requirementId } = parsed;
       console.log('[定位会话需求] 解析结果 - 开发者:', developer, '日期:', date, '标题:', title, '需求ID:', requirementId);
@@ -512,6 +533,7 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
 
   // Context value for child components
   const contextValue = {
+    syncActivity: syncMonitor.active,
     headerBackTarget,
     refreshTree: () => refreshTreeRef.current?.(),
     refreshSelectedReq: () => refreshSelectedReqRef.current?.(),
@@ -519,17 +541,15 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
 
   // Rail buttons config
   const topButtons = [
-    { id: 'create', icon: h(IconFolder, { size: 18 }), label: '新建' },
+    { id: 'create', icon: h(IconPlus, { size: 18 }), label: '新建' },
     { id: 'sync', icon: h(IconSync, { size: 18 }), label: '同步' },
-    { id: 'view', icon: h(IconFile, { size: 18 }), label: '查看' },
-    { id: 'knowledge', icon: h(IconFolder, { size: 18 }), label: '知识库' },
+    { id: 'view', icon: h(IconEye, { size: 18 }), label: '查看' },
+    { id: 'knowledge', icon: h(IconBooks, { size: 18 }), label: '知识库' },
     { id: 'search', icon: h(IconSearch, { size: 18 }), label: '搜索' },
-    { id: 'trace', icon: h(IconSearch, { size: 18 }), label: '追溯' },
-    { id: 'workbench', icon: h(IconWrench, { size: 18 }), label: '工作台' },
-    { id: 'templates', icon: h(IconClipboard, { size: 18 }), label: '模板' },
+    { id: 'writing', icon: h(IconEdit, { size: 18 }), label: '写作' },
   ];
   const bottomButtons = [
-    { id: 'log', icon: h(IconScroll, { size: 18 }), label: '日志' },
+    { id: 'log', icon: h(IconLog, { size: 18 }), label: '日志' },
     { id: 'settings', icon: h(IconSettings, { size: 18 }), label: '设置' },
   ];
 
@@ -569,30 +589,10 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
       return h(KnowledgePanel, { key: workspace.id, workspaceId: workspace.id, knowledge, selectedFile, onPreviewClose: () => setSelectedFile(null) });
     }
     if (activePanel === 'search') return null;
-    if (activePanel === 'trace') {
-      return h(TracePanel, { selectedReq, workspaceId: workspace.id });
-    }
-    if (activePanel === 'workbench') {
-      return h(WorkbenchPanel, {
-        workspaceId: workspace.id,
-        selectedReq,
-        indexStatus,
-        onRefreshIndex: refreshIndexStatus,
-        onClose: handlePanelClose,
-        IndexPanel,
-      });
-    }
-    if (activePanel === 'templates') {
-      return h(TemplatesPanel, {
-        workspaceId: workspace.id,
-        docsDir,
-        selectedReq,
-        activeTab: templatesTab,
-        onClose: handlePanelClose
-      });
-    }
     if (activePanel === 'sync') {
       return h(SyncPanel, {
+        key: `${workspace.id}:${selectedReq?.id}:${focusedSync?.snapshotDir || ''}`,
+        focusedSync: focusedSync?.requirementId === selectedReq?.id ? focusedSync : null,
         workspaceId: workspace.id, selectedReq,
         onClose: handlePanelClose,
       });
@@ -624,13 +624,23 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
         toolbarTarget: previewToolbarTarget,
       });
     }
-    // No panel selected - show empty state
-    return h(EmptyState, {
-      icon: h(IconFolder, { size: 48 }),
-      title: '暂无选中的需求文档',
-      description: '请在左侧目录树中选择一个需求，或点击「新建」创建第一个需求目录',
+    // An existing requirement needs next-step guidance, not another creation prompt.
+    if (selectedReq) return h(EmptyState, {
+      title: '继续完善当前需求',
+      description: `已选择需求目录「${selectedReq.title || selectedReq.id}」，可以编写文档或整理相关知识。${hasSyncCommits ? '当前分支有可同步的提交，也可以根据代码变更同步文档。' : ''}`,
       actions: [
-        { label: '新建需求', variant: 'primary', onClick: () => setActivePanel('create') },
+        { label: '开始写作', variant: 'primary', onClick: () => { setActivePanel('writing'); setShowFileTree(false); } },
+        { label: '管理知识库', onClick: () => { setActivePanel('knowledge'); setShowFileTree(true); } },
+        ...(hasSyncCommits ? [{ label: '同步文档', onClick: () => { setActivePanel('sync'); setShowFileTree(false); } }] : []),
+      ],
+    });
+    // No requirement selected yet: select an existing directory or create one.
+    return h(EmptyState, {
+      title: '请选择需求目录',
+      description: '选择已有需求目录后开始写作、管理知识库或同步文档，也可以新建需求目录。',
+      actions: [
+        { label: '选择需求目录', variant: 'primary', onClick: () => setShowReqDirModal(true) },
+        { label: '新建需求', onClick: () => { setActivePanel('create'); setShowFileTree(false); } },
       ],
     });
   };
@@ -639,9 +649,7 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
     ? (activePanel === 'create' ? '创建需求目录'
       : activePanel === 'knowledge' ? '知识库'
       : activePanel === 'search' ? '搜索'
-      : activePanel === 'trace' ? '需求追溯'
-      : activePanel === 'workbench' ? '工作台'
-      : activePanel === 'templates' ? '模板'
+      : activePanel === 'writing' ? '写作'
       : activePanel === 'sync' ? '同步文档'
       : activePanel === 'log' ? '操作日志'
       : activePanel === 'settings' ? '设置'
@@ -679,7 +687,7 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
         // ── Left: Rail toolbar ──
         h('div', { className: 'rh-rail' },
           topButtons.map(btn => {
-            // Group button with sub-buttons (workbench / templates)
+            // Group button with sub-buttons
             if (btn.group) {
               const isGroupExpanded = expandedGroup === btn.group;
               const isSubActive = btn.subButtons.some(sb => activePanel === sb.id);
@@ -791,24 +799,9 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
               activePanel === 'knowledge' && h('button', { className: 'rh-btn rh-btn-primary',
                 disabled: !knowledge.selected.length || knowledge.running,
                 onClick: () => knowledge.start(),
-              }, knowledge.running ? '分析中…' : `分析（${knowledge.selected.length}）`),
-              activePanel === 'templates' && h('div', { className: 'rh-workbench-tabs', role: 'tablist', 'aria-label': '模板类型' },
-                [
-                  { id: 'requirement', label: '需求' },
-                  { id: 'design', label: '方案' },
-                  { id: 'cr', label: 'CR' },
-                ].map(tab => h('button', {
-                  key: tab.id,
-                  type: 'button',
-                  role: 'tab',
-                  className: 'rh-workbench-tab',
-                  'aria-selected': templatesTab === tab.id,
-                  tabIndex: templatesTab === tab.id ? 0 : -1,
-                  onClick: () => setTemplatesTab(tab.id),
-                }, tab.label))
-              )
+              }, knowledge.running ? '分析中…' : `分析（${knowledge.selected.length}）`)
             ),
-            (activePanel || selectedFile) && h('button', { type: 'button', className: 'rh-right-close', onClick: handlePanelClose, 'aria-label': '关闭面板' }, h(IconClose, { size: 14 }), '关闭')
+            (activePanel || selectedFile) && h('button', { type: 'button', className: 'rh-btn rh-btn-ghost rh-btn-sm rh-right-close', onClick: handlePanelClose, 'aria-label': '关闭面板' }, '关闭')
           ),
           // Skip rh-right-body wrapper for file preview to avoid extra layer
           h('div', { key: 'knowledge-search', style: { display: activePanel === 'search' ? 'flex' : 'none', flex: 1, minHeight: 0 } },
@@ -822,7 +815,8 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
                 setSelectedFile({ path: source.relativePath, name: parts.at(-1), workspaceId: source.workspaceId, workspaceTitle: source.workspaceTitle, requirement, returnPanel: 'search' });
                 setActivePanel(null); setShowFileTree(local);
               } })),
-          activePanel !== 'search' && (selectedFile && !activePanel
+          writingMounted.current && h('div', { key: `writing:${workspace.id}`, style: { display: activePanel === 'writing' ? 'flex' : 'none', flex: 1, minHeight: 0 } }, h(WritingPanel, { workspaceId: workspace.id })),
+          activePanel !== 'writing' && activePanel !== 'search' && (selectedFile && !activePanel
             ? renderRightContent()
             : h('div', { className: 'rh-right-body' }, renderRightContent()))
         )
@@ -831,13 +825,10 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
       // ── Status bar (4.24) ──
       h('div', { className: 'rh-statusbar' },
         h('span', null, 'ReqHub v1.0'),
+        h(SyncStatusBar, { monitor: syncMonitor, onOpen: task => { selectionRevision.current++; pendingSyncNavigation.current = task; setFocusedSync(task); } }),
         h('span', null,
           `docsDir: ${docsDir} · `,
-          h('span', { style: { fontWeight: 600 } }, `${totalReqs} requirements`),
-          ' · ',
-          indexStatus?.built
-            ? h('span', { style: { color: 'var(--dsw-alias-state-success-primary)' } }, 'index: built')
-            : h('span', { style: { color: 'var(--dsw-alias-label-secondary)' } }, 'index: not built')
+          h('span', { style: { fontWeight: 600 } }, `${totalReqs} requirements`)
         )
       ),
 

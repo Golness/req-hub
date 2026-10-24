@@ -180,7 +180,7 @@ export async function callLLM(llm, prompt, config, options = {}) {
       if (chunk.type === 'text-delta' || chunk.type === 'delta') {
         const text = chunk.text || chunk.delta?.text || '';
         content += text;
-        // Call onStream callback if provided (for ai-search progress display)
+        // Call onStream callback if provided
         if (onStream && chunkCount % 3 === 0) {
           onStream(content, chunkCount);
         }

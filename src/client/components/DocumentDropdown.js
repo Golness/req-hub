@@ -5,9 +5,8 @@ const h = React.createElement;
 const { useState, useEffect } = React;
 const { ROUTE } = require('../constants.js');
 const { getDocIcon } = require('../utils/getDocIcon.js');
-const { createIconComponents } = require('../icons.js');
 
-const { IconFile } = createIconComponents(h);
+
 
 /**
  * @component DocumentDropdown
@@ -65,7 +64,7 @@ function DocumentDropdown({ workspaceId, selectedReq, onSelectFile, onClose }) {
 
   return h('div', { className: 'rh-modal-overlay', onClick: onClose, role: 'dialog', 'aria-modal': 'true', 'aria-label': '查看文档' },
     h('div', { className: 'rh-modal', onClick: e => e.stopPropagation(), style: { minWidth: 400 } },
-      h('div', { className: 'rh-modal-title', style: { display: 'flex', alignItems: 'center', gap: 6 } }, h(IconFile, { size: 16 }), ' 查看文档'),
+      h('div', { className: 'rh-modal-title', style: { display: 'flex', alignItems: 'center', gap: 6 } },  ' 查看文档'),
       loading
         ? h('div', { className: 'rh-empty' }, '加载中...')
         : !selectedReq
@@ -80,7 +79,7 @@ function DocumentDropdown({ workspaceId, selectedReq, onSelectFile, onClose }) {
                     className: 'rh-modal-item',
                     onClick: () => { onSelectFile(file); onClose(); },
                   },
-                    h('span', { className: 'rh-modal-item-icon' }, getDocIcon(file.type)),
+
                     h('span', { className: 'rh-modal-item-name' },
                       h('span', { style: { fontWeight: 600 } }, file.name),
                       h('span', { className: `rh-doctype-tag ${file.type}` }, docTypeLabels[file.type] || '文档'),

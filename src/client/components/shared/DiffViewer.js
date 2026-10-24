@@ -231,7 +231,7 @@ function DiffViewer({ oldContent, newContent, fileName, defaultViewMode = 'inlin
   },
     renderRows(head),
     hidden > 0 && h('button', {
-      className: 'rh-diff-expand',
+      className: 'rh-btn rh-btn-ghost rh-btn-sm rh-diff-expand',
       onClick: onToggle,
       'aria-expanded': expanded,
     }, expanded ? '收起' : `展开 ${hidden} 行`),
@@ -283,29 +283,31 @@ function DiffViewer({ oldContent, newContent, fileName, defaultViewMode = 'inlin
         // 视图模式切换
         h('div', { className: 'rh-diff-mode-toggle' },
           h('button', {
-            className: `rh-diff-mode-btn${mode === 'inline' ? ' active' : ''}`,
+            className: `rh-btn rh-btn-ghost rh-btn-sm rh-diff-mode-btn${mode === 'inline' ? ' active' : ''}`,
+            'aria-pressed': mode === 'inline',
             onClick: () => setMode('inline'),
             title: '内联视图',
           }, '行内'),
           h('button', {
-            className: `rh-diff-mode-btn${mode === 'split' ? ' active' : ''}`,
+            className: `rh-btn rh-btn-ghost rh-btn-sm rh-diff-mode-btn${mode === 'split' ? ' active' : ''}`,
+            'aria-pressed': mode === 'split',
             onClick: () => setMode('split'),
             title: '并排视图',
           }, '并排')
         ),
         // 换行切换
         h('button', {
-          className: 'rh-diff-toolbar-btn',
+          className: 'rh-btn rh-btn-ghost rh-btn-sm rh-diff-toolbar-btn',
           onClick: onWrap,
           'aria-pressed': wrapped,
           title: wrapped ? '取消换行' : '自动换行',
-        }, wrapped ? '⇤' : '⇥'),
+        }, wrapped ? '取消换行' : '自动换行'),
         // 复制
         h('button', {
-          className: 'rh-diff-toolbar-btn',
+          className: 'rh-btn rh-btn-ghost rh-btn-sm rh-diff-toolbar-btn',
           onClick: onCopy,
           title: copied ? '已复制' : '复制',
-        }, copied ? '✓' : '⧉')
+        }, copied ? '已复制' : '复制')
       )
     ),
     // Body

@@ -20,20 +20,19 @@ require('./styles/tokens.css');
 require('./styles/base.css');
 require('./styles/layout.css');
 require('./styles/components.css');
+require('./styles/buttons.css');
+require('./styles/selects.css');
 require('./styles/markdown.css');
 require('./styles/animations.css');
 
 // 共享模块
 const { TAB_ID, TAB_KIND } = require('./constants.js');
-const { createIconComponents } = require('./icons.js');
 
 // 同步加载的组件（入口需要）
 const { TabBodyWrapper } = require('./components/TabBodyWrapper.js');
 const { TabTitle } = require('./components/TabTitle.js');
 const { TriggerButton } = require('./components/TriggerButton.js');
 
-// 创建图标组件
-const icons = createIconComponents(h);
 
 /**
  * Cordis Plugin Descriptor for ReqHub.

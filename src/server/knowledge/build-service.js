@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { KnowledgeStore } from './store.js';
 import { defaultKnowledgeDatabasePath } from './storage-path.js';
 import { hash, readSource, normalizeSourcePath, knowledgeError, inside, MAX_BUILD_FILES } from './source-reader.js';
-export const INGESTION_VERSION = 'full-document-v2';
+export const INGESTION_VERSION = 'full-document-v3-binary';
 const RUNNING = new Set(['queued', 'running', 'cancelling']);
 
 export class KnowledgeService {
@@ -80,7 +80,7 @@ export class KnowledgeService {
       if ([...this.controllers.values()].some(c => c.workspaceId === scope.workspaceId) || scope.store.jobs().some(j => RUNNING.has(j.status))) throw knowledgeError('该工作区已有分析任务', 409);
       const files = [];
       for (const path of paths) {
-        try { const source = await this.readSourceFile(scope.docsRoot, path); files.push({ relativePath: path, sourceHash: source.contentHash, status: 'pending' }); }
+        try { const source = await this.readSourceFile(scope.docsRoot, path, { metadataOnly: true }); files.push({ relativePath: path, sourceHash: source.contentHash, status: 'pending' }); }
         catch (e) { files.push({ relativePath: path, status: 'failed', error: e.message }); }
       }
       const job = { id: randomUUID(), ingestionMode: 'full-document', workspaceId: scope.workspaceId, requestKey: input.requestKey, requestFingerprint, fingerprint, createdAt: new Date().toISOString(), status: 'queued', files };
@@ -105,15 +105,16 @@ export class KnowledgeService {
       if (signal.aborted) { file.status = 'cancelled'; save(); continue; }
       file.status = 'running'; save();
       try {
-        const source = await this.readSourceFile(scope.docsRoot, file.relativePath);
+        const source = await this.readSourceFile(scope.docsRoot, file.relativePath, { signal });
         if (source.contentHash !== file.sourceHash) { file.status = 'stale'; file.error = '文件已改变，请重新分析'; save(); continue; }
         const previous = scope.store.source(source.relativePath);
         if (previous?.hash === source.contentHash && previous.fingerprint === job.fingerprint && previous.status === 'active') { file.status = 'skipped'; file.reason = '文件内容与解析版本未改变'; save(); continue; }
         signal.throwIfAborted();
-        const fresh = await this.readSourceFile(scope.docsRoot, source.relativePath);
+        const fresh = await this.readSourceFile(scope.docsRoot, source.relativePath, { metadataOnly: true, signal });
         if (fresh.contentHash !== source.contentHash) { file.status = 'stale'; file.error = '分析期间文件已更新，未发布旧内容'; save(); continue; }
         signal.throwIfAborted();
         Object.assign(file, scope.store.publishDocument(source, job.fingerprint));
+        if (source.warnings?.length) file.warnings = source.warnings;
         file.status = source.text.trim() ? 'completed' : 'skipped';
         if (!source.text.trim()) file.reason = '文件无可检索正文';
       } catch (error) { file.status = signal.aborted ? 'cancelled' : 'failed'; file.error = signal.aborted ? '任务已取消' : error.message; }
@@ -142,7 +143,7 @@ export class KnowledgeService {
         const key = `${scope.identity}:${path}`;
         let cached = this.sourceCache.get(key);
         if (!cached || cached.signature !== signature) {
-          const source = await readSource(scope.docsRoot, path);
+          const source = await readSource(scope.docsRoot, path, { metadataOnly: true });
           cached = { signature, hash: source.contentHash }; this.sourceCache.set(key, cached);
         }
         const next = cached.hash === expectedHash ? 'active' : 'stale';

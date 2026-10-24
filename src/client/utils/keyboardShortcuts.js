@@ -67,6 +67,8 @@ function setupKeyboardShortcuts(handlers) {
   }
 
   const handleKeyDown = (e) => {
+    // Respect host menus before handling plugin shortcuts, including Escape.
+    if (e.defaultPrevented || e.target.closest?.('[role="menu"]')) return;
     // IME 组合输入时跳过（如中文输入）
     if (guardsFn(e)) {
       return;
