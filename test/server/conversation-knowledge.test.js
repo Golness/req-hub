@@ -42,6 +42,9 @@ it('explicitly selects a destination without mapping same-name DSH and Codex wor
   const target = await knowledge.scope('kb-target'), source = await knowledge.scope('app-source');
   expect(source.store.list()).toHaveLength(0);
   const document = target.store.list()[0];
+  expect(target.store.list(100, 'document')).toEqual([]);
+  expect(target.store.list(100, 'conversation')).toHaveLength(1);
+  expect(target.store.status().documentCount).toBe(0);
   expect(document).toMatchObject({ workspaceId: 'kb-target', type: 'conversation', conversation: { source: 'codex', sourceWorkspaceId: 'codex-native-project', nativeSessionId: 'codex:one' } });
   expect(document.body).toContain('Shipping requires approval'); expect(document.body).not.toContain('Not selected secret');
   expect(document.sources[0].workspaceId).toBe('kb-target');

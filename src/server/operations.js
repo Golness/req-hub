@@ -9,6 +9,7 @@ export function createOperations(routes) {
   for (const [action, path] of [
     ['knowledge-search', '/req-hub/knowledge/search'], ['knowledge-search-status', '/req-hub/knowledge/search/status'],
     ['knowledge-status', '/req-hub/knowledge/status'], ['knowledge-entries', '/req-hub/knowledge/entries'],
+    ['knowledge-source', '/req-hub/knowledge/source'],
     ['knowledge-entry', '/req-hub/knowledge/entries/:id'], ['knowledge-build', '/req-hub/knowledge/builds'],
     ['knowledge-job', '/req-hub/knowledge/builds/:id'], ['knowledge-cancel', '/req-hub/knowledge/builds/:id/cancel'],
     ['writing-options', '/req-hub/writing/options'], ['writing-optimize', '/req-hub/writing/optimize'],

@@ -18,7 +18,7 @@ const errorText = code => ({
   SESSION_MISSING: t('conversationImport.missing'), SESSION_SNAPSHOT_MISSING: t('conversationImport.missing'),
 })[code] || t('common.loadFailed');
 
-function ConversationKnowledgeImport({ initialTarget = '', initialSourceWorkspace = initialTarget, onClose, onImported }) {
+function ConversationKnowledgeImport({ initialTarget = '', initialSourceWorkspace = initialTarget, onClose, onImported, embedded = false }) {
   const [options, setOptions] = React.useState(null), [target, setTarget] = React.useState(initialTarget);
   const [source, setSource] = React.useState(''), [query, setQuery] = React.useState('');
   const [selection, setSelection] = React.useState({}), [detail, setDetail] = React.useState(null);
@@ -81,9 +81,8 @@ function ConversationKnowledgeImport({ initialTarget = '', initialSourceWorkspac
   const sources = [...new Map((options?.sessions || []).map(entry => [entry.sourceScopeId, { id: entry.sourceScopeId, label: `${entry.source === 'dsh' ? 'DSH' : 'Codex'} · ${entry.sourceWorkspaceTitle} · ${entry.sourceWorkspacePaths.join(' · ')}` }])).values()];
   const visible = (options?.sessions || []).filter(entry => (!source || source === entry.sourceScopeId) && `${entry.title} ${entry.sourceWorkspaceTitle}`.toLowerCase().includes(query.trim().toLowerCase()));
   const count = Object.values(selection).reduce((sum, item) => sum + item.turnKeys.length, 0);
-  return h(ModalFrame, { surfaceClassName: css.frame, onClick: onClose, 'aria-label': t('conversationImport.title') },
-    h('div', { className: `rh-modal ${css.modal}`, onClick: event => event.stopPropagation() },
-      h('h3', { className: 'rh-modal-title' }, t('conversationImport.title')),
+  const content = h('div', { className: `${embedded ? css.inlineModal : 'rh-modal'} ${css.modal}`, onClick: event => event.stopPropagation() },
+      !embedded && h('h3', { className: 'rh-modal-title' }, t('conversationImport.title')),
       h('p', { className: css.hint }, t('conversationImport.description')),
       h('p', { className: css.hint }, t('conversationImport.mergeRules')),
       h('label', { className: css.field }, t('conversationImport.target'), h(Select, { value: target, disabled: blocked, searchable: true, 'aria-label': t('conversationImport.target'), options: [{ id: '', label: t('conversationImport.targetPlaceholder') }, ...(options?.targets || []).map(workspace => ({ id: workspace.id, label: `${workspace.title} · ${workspace.path}` }))], onChange: event => { generation.current++; setTarget(event.target.value); setSelection({}); setDetail(null); setResult(null); setError(''); } })),
@@ -119,6 +118,8 @@ function ConversationKnowledgeImport({ initialTarget = '', initialSourceWorkspac
       h('div', { className: css.summary }, t('conversationImport.selected', { sessions: Object.keys(selection).length, turns: count }),
         h('span', { className: css.hint }, t('conversationImport.frozen')),
         Object.keys(selection).length > 0 && h('details', null, h('summary', null, t('conversationImport.selectionSummary')), Object.values(selection).map(item => h('div', { key: item.id }, `${options.sessions.find(entry => entry.conversationId === item.id)?.title} · ${item.turnKeys.length}`)))),
-      h('div', { className: 'rh-modal-actions' }, h(Button, { onClick: onClose }, t('common.close')), h(Button, { className: 'rh-btn rh-btn-primary', disabled: blocked || !target || !count, onClick: imported }, busy ? t('common.loading') : t('conversationImport.import')))));
+      h('div', { className: 'rh-modal-actions' }, !embedded && h(Button, { onClick: onClose }, t('common.close')), h(Button, { className: 'rh-btn rh-btn-primary', disabled: blocked || !target || !count, onClick: imported }, busy ? t('common.loading') : t('conversationImport.import'))));
+  return embedded ? h('section', { className: css.embedded, 'aria-label': t('conversationImport.title') }, content)
+    : h(ModalFrame, { surfaceClassName: css.frame, onClick: onClose, 'aria-label': t('conversationImport.title') }, content);
 }
 module.exports = { ConversationKnowledgeImport };

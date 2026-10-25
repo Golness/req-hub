@@ -1,0 +1,6 @@
+.strip {
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 0 var(--rh-panel-padding);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+}

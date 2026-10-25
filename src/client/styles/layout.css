@@ -224,9 +224,12 @@
 
 .rh-workbench-tabs {
   display: flex;
-  align-self: stretch;
-  gap: 4px;
+  align-items: flex-start;
+  flex-shrink: 0;
+  gap: 36px;
   min-width: 0;
+  padding-top: 10px;
+  padding-bottom: 1px;
   overflow-x: auto;
 }
 
@@ -492,8 +495,6 @@
 
 .rh-right-header-title { flex-shrink: 0; overflow-wrap: anywhere; }
 .rh-right-header .rh-breadcrumb { flex: 1; min-width: 0; max-width: 100%; min-height: 28px; padding: 0; border: 0; background: transparent; font-size: var(--rh-font-size); flex-wrap: nowrap; overflow: hidden; }
-.rh-right-header .rh-workbench-tabs { margin: -8px 0; }
-
 .rh-right-header .rh-preview-actions { margin-left: auto; }
 
 @container (max-width: 580px) {

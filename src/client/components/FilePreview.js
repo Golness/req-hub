@@ -38,7 +38,7 @@ const { showToast } = require('./shared/ToastContainer.js');
  * @param {HTMLElement|null} [props.toolbarTarget] - Header container following the breadcrumb
  * @returns {JSX.Element} A file preview with header, content area, and optional TOC sidebar
  */
-function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc, onToggleToc, toolbarTarget }) {
+function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc, onToggleToc, toolbarTarget, onSaved, onDirtyChange, active = true }) {
   const [text, setText] = useState('');
   const [error, setError] = useState(null);
   const [parseWarnings, setParseWarnings] = useState([]);
@@ -56,6 +56,7 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
   const isJson = /\.json$/i.test(name);
   const isExtracted = /\.(pdf|docx|xlsx)$/i.test(name);
   const isEditable = /\.(md|txt|text|json)$/i.test(name);
+  useEffect(() => { onDirtyChange?.(editContent !== text); }, [editContent, text, workspaceId, relPath]);
 
   const { loaded: mermaidLoaded } = useScript(
     'https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js', MERMAID_SCRIPT_ID, 'mermaid',
@@ -79,6 +80,7 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
       if (data.success) {
         setText(editContent);
         setLastSaved(new Date());
+        onSaved?.();
         showToast({ tone: 'success', text: t("FilePreview.message001"), holdMs: 2000 });
       } else {
         showToast({ tone: 'error', text: data.error || t("FilePreview.message002"), holdMs: 3000 });
@@ -92,7 +94,7 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
 
   // Keyboard shortcut: Ctrl+S to save
   useEffect(() => {
-    if (!isMd && !editMode) return;
+    if (!active || !isMd && !editMode) return;
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
@@ -101,11 +103,12 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isMd, editMode, editContent, workspaceId, relPath]);
+  }, [active, isMd, editMode, editContent, workspaceId, relPath]);
 
   useEffect(() => {
     let cancelled = false;
     setEditMode(false);
+    setText(''); setEditContent('');
     setError(null);
     setParseWarnings([]);
     setLastSaved(null);

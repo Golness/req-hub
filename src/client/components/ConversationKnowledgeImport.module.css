@@ -1,5 +1,7 @@
 .frame.frame { width: min(980px, 100%); max-height: 88vh; }
+.embedded { display: flex; flex: 1; min-height: 0; min-width: 0; overflow: auto; padding: 12px 16px; }
 .modal.modal { width: 100%; max-height: 88vh; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.inlineModal.inlineModal { max-height: none; overflow: visible; flex-shrink: 0; }
 .hint { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; margin: 0; }
 .field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 20px; }
 .acquisition { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }

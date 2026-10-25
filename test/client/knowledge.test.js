@@ -124,11 +124,11 @@ it('keeps knowledge and search as independent rail entries without a workbench a
   expect(button('知识库')).toBeTruthy(); expect(button('搜索')).toBeTruthy();
   await click(button('知识库'));
   expect(container.querySelector('.rh-file-tree-sidebar')).toBeTruthy();
-  expect(button('知识库').className).toContain('active'); expect(button('查看').className).not.toContain('active');
-  await click(button('查看'));
+  expect(button('知识库').className).toContain('active'); expect(button('查看')).toBeUndefined();
+  expect([...container.querySelectorAll('[role="tab"]')].map(tab => tab.textContent)).toEqual(['查看文档', '文档入库', '会话入库']);
   expect(container.querySelector('.rh-file-tree-sidebar')).toBeTruthy();
   expect(container.querySelector('.rh-knowledge-selection')).toBeNull();
-  await click(button('知识库'));
+  await click([...container.querySelectorAll('[role="tab"]')].find(tab => tab.textContent === '文档入库'));
   await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 't', ctrlKey: true, bubbles: true })));
   expect(container.querySelector('.rh-file-tree-sidebar')).toBeNull();
   await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 't', ctrlKey: true, bubbles: true })));

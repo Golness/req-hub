@@ -1794,7 +1794,6 @@
 .rh-knowledge-panel { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
 .rh-knowledge-toolbar { display: flex; align-items: center; flex-wrap: wrap; flex-shrink: 0; gap: var(--rh-space-sm); padding: 8px var(--rh-panel-padding); border-bottom: 0.5px solid var(--dsw-alias-border-l1); }
 .rh-knowledge-toolbar .rh-search-input { width: 100%; min-width: 0; }
-.rh-knowledge-toolbar .rh-workbench-tabs { max-width: 100%; min-width: 0; flex-wrap: wrap; overflow: visible; }
 .rh-knowledge-results { flex: 1; min-height: 0; overflow: auto; padding: var(--rh-panel-padding); font-size: var(--rh-font-size); color: var(--dsw-alias-label-primary); }
 .rh-knowledge-selection { display: flex; flex-wrap: wrap; align-items: center; gap: var(--rh-space-xs); padding: var(--rh-space-sm); border-bottom: 0.5px solid var(--dsw-alias-border-l1); font-size: var(--rh-font-size-sm); color: var(--dsw-alias-label-secondary); }
 .rh-knowledge-selection > span { flex-basis: 100%; }

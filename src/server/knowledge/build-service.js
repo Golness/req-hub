@@ -133,8 +133,9 @@ export class KnowledgeService {
     return scope.store.job(id);
   }
 
-  async refreshSources(scope) {
+  async refreshSources(scope, onlyPath) {
     for (const { path, hash: expectedHash, status } of scope.store.sources()) {
+      if (onlyPath !== undefined && path !== onlyPath) continue;
       if (scope.store.isConversationSource(path)) continue;
       try {
         const resolvedPath = await realpath(resolve(scope.docsRoot, path));

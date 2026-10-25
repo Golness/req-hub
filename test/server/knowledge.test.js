@@ -202,6 +202,25 @@ it('searches all workspaces while keeping builds and document details bound to t
   await api.dispose(); service = null;
 });
 
+it('checks ingestion by exact source path independently of entry pagination and workspace', async () => {
+  const api = createKnowledgeRoutes({ list: () => [{ id: 'ws', path: root }, { id: 'other', path: root }] }, { configLoader: async () => ({ docsDir: 'docs' }), databasePath: join(root, 'central/knowledge.sqlite') });
+  service = api.service;
+  server = createServer(api.routes[0].handler); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}/req-hub/knowledge/source`;
+  const url = workspaceId => `${base}?${new URLSearchParams({ workspaceId, path })}`;
+  expect(await (await fetch(url('ws'))).json()).toMatchObject({ indexed: false, status: 'not_imported' });
+  const scope = await service.scope('ws');
+  scope.store.publishDocument(await readSource(scope.docsRoot, path), 'fp');
+  for (let i = 0; i < 101; i++) scope.store.publishDocument({ relativePath: path.replace('requirement.md', `other-${i}.md`), contentHash: hash('other'), text: 'other' }, 'fp');
+  expect(scope.store.list().some(entry => entry.sources[0].relativePath === path)).toBe(false);
+  expect(await (await fetch(url('ws'))).json()).toMatchObject({ indexed: true, status: 'active' });
+  expect(await (await fetch(url('other'))).json()).toMatchObject({ indexed: false });
+  await writeFile(join(root, 'docs', path), '# Updated');
+  expect(await (await fetch(url('ws'))).json()).toMatchObject({ indexed: true, status: 'stale' });
+  expect((await fetch(`${base}?${new URLSearchParams({ workspaceId: 'ws', path: '../secret.md' })}`)).status).toBe(400);
+  await api.dispose(); service = null;
+});
+
 it('merges persisted workspaces with global ranking, limits, provenance and partial failure reporting', async () => {
   let svc = makeService();
   const first = await svc.scope('ws'), second = await svc.scope('ws2');

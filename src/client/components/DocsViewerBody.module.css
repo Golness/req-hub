@@ -2,3 +2,5 @@
 .content { flex: 1; }
 .size { display: var(--rh-display-0); flex: 1; min-height: 0; }
 .heading { font-weight: 500; }
+.workspace { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.workspaceBody { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }

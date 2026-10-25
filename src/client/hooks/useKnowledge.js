@@ -48,6 +48,7 @@ function useKnowledge(workspaceId) {
         patch({ job });
         setRevision(n => n + 1);
       }
+      return job;
     } catch (error) { if (scope.current === id && generation.current === token) patch({ error: error.message }); }
     finally { if (scope.current === id && generation.current === token) patch({ busy: false }); }
   };

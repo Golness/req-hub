@@ -121,12 +121,14 @@ export class KnowledgeStore {
   activeWhere() { return "s.status IN ('active','stale') AND EXISTS(SELECT 1 FROM document_fts AS ft_source WHERE ft_source.id=d.id)"; }
   status() {
     const count = this.db.prepare(`SELECT count(*) AS n FROM documents d JOIN sources s ON s.scope_id=d.scope_id AND s.path=d.path WHERE ${this.scopeFilter()} AND ${this.activeWhere()}`).get(...this.scopeArgs()).n;
+    const documentCount = this.db.prepare(`SELECT count(*) AS n FROM documents d JOIN sources s ON s.scope_id=d.scope_id AND s.path=d.path WHERE ${this.scopeFilter()} AND ${this.activeWhere()} AND d.path NOT LIKE 'conversation://%'`).get(...this.scopeArgs()).n;
     const jobs = this.jobs().filter(job => job.ingestionMode === 'full-document');
-    return { ready: count > 0, entryCount: count, sourceCount: count, lastBuiltAt: this.db.prepare('SELECT max(updated_at) AS t FROM documents d WHERE (? IS NULL OR d.scope_id=?)').get(...this.scopeArgs()).t,
+    return { ready: count > 0, entryCount: count, sourceCount: count, documentCount, lastBuiltAt: this.db.prepare('SELECT max(updated_at) AS t FROM documents d WHERE (? IS NULL OR d.scope_id=?)').get(...this.scopeArgs()).t,
       activeJobId: jobs.find(j => ACTIVE.has(j.status))?.id || null, latestJobId: jobs[0]?.id || null, ingestionMode: 'full-document' };
   }
-  list(limit = 100) {
-    return this.db.prepare(`SELECT d.*,s.hash AS source_hash,s.status AS source_status FROM documents d JOIN sources s ON s.scope_id=d.scope_id AND s.path=d.path WHERE ${this.scopeFilter()} AND ${this.activeWhere()} ORDER BY d.updated_at DESC,d.id LIMIT ?`).all(...this.scopeArgs(), limit).map(r => this.rowEntry(r));
+  list(limit = 100, type) {
+    const filter = type === 'document' ? "AND d.path NOT LIKE 'conversation://%'" : type === 'conversation' ? "AND d.path LIKE 'conversation://%'" : '';
+    return this.db.prepare(`SELECT d.*,s.hash AS source_hash,s.status AS source_status FROM documents d JOIN sources s ON s.scope_id=d.scope_id AND s.path=d.path WHERE ${this.scopeFilter()} AND ${this.activeWhere()} ${filter} ORDER BY d.updated_at DESC,d.id LIMIT ?`).all(...this.scopeArgs(), limit).map(r => this.rowEntry(r));
   }
   search(text, limit = 20) {
     text = text.trim().slice(0, 1000); limit = Math.max(1, Math.min(100, Number(limit) || 20));

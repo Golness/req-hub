@@ -1,7 +1,7 @@
 import { KnowledgeService } from '../knowledge/build-service.js';
 import { loadConfig } from '../config.js';
 import { json, readBody } from '../utils.js';
-import { knowledgeError } from '../knowledge/source-reader.js';
+import { knowledgeError, normalizeSourcePath } from '../knowledge/source-reader.js';
 
 /** One prefix route, lifecycle-owned by the plugin; old search/analyze routes stay compatible. */
 export function createKnowledgeRoutes(registry, options = {}) {
@@ -23,6 +23,12 @@ export function createKnowledgeRoutes(registry, options = {}) {
       }
       if (!workspaceId) throw knowledgeError('缺少 workspaceId');
       const scope = await service.scope(workspaceId);
+      if (req.method === 'GET' && path === '/source') {
+        const relativePath = normalizeSourcePath(url.searchParams.get('path'));
+        await service.refreshSources(scope, relativePath);
+        const source = scope.store.source(relativePath);
+        return json(res, { relativePath, indexed: !!source, status: source?.status || 'not_imported' });
+      }
       if (req.method === 'POST' && path === '/builds') {
         const { job, duplicate } = await service.build(scope, body);
         return json(res, { ...job, jobId: job.id }, duplicate ? 200 : 202);
@@ -30,7 +36,7 @@ export function createKnowledgeRoutes(registry, options = {}) {
       if (req.method === 'GET' && ['/status', '/entries'].includes(path)) {
         await service.refreshSources(scope);
         if (path === '/status') return json(res, scope.store.status());
-        return json(res, { entries: scope.store.list() });
+        return json(res, { entries: scope.store.list(100, url.searchParams.get('type')) });
       }
       const entry = path.match(/^\/entries\/([^/]+)$/);
       if (entry && req.method === 'GET') {
