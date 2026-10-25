@@ -7,7 +7,8 @@ const { Button } = require('./shared/Button.js');
 const { Input } = require('./shared/Input.js');
 const { Select } = require('./shared/Select.js');
 const { ConfirmDialog } = require('./shared/ConfirmDialog.js');
-const css = require('./ConversationManager.module.css');
+const { ConversationKnowledgeImport } = require('./ConversationKnowledgeImport.js');
+const css = require('./ConversationManager.module.css').default;
 const h = React.createElement;
 const sourceStatus = value => ({ active: t('conversations.status.active'), missing: t('conversations.status.missing'), unavailable: t('conversations.status.unavailable') })[value] || value;
 const jobStatus = value => ({ running: t('conversations.job.running'), queued: t('conversations.job.queued'), cancelling: t('conversations.job.cancelling'), cancelled: t('conversations.job.cancelled'), failed: t('conversations.job.failed'), interrupted: t('conversations.job.interrupted'), completed: t('conversations.job.completed') })[value] || value;
@@ -18,6 +19,7 @@ function ConversationManager({ workspaceId, onClose, onChanged }) {
   const [search, setSearch] = React.useState(''), [source, setSource] = React.useState('');
   const [detail, setDetail] = React.useState(null), [error, setError] = React.useState('');
   const [busy, setBusy] = React.useState(false), [deleting, setDeleting] = React.useState(null);
+  const [importingKnowledge, setImportingKnowledge] = React.useState(false);
   const owner = React.useRef(0);
   const detailsOwner = React.useRef(0), alive = React.useRef(true);
   const request = async (action, body, params = {}) => {
@@ -42,13 +44,14 @@ function ConversationManager({ workspaceId, onClose, onChanged }) {
     catch (error) { if (alive.current) { setError(error.message); setDeleting(null); } } finally { if (alive.current) setBusy(false); }
   };
   const visible = rows.filter(row => (!source || row.source === source) && `${row.title} ${row.workspaceTitle}`.toLowerCase().includes(search.toLowerCase().trim()));
-  return h(ModalFrame, { onClick: onClose, 'aria-label': t('conversations.manage') },
+  return h(ModalFrame, { surfaceClassName: css.frame, onClick: onClose, 'aria-label': t('conversations.manage') },
     h('div', { className: `rh-modal ${css.modal}`, onClick: event => event.stopPropagation() },
       h('h3', { className: 'rh-modal-title' }, t('conversations.manage')),
       h('p', { className: 'rh-sync-hint' }, t('conversations.description')),
       h('div', { className: css.toolbar },
         h(Input, { type: 'search', value: search, placeholder: t('conversations.search'), 'aria-label': t('conversations.search'), onChange: event => setSearch(event.target.value) }),
         h(Select, { value: source, 'aria-label': t('conversations.source'), onChange: event => setSource(event.target.value), options: [{ id: '', label: t('conversations.all') }, { id: 'dsh', label: 'DSH' }, { id: 'codex', label: 'Codex' }] }),
+        h(Button, { onClick: () => setImportingKnowledge(true), disabled: busy }, t('conversationImport.title')),
         h(Button, { onClick: load, disabled: busy }, t('conversations.reload'))),
       error && h('p', { role: 'alert', className: 'rh-error' }, error),
       h('div', { className: css.content },
@@ -63,6 +66,7 @@ function ConversationManager({ workspaceId, onClose, onChanged }) {
           h('pre', { className: css.transcript }, detail.snapshot.turns.map(turn => turn.messages.map(message => `${message.label}\n\n${message.text}`).join('\n\n')).join('\n\n')))),
       jobs.slice(0, 3).map(job => h('div', { key: job.id, className: css.job, role: 'status' }, `${job.source === 'dsh' ? 'DSH' : 'Codex'} · ${jobStatus(job.status)} · ${job.total == null ? t('conversations.pendingTotal') : `${job.completed}/${job.total}`}`, ['running', 'queued', 'cancelling'].includes(job.status) && h(Button, { disabled: busy, onClick: async () => { try { await request('cancel', {}); await load(); } catch (error) { setError(error.message); } } }, t('common.cancel')))),
       h('div', { className: 'rh-modal-actions' }, h(Button, { onClick: onClose }, t('common.close')))),
-    deleting && h(ConfirmDialog, { title: t('conversations.delete'), message: t('conversations.confirmDelete'), variant: 'danger', onConfirm: remove, onCancel: () => setDeleting(null) }));
+    deleting && h(ConfirmDialog, { title: t('conversations.delete'), message: t('conversations.confirmDelete'), variant: 'danger', onConfirm: remove, onCancel: () => setDeleting(null) }),
+    importingKnowledge && h(ConversationKnowledgeImport, { onClose: () => setImportingKnowledge(false) }));
 }
 module.exports = { ConversationManager };

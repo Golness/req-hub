@@ -4,6 +4,7 @@ import { estimateSubagentInputTokens } from '../../src/server/token-utils.js';
 
 const file = (path, size) => ({ file: path, content: 'x'.repeat(size) });
 const options = (overhead = 0) => ({
+  maxTokens: 50000,
   buildVariables: (items, index, total) => ({ content: items.map(i => i.content ?? i.userInput).join('\n'), label: `${index + 1}/${total}` }),
   preparePrompt: async variables => ({ fullPrompt: 'p'.repeat(overhead) + variables.label + variables.content }),
 });

@@ -1,21 +1,20 @@
 /**
  * Token estimation utilities.
- * Uses DSH's 4-chars-per-token estimation method.
+ * Estimates are planning values, never provider usage or a tokenizer count.
  * @module token-utils
  */
 
 /** @type {number} Characters per token ratio (DSH uses 4 chars/token) */
 export const CHARS_PER_TOKEN = 4;
 
-/** Hard input budget used by document sync subagents. */
+/** Fallback input estimate when the Host supplies no model capacity metadata. */
 export const MAX_SYNC_INPUT_TOKENS = 150000;
 
 /**
- * Conservative, model-independent input budget: one token per UTF-8 byte plus framing.
- * This is an upper-bound budgeting policy, not a model tokenizer or provider usage count.
+ * Include framing in the same multilingual estimate used for evidence and UI.
  */
 export function estimateSubagentInputTokens(text) {
-  return Buffer.byteLength(text || '', 'utf8') + 8;
+  return estimateTextTokens(text) + 8;
 }
 
 /** @type {number} JSON structure overhead per content block (in tokens) */
@@ -31,7 +30,14 @@ export const ROLE_OVERHEAD = 4;
  */
 export function estimateTextTokens(text) {
   if (!text || typeof text !== 'string') return 0;
-  return Math.ceil(text.length / CHARS_PER_TOKEN);
+  // Code/identifiers need more room than prose. Non-ASCII text must not be
+  // priced as English, nor as one token for every UTF-8 byte.
+  let ascii = 0, other = 0;
+  for (const char of text) {
+    if (char.codePointAt(0) < 128) ascii++;
+    else other++;
+  }
+  return Math.ceil(ascii / 3 + other * 2);
 }
 
 /**
@@ -48,16 +54,16 @@ export function estimateContentTokens(blocks) {
     switch (block.type) {
       case 'text':
       case 'reasoning':
-        tokens += Math.ceil((block.text?.length || 0) / CHARS_PER_TOKEN) + BLOCK_OVERHEAD;
+        tokens += estimateTextTokens(block.text) + BLOCK_OVERHEAD;
         break;
       case 'tool-call':
-        tokens += Math.ceil((block.name?.length || 0) / CHARS_PER_TOKEN)
-          + Math.ceil((block.arguments?.length || 0) / CHARS_PER_TOKEN)
+        tokens += estimateTextTokens(block.name)
+          + estimateTextTokens(block.arguments)
           + BLOCK_OVERHEAD;
         break;
       default:
         // 其他类型使用 JSON 结构估算
-        tokens += BLOCK_OVERHEAD + Math.ceil(JSON.stringify(block).length / CHARS_PER_TOKEN);
+        tokens += BLOCK_OVERHEAD + estimateTextTokens(JSON.stringify(block));
     }
   }
   return tokens;
@@ -77,7 +83,7 @@ export function estimateMessageTokens(message) {
   let tokens = 0;
   
   if (typeof content === 'string') {
-    tokens = Math.ceil(content.length / CHARS_PER_TOKEN) + ROLE_OVERHEAD;
+    tokens = estimateTextTokens(content) + ROLE_OVERHEAD;
   } else if (Array.isArray(content)) {
     tokens = estimateContentTokens(content) + ROLE_OVERHEAD;
   }

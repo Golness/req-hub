@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { hashBytes, decodeDocument } from './sync-artifacts.js';
 import { estimateSubagentInputTokens, MAX_SYNC_INPUT_TOKENS } from './token-utils.js';
+import { resolveSyncBudget, syncReadPage } from './sync-budget.js';
 import { validateCandidate, assertEditInBlock } from './sync-document-validator.js';
 
 export const SYNC_TOOLS = ['req_hub_sync_read', 'req_hub_sync_write', 'req_hub_sync_edit'];
@@ -49,12 +50,18 @@ export function installSyncTools(ctx) {
     const runtime = sessions.get(request.sessionId) || runtimeForRequest(ctx, runtimes, request);
     if (runtime) {
       if (runtime.closed) throw new Error('SYNC_RUNTIME_CLOSED');
+      if (runtime.evidenceCompacted) throw new Error('SYNC_EVIDENCE_COMPACTED');
       runtime.assertActive?.();
       runtime.signal?.throwIfAborted();
       runtime.onActivity?.();
+      const budget = await resolveSyncBudget({ ctx, parentAgent: runtime.parentAgent, request, signal: runtime.signal });
+      runtime.inputLimit = Math.min(runtime.budget?.limit ?? MAX_SYNC_INPUT_TOKENS, budget.limit);
       const surface = { messages: request.messages, system: request.system, tools: request.tools, toolHistory: request.toolHistory };
-      const cost = estimateSubagentInputTokens(JSON.stringify(surface));
-      if (cost + REQUEST_RESERVE >= MAX_SYNC_INPUT_TOKENS) throw new Error('SYNC_REQUEST_BUDGET_EXCEEDED');
+      const child = ctx.agents?.get?.(request.sessionId);
+      const meter = child?.ctx?.get?.('tokenMeter');
+      const measured = meter && child?.session ? meter.measure(child.session).totalTokens : 0;
+      const cost = Math.max(estimateSubagentInputTokens(JSON.stringify(surface)), measured);
+      if (cost + REQUEST_RESERVE >= runtime.inputLimit) throw new Error('SYNC_REQUEST_BUDGET_EXCEEDED');
       if (request.tools?.some(tool => !SYNC_TOOLS.includes(tool.name) && tool.name !== 'run_code')) throw new Error('SYNC_TOOL_ISOLATION_FAILED');
       runtime.contextCost = cost;
       runtime.exposedSinceRequest = 0;
@@ -62,6 +69,10 @@ export function installSyncTools(ctx) {
     }
     yield* next();
   }, { global: true, prepend: true }));
+  disposers.push(ctx.on('session/event', (session, event) => {
+    const runtime = sessions.get(session.id);
+    if (runtime && !runtime.closed && ['compaction/prune', 'compaction/summary'].includes(event.type)) runtime.evidenceCompacted = true;
+  }, { global: true }));
   const installation = {
     revoke(signal) { for (const runtime of [...runtimes.values()]) if (runtime.signal === signal) runtime.close(); },
     create(options) {
@@ -113,12 +124,16 @@ class SyncRuntime {
   constructor(ctx, options) {
     Object.assign(this, options);
     this.ctx = ctx; this.id = randomUUID(); this.coverage = new Map(); this.contextCost = 0;
+    this.readRanges = new Map();
     this.exposedSinceRequest = 0; this.journal = []; this.outputWritten = new Set();
+    this.inputLimit = options.budget?.limit ?? MAX_SYNC_INPUT_TOKENS;
+    this.optionalContextCost = 0;
     this.nativeEditor = options.nativeEditor || resolveSyncEditor(ctx, options.parentAgent);
   }
   charge(value) {
     const amount = estimateSubagentInputTokens(JSON.stringify(value)) + 128;
-    if (this.contextCost + this.exposedSinceRequest + amount + REQUEST_RESERVE >= MAX_SYNC_INPUT_TOKENS) throw new Error('SYNC_READ_BUDGET_EXCEEDED');
+    if (this.evidenceCompacted) throw new Error('SYNC_EVIDENCE_COMPACTED');
+    if (this.contextCost + this.exposedSinceRequest + amount + REQUEST_RESERVE >= this.inputLimit) throw new Error('SYNC_READ_BUDGET_EXCEEDED');
     this.exposedSinceRequest += amount;
     return value;
   }
@@ -131,15 +146,28 @@ class SyncRuntime {
       text = await this.store.read(artifactId);
     }
     const next = this.coverage.get(artifactId) || 0;
-    if (offset > next || offset > text.length) throw new Error('READ_GAP');
-    let end = Math.min(text.length, offset + limit);
-    if (end < text.length && /[\uD800-\uDBFF]/.test(text[end - 1])) end--;
-    if (end === offset && end < text.length) throw new Error('READ_RANGE_SURROGATE');
-    const result = this.charge({ artifactId, offset, nextOffset: end, eof: end === text.length, sha256: hashBytes(Buffer.from(text)), text: text.slice(offset, end) });
-    this.coverage.set(artifactId, Math.max(next, end));
+    if (offset < text.length && /[\uDC00-\uDFFF]/.test(text[offset])) throw new Error('READ_RANGE_SURROGATE');
+    const optional = artifactId !== 'candidate' && !this.required.includes(artifactId);
+    if ((!optional && offset > next) || offset > text.length) throw new Error('READ_GAP');
+    const child = this.ctx.agents?.get?.(this.sessionId);
+    const threshold = child?.ctx?.get?.('toolResultPruner')?.config?.thresholdChars;
+    const page = syncReadPage(artifactId, text, offset, limit, hashBytes(Buffer.from(text)), threshold);
+    const amount = estimateSubagentInputTokens(JSON.stringify(page)) + 128;
+    if (optional && this.budget && this.optionalContextCost + amount > this.budget.optionalContextTokens) throw new Error('SYNC_OPTIONAL_CONTEXT_BUDGET_EXCEEDED');
+    const result = this.charge(page);
+    if (optional) this.optionalContextCost += amount;
+    const ranges = [...(this.readRanges.get(artifactId) || []), [offset, result.nextOffset]].sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    for (const range of ranges) {
+      if (merged.length && range[0] <= merged.at(-1)[1]) merged.at(-1)[1] = Math.max(merged.at(-1)[1], range[1]);
+      else merged.push([...range]);
+    }
+    this.readRanges.set(artifactId, merged);
+    this.coverage.set(artifactId, merged[0]?.[0] === 0 ? merged[0][1] : 0);
     return result;
   }
   async assertCoverage() {
+    if (this.evidenceCompacted) throw new Error('SYNC_EVIDENCE_COMPACTED');
     for (const id of this.required) if ((this.coverage.get(id) ?? -1) < (await this.store.read(id)).length) throw new Error('EVIDENCE_NOT_FULLY_READ: ' + id);
   }
   async write({ outputId, content }) {

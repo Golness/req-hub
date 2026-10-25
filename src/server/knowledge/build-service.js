@@ -135,6 +135,7 @@ export class KnowledgeService {
 
   async refreshSources(scope) {
     for (const { path, hash: expectedHash, status } of scope.store.sources()) {
+      if (scope.store.isConversationSource(path)) continue;
       try {
         const resolvedPath = await realpath(resolve(scope.docsRoot, path));
         if (!inside(scope.docsRoot, resolvedPath)) throw knowledgeError('来源路径越界');

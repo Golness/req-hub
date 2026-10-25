@@ -13,8 +13,8 @@ const Button = React.forwardRef(function Button({ variant = 'ghost', size = 'md'
 const Input = React.forwardRef(function Input({ icon, className, ...props }, ref) {
   return h('span', { className: join(css.inputWrap, className) }, icon, h('input', { ...props, ref, className: css.input }));
 });
-function Checkbox({ checked, onChange, label, disabled, title, className }) {
-  return h('label', { className: join(css.checkbox, className), title }, h('input', { type: 'checkbox', checked, disabled, onChange: event => onChange?.(event.target.checked) }), h('span', null, label));
+function Checkbox({ checked, onChange, label, disabled, title, className, indeterminate = false, 'aria-label': ariaLabel }) {
+  return h('label', { className: join(css.checkbox, className), title }, h('input', { type: 'checkbox', checked, disabled, 'aria-label': ariaLabel, 'aria-checked': indeterminate ? 'mixed' : undefined, ref: node => { if (node) node.indeterminate = indeterminate; }, onChange: event => onChange?.(event.target.checked) }), h('span', null, label));
 }
 
 const modalStack = [];

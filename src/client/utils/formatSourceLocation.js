@@ -2,6 +2,10 @@
 const { t } = require('../locale.js');
 
 function formatSourceLocation(source) {
+  if (source.conversation) {
+    const numbers = source.locations?.length ? source.locations.map(item => item.turnNumber) : source.conversation.turns.map(turn => turn.number);
+    return t('conversationImport.location', { turns: numbers.join('、') });
+  }
   if (source.locations?.length) {
     const labels = source.locations.slice(0, 3).map(location => location.page ? t("formatSourceLocation.message001", { value0: location.page })
       : location.sheet ? t("formatSourceLocation.message002", { value0: location.sheet, value1: location.range ? ` ${location.range}` : '' })

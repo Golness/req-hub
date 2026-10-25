@@ -87,7 +87,7 @@ export function apply(ctx, config = {}) {
   if (syncTools) disposers.push(() => syncTools.dispose());
 
   const analysisRoutes = createAnalyzeRoutes(workspaceRegistry, llm, sessions, agents, agentPresets, sessionQuery, ctx);
-  const syncRoutes = createSyncRoutes(workspaceRegistry, llm, sessions, agents, ctx);
+  const syncRoutes = createSyncRoutes(workspaceRegistry, llm, sessions, agents, ctx, { knowledgeService: knowledge.service });
 
   // 创建所有路由
   const routes = [

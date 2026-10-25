@@ -28,7 +28,7 @@ export function createCodexTranscript(sessionId) {
     const syncable = status === 'completed' && !turn.lastWasTool && last?.role === 'assistant'
       && last.phase !== 'commentary' && turn.messages.some(message => message.role === 'user');
     let users = 0, intermediate = 0;
-    if (turn.messages.length) turns.push({ sessionId, turnNumber: turn.turnNumber, status, syncable,
+    if (turn.messages.length) turns.push({ sessionId, turnNumber: turn.turnNumber, ...(turn.sourceTurnId ? { sourceTurnId: turn.sourceTurnId } : {}), status, syncable,
       messages: turn.messages.map((message, index) => ({ role: message.role,
         kind: message.role === 'user' ? (++users === 1 ? 'input' : 'followup') : syncable && index === turn.messages.length - 1 ? 'final' : 'intermediate',
         label: message.role === 'user' ? (users === 1 ? '用户输入' : '用户补充输入')

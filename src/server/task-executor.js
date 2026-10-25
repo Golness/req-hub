@@ -14,7 +14,7 @@ import { parseAIResponse } from './ai-engine.js';
 import { getPromptAsync, buildFullPrompt, PROMPT_REGISTRY } from './prompts.js';
 import { log } from './logger.js';
 import { stat } from 'node:fs/promises';
-import { charsToTokens, estimateTextTokens, formatTokens, CHARS_PER_TOKEN, MAX_SYNC_INPUT_TOKENS, estimateSubagentInputTokens } from './token-utils.js';
+import { estimateTextTokens, formatTokens, MAX_SYNC_INPUT_TOKENS, estimateSubagentInputTokens } from './token-utils.js';
 
 /**
  * Sleep for a specified duration.
@@ -461,8 +461,8 @@ export class TaskExecutor {
           result.skillUsed = null;
         }
         // Skill 内容过大
-        else if (charsToTokens(systemPrompt.length) > TaskExecutorConfig.maxSkillTokens) {
-          this.addWarning('SKILL_TOO_LARGE', `Skill "${skillUsed}" 内容过大 (约 ${formatTokens(charsToTokens(systemPrompt.length))} tokens)，可能影响性能`);
+        else if (estimateTextTokens(systemPrompt) > TaskExecutorConfig.maxSkillTokens) {
+          this.addWarning('SKILL_TOO_LARGE', `Skill "${skillUsed}" 内容过大 (约 ${formatTokens(estimateTextTokens(systemPrompt))} tokens)，可能影响性能`);
         }
       }
 
@@ -499,7 +499,7 @@ export class TaskExecutor {
         log.taskExecutor.debug(`构建 prompt 完成`, {
           promptKey,
           fullPromptLength: fullPrompt.length,
-          fullPromptTokens: charsToTokens(fullPrompt.length),
+          fullPromptTokens: estimateTextTokens(fullPrompt),
         });
       } catch (e) {
         this.addWarning('TEMPLATE_RENDER_FAILED', `模板渲染失败: ${e.message}`);
@@ -526,8 +526,8 @@ export class TaskExecutor {
     }
 
     // 检查 prompt token 数
-    if (charsToTokens(fullPrompt.length) > TaskExecutorConfig.maxPromptTokens) {
-      this.addWarning('PROMPT_TOO_LARGE', `Prompt 过长 (约 ${formatTokens(charsToTokens(fullPrompt.length))} tokens)`);
+    if (estimateTextTokens(fullPrompt) > TaskExecutorConfig.maxPromptTokens) {
+      this.addWarning('PROMPT_TOO_LARGE', `Prompt 过长 (约 ${formatTokens(estimateTextTokens(fullPrompt))} tokens)`);
     }
 
     result.fullPrompt = fullPrompt;

@@ -8,10 +8,14 @@ import { pathToFileURL } from 'node:url';
 import * as ReqHub from '../../src/server/index.js';
 import { saveConfig, configFilePath } from '../../src/server/config.js';
 import { installSyncTools, SYNC_TOOLS } from '../../src/server/sync-controlled-tools.js';
+import { resolveSyncBudget } from '../../src/server/sync-budget.js';
 import { executeTask } from '../../src/server/task-executor.js';
 import { ConversationStore } from '../../src/server/conversations/store.js';
 import { ConversationService } from '../../src/server/conversations/service.js';
 import { dshSource } from '../../src/server/conversations/dsh-source.js';
+import { KnowledgeService } from '../../src/server/knowledge/build-service.js';
+import { createConversationKnowledgeRoutes } from '../../src/server/routes/conversation-knowledge-routes.js';
+import { createOperations } from '../../src/server/operations.js';
 
 const dsh = resolve(import.meta.dirname, '../../../deepseek-harness');
 const available = existsSync(join(dsh, 'packages/client/connection/lib/index.js'));
@@ -54,6 +58,9 @@ it.skipIf(!available)('composes ReqHub with real DSH Cordis, WebServer, Connecti
     const conversations = await fetch(base + '/req-hub/conversations-list?workspaceId=fixture', { headers: authenticated });
     expect(conversations.status).toBe(200); expect((await conversations.json()).sessions).toEqual([]);
     expect((await fetch(base + '/req-hub/conversations-list?workspaceId=fixture')).status).toBe(401);
+    const importOptions = await fetch(base + '/req-hub/conversations-knowledge-options', { headers: authenticated });
+    expect(importOptions.status).toBe(200); expect((await importOptions.json()).targets[0].id).toBe('fixture');
+    expect((await fetch(base + '/req-hub/conversations-knowledge-options')).status).toBe(401);
     expect((await fetch(base + '/req-hub/write', { method: 'POST', headers: { ...authenticated, origin: 'https://outside.invalid' }, body: JSON.stringify({ workspaceId: 'fixture', path: 'a.md', content: 'attacked' }) })).status).toBe(403);
     const body = { workspaceId: 'fixture', path: 'a.md', content: '# Via tool' };
     const tool = ctx.tools.get('req_hub_action'); expect(tool).toBeTruthy();
@@ -78,7 +85,7 @@ it.skipIf(!available)('binds controlled evidence to a real DSH spawn child and l
   const Spawn = await load(join(dsh, 'packages/subagent/subagent-spawn-in-process/lib/index.js'));
   const requests = [];
   class Adapter extends LlmAdapter {
-    async resolveModel(provider, model) { return { provider, id: model, name: model }; }
+    async resolveModel(provider, model) { return { provider, id: model, name: model, context: { contextWindow: 256000 } }; }
     async *stream(request) {
       requests.push(request);
       if (requests.length === 1) {
@@ -103,13 +110,16 @@ it.skipIf(!available)('binds controlled evidence to a real DSH spawn child and l
     ctx.llm.registerAdapter(['mock'], new Adapter());
     const parent = await ctx.agentLoop.create('review-parent', { provider: 'mock', model: 'mock' }, { cwd: process.cwd() });
     installation = installSyncTools(ctx);
-    const runtime = installation.create({ store: { read: async () => 'complete frozen evidence' }, allowed: ['evidence'], required: ['evidence'], outputs: {} });
+    const budget = await resolveSyncBudget({ ctx, llm: ctx.llm, parentAgent: parent, agentOptions: { maxTokens: 8000 } });
+    expect(budget.contextWindow).toBe(256000); expect(budget.source).toBe('model');
+    const runtime = installation.create({ store: { read: async () => 'complete frozen evidence' }, allowed: ['evidence'], required: ['evidence'], outputs: {}, budget });
     const result = await executeTask(ctx, ctx.llm, {}, {
       parentAgent: parent, promptKey: 'analyze', variables: { requirementId: 'review', docsContent: 'frozen evidence' }, runtime, syncV2: true, liveness: { enabled: false },
       toolFilter: { allow: SYNC_TOOLS }, preparedPromptData: { fullPrompt: 'Read evidence and finish. REQHUB_SYNC_V2=' + runtime.id, skillUsed: null },
     });
     expect(result.isError, result.diagnostic).toBe(false);
     expect(result.output).toContain('child complete'); await runtime.assertCoverage();
+    expect(runtime.inputLimit).toBe(budget.limit); expect(runtime.maxRequestCost).toBeGreaterThan(0);
     expect(runtime.sessionId).toBe(result.sessionId); expect(ctx.agents.get(result.sessionId)).toBeUndefined();
     runtime.close();
     parent.followup(createUserMessage({ content: [{ type: 'text', text: 'Explain stale REQHUB_SYNC_V2=' + runtime.id }], source: { kind: 'user' } }));
@@ -129,6 +139,18 @@ it.skipIf(!available)('binds controlled evidence to a real DSH spawn child and l
       expect(document).toContain('Explain stale REQHUB_SYNC_V2=');
       const snapshot = await library.snapshot('real-workspace', parent.session.id, adapter);
       expect(snapshot.version).toBe(entry.snapshotVersion);
+      const targetRegistry = { list: () => [{ id: 'separate-knowledge-workspace', title: 'Knowledge target', path: libraryRoot }] };
+      const knowledge = new KnowledgeService({ registry: targetRegistry, configLoader: async () => ({ docsDir: 'docs' }), databasePath: join(libraryRoot, 'knowledge/library.sqlite') });
+      try {
+        const operations = createOperations(createConversationKnowledgeRoutes(targetRegistry, library, [adapter], knowledge));
+        const detail = await operations.execute({ action: 'conversations-knowledge-detail', query: { id: entry.conversationId, targetWorkspaceId: 'separate-knowledge-workspace' } }, {});
+        expect(detail.status).toBe(200);
+        const imported = await operations.execute({ action: 'conversations-knowledge-import', method: 'POST', body: { targetWorkspaceId: 'separate-knowledge-workspace', selections: [{ id: entry.conversationId, version: entry.snapshotVersion, turnKeys: [detail.value.turns[0].key] }] } }, {});
+        expect(imported.status).toBe(200); expect(imported.value.added).toBe(1);
+        const hit = (await knowledge.searchAll('ordinary parent response')).hits[0];
+        expect(hit.type).toBe('conversation'); expect(hit.workspaceId).toBe('separate-knowledge-workspace');
+        expect(hit.sources[0].conversation.sourceWorkspaceId).toBe('real-workspace');
+      } finally { await knowledge.close(); }
     } finally { await library.close(); await store.close(); await rm(libraryRoot, { recursive: true, force: true }); }
   } finally { installation?.dispose(); await ctx.fiber.dispose(); }
 }, 30000);

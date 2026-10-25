@@ -20,7 +20,7 @@ async function run(docType, harnessOptions = {}, input = {}) {
 }
 
 describe('v2 frozen evidence and isolated candidates', () => {
-  it('splits a single large file and all frozen source versions without losing text or exceeding the budget', async () => {
+  it('splits required diffs losslessly and leaves full frozen source versions optional', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'req-hub-large-file-'));
     const harness = createSyncHarness({ noChange: true });
     const engine = new PhasedSyncEngine({ ...harness, config: {}, cwd: dir });
@@ -37,7 +37,14 @@ describe('v2 frozen evidence and isolated candidates', () => {
         const parts = ranges.get(part.sourceArtifactId) || [];
         parts.push(part); ranges.set(part.sourceArtifactId, parts);
       }
-      expect(ranges.size).toBe(4);
+      expect(ranges.size).toBe(1);
+      expect([...ranges.keys()]).toEqual(['code.0.diff']);
+      for (const chunk of plan.code) {
+        expect(chunk.required).not.toContain('code.0.base');
+        expect(chunk.allowed).toContain('code.0.base');
+        expect(chunk.allowed).toContain('code.0.final');
+      }
+      expect(JSON.parse(await plan.store.read('code.0.base')).content).toBe(options.sourceSnapshots[0].base);
       for (const [id, parts] of ranges) {
         parts.sort((a, b) => a.start - b.start);
         expect(parts[0].start).toBe(0);
@@ -71,7 +78,7 @@ describe('v2 frozen evidence and isolated candidates', () => {
     expect(files[0]).toContain('+# 标题');
   });
   it('merges all code chunks through bounded reference-only summary stages', async () => {
-    const codeDiff = [0,1].map(i => 'diff --git a/src/f'+i+'.js b/src/f'+i+'.js\n--- a/src/f'+i+'.js\n+++ b/src/f'+i+'.js\n@@ -1 +1 @@\n-old\n+'+'x'.repeat(60000)).join('\n');
+    const codeDiff = [0,1].map(i => 'diff --git a/src/f'+i+'.js b/src/f'+i+'.js\n--- a/src/f'+i+'.js\n+++ b/src/f'+i+'.js\n@@ -1 +1 @@\n-old\n+'+'x'.repeat(210000)).join('\n');
     const {result,harness}=await run('requirement',{}, {codeDiff});
     expect(result.errors).toEqual([]);expect(result.stats.codeChunks).toBe(2);
     expect(harness.requests.some(request=>request.label.includes('analysis-merge'))).toBe(true);
@@ -98,14 +105,31 @@ describe('v2 frozen evidence and isolated candidates', () => {
     const { result, harness } = await run('design', {}, { codeDiff: 'diff --git a/README.md b/README.md\n-old\n+new' });
     expect(result.errors).toEqual([]); expect(result.mergedDoc).toBe(source); expect(harness.requests).toHaveLength(0);
   });
-  it('rejects a single large turn during preflight before any code analysis', async () => {
-    const { result, harness } = await run('requirement', {}, { sessionTurns: [{ sessionId: 'big', turnNumber: 1, userInput: 'x'.repeat(160000) }] });
-    expect(result.errors[0].phase).toBe('init'); expect(harness.requests).toHaveLength(0);
+  it('accepts a large turn that now fits the estimated budget', async () => {
+    const { result, harness } = await run('requirement', { noChange: true }, { sessionTurns: [{ sessionId: 'big', turnNumber: 1, userInput: 'x'.repeat(160000) }] });
+    expect(result.errors).toEqual([]); expect(harness.requests.length).toBeGreaterThan(0);
   });
-  it('includes all intermediate replies in the file-read budget and rejects an oversized full turn before spawning', async () => {
-    const { result, harness } = await run('requirement', {}, { sessionTurns: [{ sessionId: 'big', turnNumber: 1, syncable: true,
-      messages: [{ role:'user',label:'用户输入',text:'小输入' },{role:'assistant',label:'助手中间回复 1',text:'中'.repeat(60000)},
-        {role:'assistant',label:'助手最终回复',text:'短回复'}] }] });
-    expect(result.errors[0].phase).toBe('init');expect(result.errors[0].error).toContain('big');expect(harness.requests).toHaveLength(0);
+  it('splits an oversized intermediate reply losslessly while retaining the user and final replies', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'req-hub-large-turn-'));
+    const harness = createSyncHarness({ noChange: true });
+    const engine = new PhasedSyncEngine({ ...harness, config: {}, cwd: dir });
+    const turn = { sessionId: 'big', turnNumber: 7, syncable: true,
+      messages: [{ role: 'user', label: '用户输入', text: '小输入' },
+        { role: 'assistant', label: '助手中间回复 1', text: '中文回复\n'.repeat(24000) },
+        { role: 'assistant', label: '助手最终回复', text: '最终回复' }] };
+    try {
+      const options = { docType: 'requirement', syncDir: dir, currentDoc: source, sessionTurns: [turn] };
+      const plan = await engine.prepareSyncChunks(options);
+      expect(plan.discussion.length).toBeGreaterThan(1);
+      const parts = await Promise.all(plan.discussion.flatMap(chunk => chunk.items).map(async item => JSON.parse(await plan.store.read(item.required[0]))));
+      parts.sort((a, b) => a.start - b.start);
+      expect(parts.every(part => part.sessionId === 'big' && part.turnNumber === 7 && part.fragment)).toBe(true);
+      expect(parts[0].start).toBe(0);
+      expect(parts.at(-1).end).toBe(parts[0].totalChars);
+      expect(parts.every((part, i) => i === 0 || part.start === parts[i - 1].end)).toBe(true);
+      expect(parts.map(part => part.text).join('')).toBe(await plan.store.read('session.turn.0'));
+      const result = await engine.sync({ ...options, preparedChunks: plan });
+      expect(result.errors).toEqual([]); expect(result.mergedDoc).toBe(source);
+    } finally { await rm(dir, { recursive: true, force: true }); }
   });
 });

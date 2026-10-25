@@ -110,6 +110,8 @@ function syncAnalysisPrompt(docType, source) {
 任务清单 artifact：{manifestId}；输出：{reportId}、{changesId}。
 ${SYNC_V2_CONTRACT}
 先读任务清单、文档原文和 block 索引，再读取本块全部 required 证据。按需读取清单允许的冻结 base/final 代码，不能读取当前工作区。
+context 是可选上下文，不要求整份读取；在 optionalContextTokens 额度内按需定位相关范围，预算不足时停止可选读取，缺少判断依据的条目进入 pending。引用某个证据 ID 作为可执行依据时必须完整读取该 ID。
+fragment=true 表示同一文件或轮次的连续片段，按 sourceArtifactId、part、start/end 还原顺序；片段不是独立完整轮次。跨片段的确认、撤回、语句或代码上下文不完整时保留来源位置和待确认项，交给汇总复核，禁止补写缺失内容。
 ${source === 'code' ? '按 committed → staged → unstaged → untracked 还原最终事实；移动和内部重构不自动代表业务删除。' : '会话证据为 Markdown 文件，按会话、原始轮次与消息顺序标注用户输入、用户补充输入、助手中间回复和助手最终回复。通过受控读取工具完整读取本块文件。只将用户明确确认且未撤回的决定作为可执行变更；中间回复与最终回复都不等于用户确认。分块外可能存在后续撤回，交给汇总复核。'}
 ${SYNC_EVIDENCE_RULES}
 ${profile.quality}
@@ -125,6 +127,7 @@ ${SYNC_V2_CONTRACT}
 读取全部 required 报告、JSON 索引与文档 block 索引。输出详细 Markdown 汇总与相同 JSON changes/pending 结构。
 每条结果保留原条目 id 或 sourceIds 与 evidenceRefs；所有输入 ID 必须出现在结果或 pending 中，不得遗漏。
 同一位置相同事实才去重。保留字段、规则、异常和原文定位；同会话确认与撤回按轮次还原。跨会话没有明确时间和确认依据时进入 pending。
+同一 sourceArtifactId 的片段按原始轮次、消息和 start/end 顺序复核；尚未取得相关上下文时继续保留 pending，不将半句话、助手建议或局部确认误判成完整用户决定。
 代码当前实现与讨论目标分开；冲突不自动选择，不编写最终文档。
 ${profile.quality}
 ${SYNC_EVIDENCE_RULES}`;

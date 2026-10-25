@@ -30,6 +30,7 @@ export class KnowledgeStore {
         CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, scope_id TEXT NOT NULL REFERENCES scopes(id), request_key TEXT NOT NULL, fingerprint TEXT NOT NULL, payload TEXT NOT NULL, UNIQUE(scope_id,request_key));
         CREATE TABLE IF NOT EXISTS documents (id TEXT PRIMARY KEY, scope_id TEXT NOT NULL, path TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, version INTEGER NOT NULL, coordinate TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(scope_id,path), FOREIGN KEY(scope_id,path) REFERENCES sources(scope_id,path));
         CREATE TABLE IF NOT EXISTS document_versions (document_id TEXT NOT NULL REFERENCES documents(id), version INTEGER NOT NULL, snapshot TEXT NOT NULL, PRIMARY KEY(document_id,version));
+        CREATE TABLE IF NOT EXISTS conversation_imports(scope_id TEXT NOT NULL REFERENCES scopes(id), conversation_id TEXT NOT NULL, document_id TEXT NOT NULL REFERENCES documents(id), payload TEXT NOT NULL, PRIMARY KEY(scope_id,conversation_id));
         CREATE VIRTUAL TABLE IF NOT EXISTS document_fts USING fts5(id UNINDEXED,title,body,path,tokenize='unicode61 remove_diacritics 2');
         PRAGMA user_version=3;
         COMMIT;
@@ -59,7 +60,9 @@ export class KnowledgeStore {
   }
   projectDocument(row) {
     const origin = this.db.prepare('SELECT * FROM scopes WHERE id=?').get(row.scope_id);
-    writeKnowledgeDocument(this.documentRoot, { ...row, workspaceId: origin.workspace_id, workspaceTitle: origin.workspace_title });
+    const saved = this.db.prepare('SELECT snapshot FROM document_versions WHERE document_id=? AND version=?').get(row.id, row.version);
+    const conversation = saved && JSON.parse(saved.snapshot).conversation;
+    writeKnowledgeDocument(this.documentRoot, { ...row, workspaceId: origin.workspace_id, workspaceTitle: origin.workspace_title, conversation });
   }
 
   transaction(callback) {
@@ -84,9 +87,10 @@ export class KnowledgeStore {
     const origin = this.db.prepare('SELECT workspace_id,workspace_title FROM scopes WHERE id=?').get(row.scope_id);
     const provenance = { workspaceId: origin.workspace_id, workspaceTitle: origin.workspace_title };
     const snapshot = this.db.prepare('SELECT snapshot FROM document_versions WHERE document_id=? AND version=?').get(row.id, row.version);
-    const locations = snapshot ? JSON.parse(snapshot.snapshot).locations : undefined;
-    return { id: row.id, ...provenance, title: row.title, body: row.body, type: 'document', tags: [], version: row.version, updatedAt: row.updated_at,
-      sources: [{ ...provenance, relativePath: row.path, sourceHash: row.source_hash, status: row.source_status, coordinate: row.coordinate, startLine: 1, endLine: row.body.split('\n').length, ...(locations?.length ? { locations } : {}) }] };
+    const saved = snapshot ? JSON.parse(snapshot.snapshot) : {};
+    const { locations, conversation } = saved;
+    return { id: row.id, ...provenance, title: row.title, body: row.body, type: conversation ? 'conversation' : 'document', ...(conversation ? { conversation } : {}), tags: [], version: row.version, updatedAt: row.updated_at,
+      sources: [{ ...provenance, relativePath: row.path, sourceHash: row.source_hash, status: row.source_status, coordinate: row.coordinate, startLine: 1, endLine: row.body.split('\n').length, ...(conversation ? { conversation } : {}), ...(locations?.length ? { locations } : {}) }] };
   }
   entry(id) {
     const entry = this.rowEntry(this.db.prepare('SELECT d.*,s.hash AS source_hash,s.status AS source_status FROM documents d JOIN sources s ON s.scope_id=d.scope_id AND s.path=d.path WHERE d.id=? AND (? IS NULL OR d.scope_id=?)').get(id, ...this.scopeArgs()));
@@ -94,24 +98,26 @@ export class KnowledgeStore {
     return entry;
   }
   publishDocument(source, fingerprint) {
-    const result = this.transaction(() => {
+    const result = this.transaction(() => this.publishDocumentRow(source, fingerprint));
+    this.projectDocument(this.db.prepare('SELECT * FROM documents WHERE id=?').get(result.documentId));
+    return result;
+  }
+  publishDocumentRow(source, fingerprint) {
       const previous = this.source(source.relativePath);
       const old = this.db.prepare('SELECT * FROM documents WHERE scope_id=? AND path=?').get(this.scopeId, source.relativePath);
-      const title = posix.basename(source.relativePath);
+      const title = source.title || posix.basename(source.relativePath);
       const id = old?.id || randomUUID();
-      const changed = !old || previous?.hash !== source.contentHash || old.body !== source.text || previous?.fingerprint !== fingerprint;
+      const changed = !old || old.title !== title || previous?.hash !== source.contentHash || old.body !== source.text || previous?.fingerprint !== fingerprint;
       const version = old ? old.version + (changed ? 1 : 0) : 1;
       const timestamp = now();
       this.db.prepare("INSERT INTO sources VALUES (?,?,?,?,'active',?) ON CONFLICT(scope_id,path) DO UPDATE SET hash=excluded.hash,fingerprint=excluded.fingerprint,status='active',updated_at=excluded.updated_at").run(this.scopeId, source.relativePath, source.contentHash, fingerprint, timestamp);
       this.db.prepare('INSERT INTO documents VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(scope_id,path) DO UPDATE SET title=excluded.title,body=excluded.body,version=excluded.version,coordinate=excluded.coordinate,updated_at=excluded.updated_at').run(id, this.scopeId, source.relativePath, title, source.text, version, source.coordinate || 'source', timestamp);
-      this.db.prepare('INSERT OR IGNORE INTO document_versions VALUES (?,?,?)').run(id, version, JSON.stringify({ title, body: source.text, relativePath: source.relativePath, sourceHash: source.contentHash, updatedAt: timestamp, locations: source.locations, warnings: source.warnings }));
+      this.db.prepare('INSERT OR IGNORE INTO document_versions VALUES (?,?,?)').run(id, version, JSON.stringify({ title, body: source.text, relativePath: source.relativePath, sourceHash: source.contentHash, updatedAt: timestamp, locations: source.locations, warnings: source.warnings, conversation: source.conversation }));
       this.db.prepare('DELETE FROM document_fts WHERE id=?').run(id);
       if (source.text.trim()) this.db.prepare('INSERT INTO document_fts VALUES (?,?,?,?)').run(id, title, source.text, source.relativePath);
       return { entryIds: [id], documentId: id, characterCount: source.text.length };
-    });
-    this.projectDocument(this.db.prepare('SELECT * FROM documents WHERE id=?').get(result.documentId));
-    return result;
   }
+  isConversationSource(path) { return !!this.db.prepare('SELECT 1 FROM conversation_imports i JOIN documents d ON d.id=i.document_id WHERE i.scope_id=? AND d.path=?').get(this.scopeId, path); }
   activeWhere() { return "s.status IN ('active','stale') AND EXISTS(SELECT 1 FROM document_fts AS ft_source WHERE ft_source.id=d.id)"; }
   status() {
     const count = this.db.prepare(`SELECT count(*) AS n FROM documents d JOIN sources s ON s.scope_id=d.scope_id AND s.path=d.path WHERE ${this.scopeFilter()} AND ${this.activeWhere()}`).get(...this.scopeArgs()).n;

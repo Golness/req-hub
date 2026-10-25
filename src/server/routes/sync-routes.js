@@ -29,6 +29,7 @@ import { ConversationStore, conversationDatabasePath } from '../conversations/st
 import { ConversationService } from '../conversations/service.js';
 import { dshSource } from '../conversations/dsh-source.js';
 import { createConversationRoutes } from './conversation-routes.js';
+import { createConversationKnowledgeRoutes } from './conversation-knowledge-routes.js';
 import { clearRetiredWorkspaceConversations, removeRetiredCodexStore } from '../conversations/retired-storage.js';
 import { homedir } from 'node:os';
 import { json, readBody } from '../utils.js';
@@ -95,6 +96,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
   const routes = [
     ...createCodexSessionRoutes(registry, codex),
     ...createConversationRoutes(registry, library, adapters),
+    ...createConversationKnowledgeRoutes(registry, library, adapters, options.knowledgeService),
     {
       kind: 'exact', path: '/req-hub/sync-delete',
       async handler(req, res) {
@@ -746,7 +748,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
               assertActive: () => syncSupervisor.assert(lease),
             });
 
-            await updateStep('init', { status: 'running', text: '检查代码与会话的完整 prompt，按 150K 输入预算分块...' });
+            await updateStep('init', { status: 'running', text: '根据子代理模型容量检查文档与必读证据，计算分块预算...' });
             const preparedChunks = await engine.prepareSyncChunks({
               docType, currentDoc, originalVersion, commits, codeDiff, sourceSnapshots, sessionTurns,
               syncContext: { taskId: syncId, branchName, targetSha: syncTask.commitHash, baseSha: syncTask.baselineCommit, attempt: syncTask.snapshotDir },
@@ -762,6 +764,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
             await updateStep('init', {
               status: 'completed',
               text: initText + `，代码 ${preparedChunks.code.length} 块、会话 ${preparedChunks.discussion.length} 块，输入预算检查通过`,
+              inputBudget: preparedChunks.budget,
               hasUncommitted: uncommittedChanges.hasChanges,
             });
 

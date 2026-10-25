@@ -2,7 +2,8 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { executeTask, prepareTaskPrompt, TaskExecutorConfig } from './task-executor.js';
-import { charsToTokens, estimateTextTokens, estimateSubagentInputTokens, MAX_SYNC_INPUT_TOKENS } from './token-utils.js';
+import { estimateTextTokens, estimateSubagentInputTokens, MAX_SYNC_INPUT_TOKENS } from './token-utils.js';
+import { resolveSyncBudget, estimateArtifactReadTokens } from './sync-budget.js';
 import { parseSyncCodeDiff } from './sync-code-files.js';
 import { posix } from 'node:path';
 import { ConcurrentChunkProcessor } from './concurrency/ConcurrentChunkProcessor.js';
@@ -12,17 +13,17 @@ import { assertSyncCapabilities, installSyncTools, SYNC_TOOLS, OUTPUT_LIMIT, REQ
 import { indexDocument, validateChanges, validateCandidate } from './sync-document-validator.js';
 import { renderSessionDocument, renderSessionTurn } from './session-utils.js';
 
-function countTokens(text) { return charsToTokens(text.length); }
+function countTokens(text) { return estimateTextTokens(text); }
 
 /** Prefer whole groups, splitting oversized groups only at file or turn boundaries. */
-export async function packSyncChunks(groups, { buildVariables, preparePrompt, details, maxTokens = MAX_SYNC_INPUT_TOKENS }) {
+export async function packSyncChunks(groups, { buildVariables, preparePrompt, measureTokens, details, maxTokens = MAX_SYNC_INPUT_TOKENS }) {
   const chunks = [];
   let pending = [];
   const upperTotal = groups.reduce((n, group) => n + group.items.length, 0);
   const measure = async (items, index, total) => {
     const variables = buildVariables(items, index, total);
     const preparedPromptData = await preparePrompt(variables);
-    return { variables, preparedPromptData, tokens: estimateSubagentInputTokens(preparedPromptData.fullPrompt) };
+    return { variables, preparedPromptData, tokens: measureTokens ? await measureTokens(variables) : estimateSubagentInputTokens(preparedPromptData.fullPrompt) };
   };
   const fits = async items => (await measure(items, chunks.length, upperTotal)).tokens < maxTokens;
   for (const group of groups) {
@@ -95,7 +96,7 @@ export async function chunkTurns(turns, options) {
     if (!sessions.has(name)) sessions.set(name, { name, items: [], splittable: true });
     sessions.get(name).items.push(turn);
   }
-  return packSyncChunks([...sessions.values()], { ...options, details: turn => ({ type: 'turn', sessionId: turn.sessionId, turnNumber: turn.turnNumber, tokens: estimateTextTokens(renderSessionTurn(turn)), userInputPreview: (turn.messages?.find(message => message.role === 'user')?.text || turn.userInput || '').slice(0, 100) }) });
+  return packSyncChunks([...sessions.values()], { ...options, details: turn => ({ type: 'turn', sessionId: turn.sessionId, turnNumber: turn.turnNumber, part: turn.part, tokens: estimateTextTokens(turn.part === undefined ? renderSessionTurn(turn) : turn.content), userInputPreview: (turn.messages?.find(message => message.role === 'user')?.text || turn.userInput || '').slice(0, 100) }) });
 }
 
 export class PhasedSyncEngine {
@@ -118,6 +119,8 @@ export class PhasedSyncEngine {
     this.assertActive?.();
     this.nativeEditor = assertSyncCapabilities(this.ctx, this.config, this.parentAgent);
     this.signal?.throwIfAborted();
+    const budget = await resolveSyncBudget({ ctx: this.ctx, llm: this.llm, parentAgent: this.parentAgent,
+      agentOptions: { ...TaskExecutorConfig.defaultAgentOptions, ...this.config.ai?.delegation?.agentOptions }, signal: this.signal });
     const { docType, syncDir, currentDoc = '', commits = [], sourceSnapshots = [], codeDiff = '', sessionTurns = [] } = options;
     if (!['requirement', 'design'].includes(docType)) throw new Error('DOCUMENT_TYPE');
     await mkdir(syncDir, { recursive: true });
@@ -175,66 +178,87 @@ export class PhasedSyncEngine {
     for (const key of Object.keys(PROMPT_REGISTRY).filter(k => k.startsWith('phased-'))) {
       templates[key] = await this.preparePrompt(key, { runtimeId: '00000000-0000-0000-0000-000000000000', manifestId: 'stage-manifest', reportId: 'report', changesId: 'changes' });
     }
+    const costs = new Map();
     const cost = async ids => {
       let total = 0;
-      for (const id of new Set(ids)) total += estimateSubagentInputTokens(JSON.stringify({ artifactId: id, text: await store.read(id) })) + 1024;
+      for (const id of new Set(ids)) {
+        if (!costs.has(id)) costs.set(id, estimateArtifactReadTokens(id, await store.read(id)));
+        total += costs.get(id);
+      }
       return total;
     };
     const commonCost = await cost(common);
-    const fixed = Math.max(...Object.values(templates).map(prompt => estimateSubagentInputTokens(prompt.fullPrompt))) + REQUEST_RESERVE + 16000 + 2 * OUTPUT_LIMIT;
-    if (fixed + commonCost * 2 >= MAX_SYNC_INPUT_TOKENS) throw new Error('DOCUMENT_INPUT_TOO_LARGE: 文档与固定契约超出完整读取预算');
+    const optionalContextTokens = Math.min(8192, Math.floor(budget.limit * 0.08));
+    const fixed = Math.max(...Object.values(templates).map(prompt => estimateSubagentInputTokens(prompt.fullPrompt))) + REQUEST_RESERVE + 4096 + 2 * OUTPUT_LIMIT + optionalContextTokens;
+    if (fixed + commonCost * 2 >= budget.limit) throw new Error('DOCUMENT_INPUT_TOO_LARGE: 文档与固定契约超出完整读取预算');
     // Large files can include several full frozen source versions. Preserve every byte,
     // but give each analysis only a bounded, labelled range instead of requiring the
     // entire file and all versions in a single child context.
-    const boundedCodeFiles = [];
-    for (const file of codeFiles) {
-      if (fixed + commonCost + await cost([...file.required, ...file.context]) + 8 < MAX_SYNC_INPUT_TOKENS) {
-        boundedCodeFiles.push(file); continue;
-      }
-      let part = 0;
-      for (const sourceId of [...file.required, ...file.context]) {
-        const text = await store.read(sourceId);
-        let start = 0;
-        while (start < text.length) {
-          const id = sourceId + '.part-' + part;
-          const wrap = end => JSON.stringify({ file: file.file, sourceArtifactId: sourceId, start, end, totalChars: text.length, text: text.slice(start, end) });
-          let low = start + 1, high = text.length, end = start;
-          while (low <= high) {
-            const middle = Math.floor((low + high) / 2);
-            const tokens = estimateSubagentInputTokens(JSON.stringify({ artifactId: id, text: wrap(middle) })) + 1024;
-            if (fixed + commonCost + tokens + 8 < MAX_SYNC_INPUT_TOKENS) { end = middle; low = middle + 1; }
-            else high = middle - 1;
+    const boundEvidence = async (items, session = false) => {
+      const bounded = [];
+      for (const item of items) {
+        if (fixed + commonCost + await cost(item.required) + 1024 < budget.limit) {
+          bounded.push(item); continue;
+        }
+        let part = 0;
+        for (const sourceId of item.required) {
+          const text = await store.read(sourceId);
+          let start = 0;
+          while (start < text.length) {
+            this.signal?.throwIfAborted();
+            const id = sourceId + '.part-' + part;
+            const wrap = end => JSON.stringify({ file: item.file, sessionId: item.sessionId, turnNumber: item.turnNumber,
+              fragment: true, part, sourceArtifactId: sourceId, start, end, totalChars: text.length, text: text.slice(start, end) });
+            let low = start + 1, high = text.length, end = start;
+            while (low <= high) {
+              const middle = Math.floor((low + high) / 2);
+              const tokens = estimateArtifactReadTokens(id, wrap(middle));
+              if (fixed + commonCost + tokens + 1024 < budget.limit) { end = middle; low = middle + 1; }
+              else high = middle - 1;
+            }
+            // Prefer message boundaries; split an oversized message losslessly at a line boundary.
+            const message = session ? text.lastIndexOf('\n### ', end - 1) : -1;
+            if (message > start) end = message + 1;
+            const newline = text.lastIndexOf('\n', end - 1);
+            if (newline >= start + (end - start) / 2) end = newline + 1;
+            if (end < text.length && /[\uD800-\uDBFF]/.test(text[end - 1])) end--;
+            if (end <= start) throw new Error('DOCUMENT_INPUT_TOO_LARGE: 固定输入预算不足以读取证据片段：' + (item.file || item.sessionId));
+            await store.put(id, wrap(end));
+            bounded.push({ ...item, part: part++, content: text.slice(start, end), required: [id] });
+            start = end;
           }
-          const newline = text.lastIndexOf('\n', end - 1);
-          if (newline >= start + (end - start) / 2) end = newline + 1;
-          if (end < text.length && /[\uD800-\uDBFF]/.test(text[end - 1])) end--;
-          if (end <= start) throw new Error('DOCUMENT_INPUT_TOO_LARGE: 固定输入预算不足以读取代码片段：' + file.file);
-          await store.put(id, wrap(end));
-          boundedCodeFiles.push({ file: file.file, part: part++, content: text.slice(start, end), required: [id], context: [] });
-          start = end;
         }
       }
-    }
+      return bounded;
+    };
+    const boundedCodeFiles = await boundEvidence(codeFiles);
+    const boundedTurns = await boundEvidence(turns, true);
     const packing = () => ({
-      buildVariables: items => ({ ids: [...common, ...items.flatMap(item => [...item.required, ...item.context])] }),
-      preparePrompt: async variables => ({ fullPrompt: 'x'.repeat(fixed + await cost(variables.ids)) }),
+      maxTokens: budget.limit,
+      buildVariables: items => ({ ids: [...common, ...items.flatMap(item => item.required)] }),
+      preparePrompt: async () => ({ fullPrompt: '' }),
+      measureTokens: async variables => fixed + await cost(variables.ids) + 1024,
     });
     const code = await chunkCodeDiff(boundedCodeFiles, packing());
-    const discussion = await chunkTurns(turns, packing());
+    const discussion = await chunkTurns(boundedTurns, packing());
     const stage = async (source, chunk) => {
       const id = source + '-' + chunk.index, manifestId = 'manifest.' + id;
       const required = [...common, ...chunk.items.flatMap(item => item.required)];
       const allowed = [...required, ...chunk.items.flatMap(item => item.context)];
-      await store.put(manifestId, JSON.stringify({ schemaVersion: 2, chunkId: id, docType, task: options.syncContext || {}, required, context: allowed.filter(item => !required.includes(item)), outputIds: ['report', 'changes'], limitBytes: OUTPUT_LIMIT }));
+      await store.put(manifestId, JSON.stringify({ schemaVersion: 2, chunkId: id, docType, task: options.syncContext || {}, required, context: [...new Set(allowed.filter(item => !required.includes(item)))], optionalContextTokens,
+        fragments: chunk.items.filter(item => item.part !== undefined).map(item => ({ artifactId: item.required[0], part: item.part, sessionId: item.sessionId, turnNumber: item.turnNumber })),
+        outputIds: ['report', 'changes'], limitBytes: OUTPUT_LIMIT }));
       return Object.assign(chunk, { id, manifestId, required: [manifestId, ...required], allowed: [manifestId, ...allowed] });
     };
     for (const chunk of code) await stage('code', chunk);
     for (const chunk of discussion) await stage('discussion', chunk);
     // Binary reduction: every merge node reads at most two bounded reports and indices.
     const mergeCost = fixed + commonCost + 4 * OUTPUT_LIMIT;
-    if (code.length + discussion.length > 1 && mergeCost >= MAX_SYNC_INPUT_TOKENS) throw new Error('MERGE_INPUT_TOO_LARGE: 汇总上界超出预算');
-    const plan = { schemaVersion: 2, task: options.syncContext || {}, store, code, discussion, common, blocks, originalBytes, templates, fixed, commonCost, sessionFiles };
-    await store.manifest({ docType, task: plan.task, blocks, codeChunks: code.map(c => c.id), discussionChunks: discussion.map(c => c.id), budget: { limit: MAX_SYNC_INPUT_TOKENS, reserve: REQUEST_RESERVE, commonCost, mergeCost } });
+    // Reports have byte caps, not fixed token costs. Validate each actual merge
+    // input below rather than rejecting small reports at their theoretical maxima.
+    const plan = { schemaVersion: 2, task: options.syncContext || {}, store, code, discussion, common, blocks, originalBytes, templates, fixed, commonCost, sessionFiles,
+      budget: { ...budget, reserve: REQUEST_RESERVE, optionalContextTokens, commonCost, mergeCost } };
+    await store.manifest({ docType, task: plan.task, blocks, codeChunks: code.map(c => c.id), discussionChunks: discussion.map(c => c.id), budget: plan.budget });
     await writeFile(join(syncDir, docType === 'design' ? 'design.md.prev' : 'requirement.md.prev'), originalBytes);
     this.signal?.throwIfAborted();
     return plan;
@@ -245,7 +269,7 @@ export class PhasedSyncEngine {
     const result = await executeTask(this.ctx, this.llm, this.getStageConfig(key), {
       promptKey: key, variables, preparedPromptData: options.preparedPromptData,
       parentAgent: this.parentAgent, cwd: this.cwd, signal: this.signal,
-      timeout: TaskExecutorConfig.defaultTimeout, maxInputTokens: MAX_SYNC_INPUT_TOKENS,
+      timeout: TaskExecutorConfig.defaultTimeout, maxInputTokens: options.runtime?.inputLimit ?? MAX_SYNC_INPUT_TOKENS,
       runtime: options.runtime, syncV2: true, liveness: { enabled: false },
       toolFilter: { allow: SYNC_TOOLS }, description: '同步 v2: ' + key,
       callbacks: { onProgress: progress => {
@@ -268,10 +292,14 @@ export class PhasedSyncEngine {
       const fileName = docType === 'design' ? 'design.md' : 'requirement.md';
       const run = async (key, stage, which, mergeInputs = null, edit = null) => {
         this.signal?.throwIfAborted();
+        let inputCost = plan.fixed;
+        for (const id of new Set(stage.required)) inputCost += estimateArtifactReadTokens(id, await store.read(id));
+        if (edit) inputCost += estimateArtifactReadTokens('candidate', originalBytes.toString('utf8'));
+        if (inputCost >= plan.budget.limit) throw new Error('SYNC_STAGE_INPUT_TOO_LARGE: ' + stage.id);
         const reportPath = join(syncDir, stage.id + '.md'), changesPath = join(syncDir, stage.id + '.json');
         this.assertActive?.();
         const runtime = installSyncTools(this.ctx).create({ store, allowed: stage.allowed, required: stage.required, signal: this.signal, onActivity: this.onActivity, assertActive: this.assertActive,
-          nativeEditor: this.nativeEditor, parentAgent: this.parentAgent,
+          nativeEditor: this.nativeEditor, parentAgent: this.parentAgent, budget: plan.budget,
           outputs: edit ? {} : { report: reportPath, changes: changesPath }, ...edit });
         try {
           const variables = { runtimeId: runtime.id, manifestId: stage.manifestId, reportId: 'report', changesId: 'changes' };
@@ -365,7 +393,7 @@ export class PhasedSyncEngine {
       const validation = validateCandidate(originalBytes, candidateBytes, fileName, changes, blocks);
       for (const name of ['document.patch', 'applied-document.diff']) { await writeFile(join(syncDir, name), validation.patch, 'utf8'); await emitFile(phase, name); }
       await writeFile(join(syncDir, 'validation.json'), JSON.stringify(validation, null, 2)); await emitFile(phase, 'validation.json');
-      await store.manifest({ docType, task: plan.task, validation, blocks });
+      await store.manifest({ docType, task: plan.task, validation, blocks, budget: plan.budget });
       await progress({ phase, status: 'completed' });
       result.mergedDoc = candidateBytes.toString('utf8'); result.candidateBytes = candidateBytes; result.validation = validation;
       result.originalBytes = originalBytes; result.patchFile = 'document.patch'; result.appliedDiffFile = 'applied-document.diff';

@@ -45,7 +45,7 @@ it('rejects Windows junctions and missing children behind an escaping link', asy
 });
 
 it('passes unrelated requests containing live-looking and stale markers unchanged', async () => {
-  let hook; const installation = installSyncTools({ tools: { register: () => () => {}, guard: () => () => {} }, on: (_name, callback) => { hook = callback; return () => {}; } });
+  let hook; const installation = installSyncTools({ tools: { register: () => () => {}, guard: () => () => {} }, on: (name, callback) => { if (name === 'llm/stream') hook = callback; return () => {}; } });
   try {
     const seen = [];
     for await (const value of hook({ sessionId: 'unrelated', messages: ['REQHUB_SYNC_V2=00000000-0000-0000-0000-000000000000'], tools: [{ name: 'ordinary-tool' }] }, async function* () { yield 'unchanged'; })) seen.push(value);
@@ -55,7 +55,7 @@ it('passes unrelated requests containing live-looking and stale markers unchange
 
 it('ignores live markers and auxiliary requests, but rejects the actual revoked child', async () => {
   let hook;
-  const ctx = { agents: { get: () => ({ session: { header: { parentSession: 'different-parent' } } }) }, tools: { register: () => () => {}, guard: () => () => {} }, on: (_name, callback) => { hook = callback; return () => {}; } };
+  const ctx = { agents: { get: () => ({ session: { header: { parentSession: 'different-parent' } } }) }, tools: { register: () => () => {}, guard: () => () => {} }, on: (name, callback) => { if (name === 'llm/stream') hook = callback; return () => {}; } };
   const installation = installSyncTools(ctx);
   const runtime = installation.create({ parentSessionId: 'owner', allowed: [], required: [], outputs: {}, store: {} });
   const run = async request => { const result = []; for await (const value of hook(request, async function* () { yield 'ordinary'; })) result.push(value); return result; };

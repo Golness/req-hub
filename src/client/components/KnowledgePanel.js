@@ -9,6 +9,8 @@ const { FilePreview } = require('./FilePreview.js');
 const { EmptyState } = require('./shared/EmptyState.js');
 const { Skeleton } = require('./shared/Skeleton.js');
 const { knowledgeRequest } = require('../hooks/useKnowledge.js');
+const { ConversationKnowledgeImport } = require('./ConversationKnowledgeImport.js');
+const { ConversationProvenance } = require('./ConversationProvenance.js');
 
 const LABELS = { pending: t("KnowledgePanel.message001"), running: t("KnowledgePanel.message002"), completed: t("KnowledgePanel.message003"), skipped: t("KnowledgePanel.message004"), failed: t("KnowledgePanel.message005"), stale: t("KnowledgePanel.message006"), cancelled: t("KnowledgePanel.message007"), interrupted: t("KnowledgePanel.message008"), partial: t("KnowledgePanel.message009"), queued: t("KnowledgePanel.message010"), cancelling: t("KnowledgePanel.message011") };
 
@@ -16,6 +18,8 @@ function KnowledgePanel({ workspaceId, knowledge, selectedFile, onPreviewClose }
   const [tab, setTab] = React.useState('result');
   const [data, setData] = React.useState(null);
   const [error, setError] = React.useState(null);
+  const [importingConversations, setImportingConversations] = React.useState(false);
+  const [revision, setRevision] = React.useState(0);
   React.useEffect(() => { if (selectedFile) setTab('preview'); }, [selectedFile?.path]);
   React.useEffect(() => { if (knowledge.job) setTab('result'); }, [knowledge.job?.id]);
   React.useEffect(() => {
@@ -23,14 +27,16 @@ function KnowledgePanel({ workspaceId, knowledge, selectedFile, onPreviewClose }
     setError(null);
     knowledgeRequest('/entries', workspaceId, null, controller.signal).then(setData).catch(e => { if (!controller.signal.aborted) setError(e.message); });
     return () => controller.abort();
-  }, [workspaceId, knowledge.job?.updatedAt]);
+  }, [workspaceId, knowledge.job?.updatedAt, revision]);
   const retry = knowledge.job?.files.filter(f => ['failed', 'stale', 'cancelled', 'interrupted'].includes(f.status)).map(f => f.relativePath) || [];
   return h('div', { className: 'rh-knowledge-panel' },
     tab === 'preview' && selectedFile && h(HeaderBack, { onBack: onPreviewClose }),
     h('div', { className: 'rh-knowledge-toolbar' },
       h('div', { className: 'rh-workbench-tabs', role: 'tablist', 'aria-label': t("KnowledgePanel.message012") },
         [['preview', t("KnowledgePanel.message013")], ['result', t("KnowledgePanel.message014")]].map(([id, text]) => h('button', { key: id, role: 'tab', className: 'rh-workbench-tab', 'aria-selected': tab === id, onClick: () => setTab(id) }, text))),
-      h(Button, { className: 'rh-btn rh-btn-ghost rh-btn-sm', onClick: knowledge.refresh, disabled: knowledge.running }, t("KnowledgePanel.message015"))),
+      h(Button, { className: 'rh-btn rh-btn-ghost rh-btn-sm', onClick: () => setImportingConversations(true) }, t('conversationImport.title')),
+      h(Button, { className: 'rh-btn rh-btn-ghost rh-btn-sm', onClick: () => { setRevision(value => value + 1); knowledge.refresh(); }, disabled: knowledge.running }, t("KnowledgePanel.message015"))),
+    importingConversations && h(ConversationKnowledgeImport, { initialTarget: workspaceId, onClose: () => setImportingConversations(false), onImported: () => { setRevision(value => value + 1); knowledge.refresh(); } }),
     (knowledge.error || error) && h('div', { className: 'rh-knowledge-error', role: 'alert' }, knowledge.error || error),
     tab === 'preview' ? selectedFile
       ? h(FilePreview, { key: selectedFile.path, workspaceId, relPath: selectedFile.path, name: selectedFile.name, onBack: onPreviewClose })
@@ -50,7 +56,7 @@ function KnowledgePanel({ workspaceId, knowledge, selectedFile, onPreviewClose }
             (file.error || file.reason) && h('small', null, file.error || file.reason), file.warnings?.length > 0 && h('small', null, file.warnings.join('；'))))),
         !data && !error && h(Skeleton, { lines: 3 }),
         data?.entries?.length ? h('section', { 'aria-label': t("KnowledgePanel.message026") }, h('h3', null, t("KnowledgePanel.message027")), data.entries.map(entry => h('details', { className: 'rh-result-card', key: entry.id },
-          h('summary', null, entry.title, ` · v${entry.version}`), h('div', { className: 'rh-knowledge-text' }, entry.body), entry.sources.map((source, i) => h('p', { key: i }, `${source.relativePath} · ${formatSourceLocation(source)}`)))))
+          h('summary', null, entry.title, ` · v${entry.version}`), h(ConversationProvenance, { conversation: entry.conversation }), h('div', { className: 'rh-knowledge-text' }, entry.body), entry.sources.map((source, i) => h('p', { key: i }, `${source.conversation?.title || source.relativePath} · ${formatSourceLocation(source)}`)))))
           : data && !knowledge.job && h(EmptyState, { title: t("KnowledgePanel.message028"), description: t("KnowledgePanel.message029") }))
   );
 }
