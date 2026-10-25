@@ -130,14 +130,27 @@ it.skipIf(!available)('binds controlled evidence to a real DSH spawn child and l
     const store = new ConversationStore(join(libraryRoot, 'conversations.sqlite'));
     const library = new ConversationService({ store, owner: 'real-host' });
     try {
-      const adapter = dshSource({ registry: { list: () => [{ id: 'real-workspace', path: parent.session.header.cwd || process.cwd() }] }, sessions: ctx.sessions, instance: 'real-host' });
-      const imported = await library.refresh('real-workspace', 'real-workspace', adapter);
+      // Use the real registry/entity implementation. Only its durable medium is
+      // in memory; plain object workspace fixtures miss prototype getter bugs.
+      const { default: WorkspaceRegistry } = await load(join(dsh, 'packages/workspace/workspace/lib/index.js'));
+      let state = { initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [] };
+      const records = new Map(); records.put = async (id, record) => records.set(id, record);
+      ctx.provide('sessionPersistence', { list: async () => [] });
+      ctx.provide('storageDomain', { open: async () => ({ table: () => records, global: { get: () => state, set: async value => { state = value; } }, close: async () => {} }) });
+      await ctx.plugin(WorkspaceRegistry);
+      const workspace = await ctx.workspaceRegistry.create(parent.session.header.cwd || process.cwd(), 'Real DSH workspace');
+      expect(Object.hasOwn(workspace, 'path')).toBe(false);
+      const adapter = dshSource({ registry: ctx.workspaceRegistry, sessions: ctx.sessions, instance: 'real-host' });
+      const imported = await library.refresh(workspace.id, workspace.id, adapter);
+      expect(imported.workspace).toMatchObject({ id: workspace.id, path: workspace.path, title: workspace.title });
+      expect(imported.workspace).not.toHaveProperty('host');
+      expect(imported.workspace).not.toHaveProperty('record');
       const entry = imported.sessions.find(row => row.id === parent.session.id);
       expect(entry?.syncTurnCount).toBe(1);
       const document = await readFile(join(libraryRoot, entry.markdownFile), 'utf8');
       expect(document).toContain('ordinary parent response');
       expect(document).toContain('Explain stale REQHUB_SYNC_V2=');
-      const snapshot = await library.snapshot('real-workspace', parent.session.id, adapter);
+      const snapshot = await library.snapshot(workspace.id, parent.session.id, adapter);
       expect(snapshot.version).toBe(entry.snapshotVersion);
       const targetRegistry = { list: () => [{ id: 'separate-knowledge-workspace', title: 'Knowledge target', path: libraryRoot }] };
       const knowledge = new KnowledgeService({ registry: targetRegistry, configLoader: async () => ({ docsDir: 'docs' }), databasePath: join(libraryRoot, 'knowledge/library.sqlite') });
@@ -149,7 +162,7 @@ it.skipIf(!available)('binds controlled evidence to a real DSH spawn child and l
         expect(imported.status).toBe(200); expect(imported.value.added).toBe(1);
         const hit = (await knowledge.searchAll('ordinary parent response')).hits[0];
         expect(hit.type).toBe('conversation'); expect(hit.workspaceId).toBe('separate-knowledge-workspace');
-        expect(hit.sources[0].conversation.sourceWorkspaceId).toBe('real-workspace');
+        expect(hit.sources[0].conversation.sourceWorkspaceId).toBe(workspace.id);
       } finally { await knowledge.close(); }
     } finally { await library.close(); await store.close(); await rm(libraryRoot, { recursive: true, force: true }); }
   } finally { installation?.dispose(); await ctx.fiber.dispose(); }

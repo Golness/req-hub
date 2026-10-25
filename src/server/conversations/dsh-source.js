@@ -6,7 +6,11 @@ export function dshSource({ registry, sessionQuery, sessions, instance }) {
   return {
     source: 'dsh', instance,
     async inventory(projectId) {
-      const workspaces = registry.list().filter(workspace => !projectId || workspace.id === projectId).map(workspace => ({ ...workspace, paths: [resolve(workspace.path)] }));
+      // Host workspaces are entities: path/title live on prototype getters.
+      // Materialize only the public metadata, never spread service internals.
+      const workspaces = registry.list().filter(workspace => !projectId || workspace.id === projectId).map(workspace => ({
+        id: workspace.id, path: workspace.path, title: workspace.title, paths: [resolve(workspace.path)],
+      }));
       const all = [];
       for (const workspace of workspaces) {
         const rows = await listRelatedSessions(sessions, workspace.path, { limit: Number.MAX_SAFE_INTEGER, sessionQuery, registry, metadataOnly: true, strict: true });

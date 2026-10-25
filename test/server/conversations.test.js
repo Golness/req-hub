@@ -7,6 +7,7 @@ import { ConversationService } from '../../src/server/conversations/service.js';
 import { clearRetiredWorkspaceConversations, removeRetiredCodexStore } from '../../src/server/conversations/retired-storage.js';
 import { createConversationRoutes } from '../../src/server/routes/conversation-routes.js';
 import { createOperations } from '../../src/server/operations.js';
+import { dshSource } from '../../src/server/conversations/dsh-source.js';
 import { Readable } from 'node:stream';
 
 let root, store, library;
@@ -32,6 +33,24 @@ it('stores both sources identically, deduplicates refreshes, and restores missin
   expect(await readFile(file, 'utf8')).toContain('source: "dsh"');
   await rm(file); expect((await library.snapshot('ws', 'one', dsh)).version).toBe(a.snapshotVersion);
   expect(await readFile(file, 'utf8')).toContain('用户输入');
+});
+
+it('reads prototype-backed DSH workspace fields without copying the host entity internals', async () => {
+  class Workspace {
+    constructor() { this.id = 'project'; this.host = { privateService: true }; }
+    get path() { return root; }
+    get title() { return 'DSH workspace'; }
+  }
+  const workspace = new Workspace();
+  const adapter = dshSource({ registry: { list: () => [workspace] }, instance: 'profile-a',
+    sessions: { list: () => [{ header: { id: 'one', cwd: root } }], get: () => ({ snapshotEvents: () => [] }) } });
+  const inventory = await adapter.inventory('project');
+  expect(inventory.workspaces).toEqual([{ id: 'project', path: root, title: 'DSH workspace', paths: [root] }]);
+  expect(inventory.sessions.map(session => session.id)).toEqual(['one']);
+  const imported = await library.refresh('project', 'project', adapter);
+  expect(imported.workspace).toMatchObject({ id: 'project', path: root, title: 'DSH workspace' });
+  expect(imported.workspace).not.toHaveProperty('host');
+  expect(imported.sessions[0].snapshotVersion).toBeDefined();
 });
 
 it('streams DSH acquisition progress through the shared refresh route and stores the same library snapshot', async () => {
