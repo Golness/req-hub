@@ -1,4 +1,11 @@
 'use strict';
+const { Checkbox } = require('./shared/controls.js');
+const { t } = require('../locale.js');
+const css = require('./CreateDirForm.module.css').default;
+const { cssValue } = require('./shared/presentation.js');
+const { Input } = require('./shared/Input.js');
+const { Button } = require('./shared/Button.js');
+const { ModalFrame } = require('./shared/ModalFrame.js');
 
 const React = require('react');
 const h = React.createElement;
@@ -84,7 +91,7 @@ function CreateDirForm({ workspaceId, docsDir, onClose, initialCreateBranch, onC
 
   // 根据表单字段自动生成分支名（只读，不允许用户修改）
   const generatedBranchName = (developer && date && title)
-    ? `feature/${developer}/${date}-${title.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9一-龥\-_]/g, '').toLowerCase()}`
+    ? `feature/${developer}/${date}-${title.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9\u4e00-\u9fa5\-_]/g, '').toLowerCase()}`
     : '';
 
   const previewPath = developer && date && title
@@ -94,7 +101,7 @@ function CreateDirForm({ workspaceId, docsDir, onClose, initialCreateBranch, onC
   // 点击创建按钮 → 如果勾选了新建分支，先弹二次确认
   const handleCreateClick = () => {
     if (!developer || !date || !title) {
-      setError('请填写所有字段');
+      setError(t("CreateDirForm.message001"));
       return;
     }
     if (createBranch) {
@@ -123,11 +130,11 @@ function CreateDirForm({ workspaceId, docsDir, onClose, initialCreateBranch, onC
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || '创建失败');
+        setError(data.error || t("CreateDirForm.message002"));
       } else {
-        let msg = `目录创建成功: ${data.path}`;
+        let msg = t("CreateDirForm.message003", { value0: data.path });
         if (data.branch && data.branch.created) {
-          msg = `分支 ${data.branch.branchName} 创建成功（从 ${data.branch.fromBranch}）\n${msg}`;
+          msg = t("CreateDirForm.message004", { value0: data.branch.branchName, value1: data.branch.fromBranch, value2: msg });
           // 更新当前分支显示
           setCurrentBranch(data.branch.branchName);
         }
@@ -145,25 +152,25 @@ function CreateDirForm({ workspaceId, docsDir, onClose, initialCreateBranch, onC
     }
   };
 
-  return h('div', { className: 'rh-op-panel', style: { maxWidth: '100%', overflow: 'hidden' } },
-    h('div', { className: 'rh-op-hint' }, '基于 Git 分支命名规范创建需求文档目录'),
+  return h('div', { className: ('rh-op-panel') + ' ' + css.pane },
+    h('div', { className: 'rh-op-hint' }, t("CreateDirForm.message005")),
 
     // 表单网格：开发者 + 日期 并排，需求简述 跨两列
-    h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 } },
+    h('div', { className: css.spacing },
       // 开发者
-      h('div', { style: { minWidth: 0 } },
-        h('label', { className: 'rh-form-label', style: { display: 'block', marginBottom: 4 } }, '开发者'),
-        h('input', {
+      h('div', { className: css.size },
+        h('label', { className: ('rh-form-label') + ' ' + css.spacing2 }, t("CreateDirForm.message006")),
+        h(Input, {
           className: 'rh-form-input',
           type: 'text',
-          placeholder: 'zhangsan',
+          placeholder: t("create.developerExample"),
           value: developer,
           onChange: e => setDeveloper(e.target.value),
         })
       ),
       // 日期
-      h('div', { style: { minWidth: 0 } },
-        h('label', { className: 'rh-form-label', style: { display: 'block', marginBottom: 4 } }, '日期'),
+      h('div', { className: css.size },
+        h('label', { className: ('rh-form-label') + ' ' + css.spacing2 }, t("CreateDirForm.message007")),
         h('input', {
           className: 'rh-form-input',
           type: 'date',
@@ -172,12 +179,12 @@ function CreateDirForm({ workspaceId, docsDir, onClose, initialCreateBranch, onC
         })
       ),
       // 需求简述（跨两列）
-      h('div', { style: { gridColumn: '1 / -1', minWidth: 0 } },
-        h('label', { className: 'rh-form-label', style: { display: 'block', marginBottom: 4 } }, '需求简述'),
-        h('input', {
+      h('div', { className: css.size2 },
+        h('label', { className: ('rh-form-label') + ' ' + css.spacing2 }, t("CreateDirForm.message008")),
+        h(Input, {
           className: 'rh-form-input',
           type: 'text',
-          placeholder: '新增报表导出功能',
+          placeholder: t("CreateDirForm.message009"),
           value: title,
           onChange: e => setTitle(e.target.value),
         })
@@ -186,162 +193,81 @@ function CreateDirForm({ workspaceId, docsDir, onClose, initialCreateBranch, onC
 
     // 新建分支开关 + 当前分支信息
     h('div', {
-      style: {
-        padding: '10px 12px',
-        background: 'var(--dsw-alias-bg-layer-2)',
-        borderRadius: 6,
-        marginBottom: 12,
-      }
+      className: css.section
     },
-      h('label', {
-        style: {
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          cursor: 'pointer',
-          fontSize: 'var(--rh-font-size)',
-          color: 'var(--dsw-alias-label-primary)',
-          marginBottom: currentBranch ? 6 : 0,
-        }
-      },
-        h('input', {
-          type: 'checkbox',
-          checked: createBranch,
-          onChange: e => setCreateBranch(e.target.checked),
-          style: { width: 16, height: 16, cursor: 'pointer' },
-        }),
-        h('span', { style: { fontWeight: 500 } }, '同时新建 Git 分支')
-      ),
+      h('div', {
+        className: css.row, style: { "--rh-margin-bottom-6": cssValue(currentBranch ? 6 : 0) }
+      }, h(Checkbox, { checked: createBranch, onChange: checked => setCreateBranch(checked), label: t("CreateDirForm.message010") })),
       currentBranch && h('div', {
-        style: {
-          fontSize: 'var(--rh-font-size)',
-          color: 'var(--dsw-alias-label-secondary)',
-          paddingLeft: 24,
-        }
-      }, '当前分支: ', h('code', { style: { color: 'var(--rh-accent)' } }, currentBranch))
+        className: css.mutedText
+      }, t("CreateDirForm.message011"), h('code', { className: css.content }, currentBranch))
     ),
 
     // 预览信息卡片
     (generatedBranchName || previewPath) && h('div', {
-      style: {
-        padding: '10px 12px',
-        background: 'var(--dsw-alias-bg-layer-2)',
-        borderRadius: 6,
-        marginBottom: 12,
-        fontSize: 'var(--rh-font-size)',
-        lineHeight: 1.6,
-      }
+      className: css.section2
     },
       // 分支预览
       generatedBranchName && h('div', {
-        style: {
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          color: createBranch ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-secondary)',
-          marginBottom: previewPath ? 6 : 0,
-        }
+        className: css.row2, style: { "--rh-color-3": cssValue(createBranch ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-secondary)'), "--rh-margin-bottom-4": cssValue(previewPath ? 6 : 0) }
       },
 
-        h('span', null, createBranch ? '将创建分支:' : '分支名:'),
+        h('span', null, createBranch ? t("CreateDirForm.message012") : t("CreateDirForm.message013")),
         h('code', {
-          style: {
-            flex: 1,
-            color: createBranch ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-primary)',
-            background: 'var(--dsw-alias-bg-layer-1)',
-            padding: '2px 6px',
-            borderRadius: 3,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }
+          className: css.pane2, style: { "--rh-color-1": cssValue(createBranch ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-primary)') }
         }, generatedBranchName)
       ),
       // 目录预览
       previewPath && h('div', {
-        style: {
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          color: 'var(--dsw-alias-label-secondary)',
-        }
+        className: css.row3
       },
 
-        h('span', null, '将创建目录:'),
+        h('span', null, t("CreateDirForm.message014")),
         h('code', {
-          style: {
-            flex: 1,
-            color: 'var(--dsw-alias-label-primary)',
-            background: 'var(--dsw-alias-bg-layer-1)',
-            padding: '2px 6px',
-            borderRadius: 3,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }
+          className: css.pane3
         }, previewPath)
       )
     ),
 
     // 错误/成功提示
     error && h('div', {
-      style: {
-        padding: '8px 12px',
-        background: 'var(--dsw-alias-state-error-bg)',
-        border: '1px solid var(--dsw-alias-state-error-primary)',
-        borderRadius: 6,
-        color: 'var(--dsw-alias-state-error-primary)',
-        fontSize: 'var(--rh-font-size)',
-        marginBottom: 12,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 6,
-      }
+      className: css.row4
     }, error),
     success && h('div', {
-      style: {
-        padding: '8px 12px',
-        background: 'var(--dsw-alias-state-success-bg)',
-        border: '1px solid var(--dsw-alias-state-success-primary)',
-        borderRadius: 6,
-        color: 'var(--dsw-alias-state-success-primary)',
-        fontSize: 'var(--rh-font-size)',
-        marginBottom: 12,
-        whiteSpace: 'pre-line',
-      }
+      className: css.section3
     }, success),
 
     // 操作按钮
-    h('div', { style: { display: 'flex', gap: 12 } },
-      h('button', { className: 'rh-btn rh-btn-primary', onClick: handleCreateClick, disabled: loading, style: { flex: 1 } },
-        loading ? '创建中...' : ' 创建'),
-      h('button', { className: 'rh-btn', onClick: onClose, style: { flex: 1 } }, '取消')
+    h('div', { className: css.row5 },
+      h(Button, { className: ('rh-btn rh-btn-primary') + ' ' + css.content2, onClick: handleCreateClick, disabled: loading },
+        loading ? t("CreateDirForm.message015") : t("CreateDirForm.message016")),
+      h(Button, { className: ('rh-btn') + ' ' + css.content2, onClick: onClose }, t("common.cancel"))
     ),
 
     // 二次确认弹窗
-    showConfirm && h('div', {
+    showConfirm && h(ModalFrame, {
       className: 'rh-modal-overlay',
       onClick: () => setShowConfirm(false),
       role: 'alertdialog',
       'aria-modal': 'true',
-      'aria-label': '确认新建分支',
+      'aria-label': t("CreateDirForm.message018"),
     },
       h('div', {
         className: 'rh-modal',
         onClick: e => e.stopPropagation(),
       },
-        h('div', { className: 'rh-modal-title' }, '确认新建 Git 分支'),
-        h('div', { style: { fontSize: 'var(--rh-font-size)', color: 'var(--dsw-alias-label-primary)', lineHeight: 1.6, marginBottom: 16 } },
-          h('div', null, '即将执行以下操作：'),
-          h('div', { style: { marginTop: 8, paddingLeft: 12 } },
-            h('div', null, '1. 从 ', h('code', null, currentBranch || '当前分支'), ' 创建新分支 ', h('code', { style: { color: 'var(--dsw-alias-state-success-primary)' } }, generatedBranchName)),
-            h('div', { style: { marginTop: 4 } }, '2. 切换到新分支（未提交的修改会自动带过去）'),
-            h('div', { style: { marginTop: 4 } }, '3. 创建需求目录 ', h('code', null, `${developer}/${date}-${title}`))
+        h('div', { className: 'rh-modal-title' }, t("CreateDirForm.message019")),
+        h('div', { className: css.spacing3 },
+          h('div', null, t("CreateDirForm.message020")),
+          h('div', { className: css.spacing4 },
+            h('div', null, t("CreateDirForm.message021"), h('code', null, currentBranch || t("CreateDirForm.message022")), t("CreateDirForm.message023"), h('code', { className: css.content3 }, generatedBranchName)),
+            h('div', { className: css.spacing5 }, t("CreateDirForm.message024")),
+            h('div', { className: css.spacing5 }, t("CreateDirForm.message025"), h('code', null, `${developer}/${date}-${title}`))
           )
         ),
         h('div', { className: 'rh-modal-actions' },
-          h('button', { className: 'rh-btn', onClick: () => setShowConfirm(false) }, '取消'),
-          h('button', { className: 'rh-btn rh-btn-primary', onClick: doCreate }, '确认创建')
+          h(Button, { className: 'rh-btn', onClick: () => setShowConfirm(false) }, t("common.cancel")),
+          h(Button, { className: 'rh-btn rh-btn-primary', onClick: doCreate }, t("CreateDirForm.message026"))
         )
       )
     )

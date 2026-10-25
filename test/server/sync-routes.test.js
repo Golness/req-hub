@@ -4,13 +4,15 @@ import { join } from 'node:path';import { tmpdir } from 'node:os';import { rando
 import { createSyncHarness } from './sync-v2-harness.js';
 import { sessionEvents } from './session-fixture.js';
 import { renderSessionDocument } from '../../src/server/session-utils.js';
-import { CodexSessionService } from '../../src/server/codex-sessions/service.js';
 import { codexRecords, writeCodexRollout } from './codex-fixture.js';
 import { syncSupervisor } from '../../src/server/sync-supervisor.js';
+import { Readable } from 'node:stream';
 import { setActiveSync, setAbortController } from '../../src/server/sync-state.js';
 vi.mock('../../src/server/config.js',()=>({loadConfig:vi.fn().mockResolvedValue({docsDir:'docs',sync:{baseBranch:'main'}})}));
 vi.mock('../../src/server/doc-reader.js',()=>({findRequirementDir:async root=>join(root,'2026-10-20-route-test')}));
-const {createSyncRoutes}=await import('../../src/server/routes/sync-routes.js');
+const {createSyncRoutes:createHostSyncRoutes}=await import('../../src/server/routes/sync-routes.js');
+const allocatedRoutes=new Set();
+function createSyncRoutes(...args){const routes=createHostSyncRoutes(...args);allocatedRoutes.add(routes);return routes;}
 const {getSyncHistory,getActiveSync,getAbortController,abortSync}=await import('../../src/server/sync-state.js');
 let repo,reqDir,routes,workspaceId,harness;
 const requirementId='2026-10-20-route-test';
@@ -22,10 +24,10 @@ async function getRoute(path) {
  return { status:res.status, data:JSON.parse(res.body) };
 }
 async function postRoute(path,data) {
- const listeners={},req={method:'POST',url:path,on:(name,fn)=>{listeners[name]=fn;}};
+ const req=Readable.from([JSON.stringify(data)]);req.method='POST';req.url=path;
  const res={body:'',writeHead(status){this.status=status;},end(text=''){this.body+=text;}};
  const done=routes.find(route=>route.path===path).handler(req,res);
- listeners.data(JSON.stringify(data));listeners.end();await done;
+ await done;
  return {status:res.status,data:JSON.parse(res.body)};
 }
 function withSessionQuery(events) {
@@ -41,6 +43,7 @@ async function dispatch(data={}, responseRef) {
 }
 beforeEach(async()=>{
  repo=await mkdtemp(join(tmpdir(),'req-hub-v2-routes-'));reqDir=join(repo,'docs',requirementId);await mkdir(reqDir,{recursive:true});
+ vi.stubEnv('DSH_HOME',join(repo,'.test-dsh'));
  git('init','-b','main');git('config','user.name','Test');git('config','user.email','test@example.test');
  await writeFile(join(repo,'source.js'),'base');git('add','.');git('commit','-m','base');git('switch','-c','feature/dev/'+requirementId);
  await writeFile(join(repo,'source.js'),'changed');git('add','.');git('commit','-m','change');
@@ -49,21 +52,20 @@ beforeEach(async()=>{
  const setup=()=>createSyncRoutes({list:()=>[{id:workspaceId,path:repo}]},{},{},{get:()=>harness.parentAgent},harness.ctx);
  routes=setup();
 });
-afterEach(async()=>{await routes.dispose();await rm(repo,{recursive:true,force:true});});
+afterEach(async()=>{for(const owned of allocatedRoutes)await owned.dispose();allocatedRoutes.clear();vi.unstubAllEnvs();await rm(repo,{recursive:true,force:true});});
 describe('v2 sync route integration',()=>{
  it('imports Codex Markdown, previews it and analyzes mixed DSH/Codex evidence through the same frozen files',async()=>{
   const home=join(repo,'codex-home'), databasePath=join(repo,'codex-cache','codex.sqlite');
   await writeCodexRollout(home,codexRecords({cwd:repo,final:'CODEX_FINAL_BODY',intermediate:'CODEX_INTERMEDIATE_BODY',incomplete:true}));
-  const codex=new CodexSessionService({codexHome:home,databasePath});
   await routes.dispose();
-  harness.ctx.sessionQuery={readSession:async()=>({events:sessionEvents()})};
-  routes=createSyncRoutes({list:()=>[{id:workspaceId,path:repo}]},{},{},{get:()=>harness.parentAgent},harness.ctx,{codexService:codex});
+  harness.ctx.sessionQuery={listSessions:async()=>[{header:{id:'dsh-one',cwd:repo,createdAt:1}}],readTitle:async()=>({title:'DSH fixture'}),readSession:async()=>({events:sessionEvents()})};
+  routes=createSyncRoutes({list:()=>[{id:workspaceId,path:repo}]},{},{},{get:()=>harness.parentAgent},harness.ctx,{conversationDatabasePath:databasePath,codex:{codexHome:home}});
   try {
    const workspaces=(await getRoute('/req-hub/codex/workspaces?workspaceId='+workspaceId)).data.workspaces;
    const imported=await postRoute('/req-hub/codex/refresh',{workspaceId,codexWorkspaceId:workspaces[0].id});
    expect(imported.data.sessions).toHaveLength(1);
    const selected=imported.data.sessions[0];expect(selected).toMatchObject({id:'codex:cx-one',syncTurnCount:1,turnCount:2});
-   const preview=await getRoute('/req-hub/session-turns?'+new URLSearchParams({sessionId:selected.id,version:selected.snapshotVersion}));
+   const preview=await getRoute('/req-hub/session-turns?'+new URLSearchParams({workspaceId,sessionId:selected.id,version:selected.snapshotVersion}));
    expect(preview.data.turns[0].messages.map(message=>message.kind)).toEqual(['input','intermediate','followup','final']);
    const {readSessionSnapshot}=await import('../../src/server/session-utils.js');
    const dsh=await readSessionSnapshot(harness.ctx.sessionQuery,'dsh-one');
@@ -80,8 +82,8 @@ describe('v2 sync route integration',()=>{
    expect(JSON.parse((await dispatch(options)).body).skipped).toBe(true);
    await writeCodexRollout(home,codexRecords({cwd:repo,final:'changed'}));
    expect((await dispatch(options)).status).toBe(409);
-   expect((await getRoute('/req-hub/session-turns?'+new URLSearchParams({sessionId:selected.id,version:selected.snapshotVersion}))).status).toBe(409);
-  } finally {await codex.close();}
+   expect((await getRoute('/req-hub/session-turns?'+new URLSearchParams({workspaceId,sessionId:selected.id,version:selected.snapshotVersion}))).status).toBe(409);
+  } finally {await routes.dispose();}
  });
  it('deletes a published task and its snapshots while retaining final documents and unrelated files',async()=>{
   await dispatch();const task=(await getSyncHistory(workspaceId,requirementId))[0];
@@ -174,7 +176,7 @@ describe('v2 sync route integration',()=>{
   const events=sessionEvents({intermediate:'INTERMEDIATE_BODY',final:'FINAL_BODY'.repeat(150)});withSessionQuery(events);
   const list=await getRoute('/req-hub/sessions?workspaceId='+workspaceId);
   const selected=list.data.sessions[0];expect(selected).toMatchObject({turnCount:1,syncTurnCount:1});
-  const preview=await getRoute('/req-hub/session-turns?sessionId=s&version='+selected.snapshotVersion);
+  const preview=await getRoute('/req-hub/session-turns?sessionId=s&workspaceId='+workspaceId+'&version='+selected.snapshotVersion);
   expect(preview.data.turns[0].messages.map(message=>message.kind)).toEqual(['input','intermediate','followup','final']);
   const options={sessionIds:['s'],sessionVersions:{s:selected.snapshotVersion},commitHashes:[git('rev-parse','HEAD')],includeWorkingChanges:false};
   expect((await dispatch(options)).body).toContain('"type":"done"');
@@ -189,7 +191,8 @@ describe('v2 sync route integration',()=>{
   expect(JSON.parse((await dispatch(options)).body).skipped).toBe(true);
   events.push(...sessionEvents({turn:2,final:'新的决定'}));
   expect((await dispatch(options)).status).toBe(409);
-  expect((await getRoute('/req-hub/session-turns?sessionId=s&version='+selected.snapshotVersion)).status).toBe(409);
+  expect((await getRoute('/req-hub/session-turns?sessionId=s&workspaceId='+workspaceId+'&version='+selected.snapshotVersion)).status).toBe(409);
+  await postRoute('/req-hub/conversations-refresh',{workspaceId,source:'dsh'});
   const fresh=(await getRoute('/req-hub/sessions?workspaceId='+workspaceId)).data.sessions[0];
   harness=createSyncHarness({noChange:true});withSessionQuery(events);
   expect((await dispatch({...options,sessionVersions:{s:fresh.snapshotVersion}})).body).toContain('"type":"done"');

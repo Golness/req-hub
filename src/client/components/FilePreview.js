@@ -1,4 +1,8 @@
 'use strict';
+const { t } = require('../locale.js');
+const css = require('./FilePreview.module.css').default;
+const { cssValue } = require('./shared/presentation.js');
+const { Button } = require('./shared/Button.js');
 
 const React = require('react');
 const { createPortal } = require('react-dom');
@@ -75,12 +79,12 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
       if (data.success) {
         setText(editContent);
         setLastSaved(new Date());
-        showToast({ tone: 'success', text: '文件已保存', holdMs: 2000 });
+        showToast({ tone: 'success', text: t("FilePreview.message001"), holdMs: 2000 });
       } else {
-        showToast({ tone: 'error', text: data.error || '保存失败', holdMs: 3000 });
+        showToast({ tone: 'error', text: data.error || t("FilePreview.message002"), holdMs: 3000 });
       }
     } catch (e) {
-      showToast({ tone: 'error', text: '保存请求失败', holdMs: 3000 });
+      showToast({ tone: 'error', text: t("FilePreview.message003"), holdMs: 3000 });
     } finally {
       setSaving(false);
     }
@@ -230,61 +234,58 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
   const editToolbar = isEditable && h('div', {
     className: `rh-edit-toolbar${toolbarTarget ? ' rh-edit-toolbar-header' : ''}`,
   },
-    isMd ? h('div', { role: 'group', 'aria-label': 'Markdown 查看模式' },
-      [['预览', false], ['编辑', true]].map(([label, source]) => h('button', {
+    isMd ? h('div', { role: 'group', 'aria-label': t("FilePreview.message004") },
+      [[t("FilePreview.message005"), false], [t("FilePreview.message006"), true]].map(([label, source]) => h(Button, {
         key: label,
         type: 'button',
         className: 'rh-btn rh-btn-ghost rh-btn-sm',
         'aria-pressed': editMode === source,
         onClick: () => setEditMode(source),
-        title: source ? '编辑 Markdown 原文' : '预览并编辑渲染后的文档',
+        title: source ? t("FilePreview.message007") : t("FilePreview.message008"),
       }, label))
-    ) : h('button', {
+    ) : h(Button, {
       className: 'rh-btn rh-btn-ghost rh-btn-sm',
       onClick: () => setEditMode(!editMode),
-      title: editMode ? '切换到只读预览' : '编辑原文',
-    }, editMode ? '预览' : '编辑'),
+      title: editMode ? t("FilePreview.message009") : t("FilePreview.message010"),
+    }, editMode ? t("FilePreview.message005") : t("FilePreview.message006")),
 
-    (isMd || editMode) && h('button', {
+    (isMd || editMode) && h(Button, {
       className: 'rh-btn rh-btn-ghost rh-btn-sm',
       onClick: handleSave,
       disabled: saving,
-      title: '保存文件 (Ctrl+S)',
-    }, saving ? '保存中...' : '保存'),
+      title: t("FilePreview.message011"),
+    }, saving ? t("FilePreview.message012") : t("common.save")),
 
     // Last saved time
     lastSaved && h('span', {
-      style: {
-        color: 'var(--dsw-alias-label-secondary)',
-        fontSize: 'var(--rh-font-size-sm)',
-      }
-    }, `已保存 ${lastSaved.toLocaleTimeString()}`)
+      className: css.mutedText
+    }, t("FilePreview.message014", { value0: lastSaved.toLocaleTimeString() }))
   );
 
   // TOC toggle button (only for markdown with headings)
-  const tocToggle = isMd && !editMode && headings.length > 0 && h('button', {
-    className: 'rh-btn rh-btn-secondary rh-btn-sm rh-toc-toggle',
+  const tocToggle = isMd && !editMode && headings.length > 0 && h(Button, {
+    className: ('rh-btn rh-btn-secondary rh-btn-sm rh-toc-toggle') + ' ' + css.content,
     onClick: onToggleToc,
-    title: showToc ? '收起 TOC' : '展开 TOC',
-    style: {
-      right: showToc ? tocWidth + 8 : 8,
-    },
-  }, showToc ? '收起目录' : '展开目录');
+    title: showToc ? t("FilePreview.message015") : t("FilePreview.message016"),
+    style: { "--rh-right-0": cssValue(showToc ? tocWidth + 8 : 8) },
+  }, showToc ? t("FilePreview.message017") : t("FilePreview.message018"));
 
   // Main content
-  const mainContent = error ? h('span', { className: 'rh-error' }, 'Error: ', error)
+  const mainContent = error ? h('span', { className: 'rh-error' }, t("FilePreview.message019"), error)
     : isHtml
       ? h('iframe', {
-          srcDoc: text,
           title: name,
           className: 'rh-preview-iframe',
-          sandbox: 'allow-scripts allow-same-origin'
+          sandbox: 'allow-scripts',
+          referrerPolicy: 'no-referrer',
+          // Opaque origin plus CSP: diagrams can run, but cannot call Host APIs.
+          srcDoc: '<meta http-equiv="Content-Security-Policy" content="default-src &apos;none&apos;; script-src &apos;unsafe-inline&apos; https://cdn.jsdelivr.net; style-src &apos;unsafe-inline&apos;; img-src data: https:; font-src data:; connect-src &apos;none&apos;; form-action &apos;none&apos;; base-uri &apos;none&apos;">' + text
         })
       : isMd
         ? editMode
           ? h('textarea', {
               className: 'rh-text-editor',
-              'aria-label': 'Markdown 原文',
+              'aria-label': t("FilePreview.message020"),
               value: editContent,
               onChange: (event) => setEditContent(event.target.value),
               spellCheck: false,
@@ -297,22 +298,9 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
         : isJson
           ? editMode
             ? h('textarea', {
-                className: 'rh-json-editor',
+                className: ('rh-json-editor') + ' ' + css.section,
                 value: editContent,
                 onChange: (e) => setEditContent(e.target.value),
-                style: {
-                  width: '100%',
-                  height: '100%',
-                  fontFamily: 'var(--rh-font-code)',
-                  fontSize: 'var(--rh-font-size)',
-                  lineHeight: 1.6,
-                  padding: 12,
-                  border: 'none',
-                  outline: 'none',
-                  resize: 'none',
-                  background: 'var(--dsw-alias-bg-layer-1)',
-                  color: 'var(--dsw-alias-label-primary)',
-                },
                 spellCheck: false,
               })
             : (() => {
@@ -320,58 +308,27 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
                   const parsed = JSON.parse(text);
                   return h(JsonViewer, { data: parsed, initialExpandLevel: 2 });
                 } catch {
-                  return h('pre', { className: 'rh-error', style: { whiteSpace: 'pre-wrap', fontFamily: 'var(--rh-font-code)', fontSize: 'var(--rh-font-size)' } }, 'Invalid JSON:\n' + text);
+                  return h('pre', { className: ('rh-error') + ' ' + css.content2 }, t('common.invalidJson') + text);
                 }
               })()
           : editMode
             ? h('textarea', {
-                className: 'rh-text-editor',
+                className: ('rh-text-editor') + ' ' + css.section,
                 value: editContent,
                 onChange: (e) => setEditContent(e.target.value),
-                style: {
-                  width: '100%',
-                  height: '100%',
-                  fontFamily: 'var(--rh-font-code)',
-                  fontSize: 'var(--rh-font-size)',
-                  lineHeight: 1.6,
-                  padding: 12,
-                  border: 'none',
-                  outline: 'none',
-                  resize: 'none',
-                  background: 'var(--dsw-alias-bg-layer-1)',
-                  color: 'var(--dsw-alias-label-primary)',
-                },
                 spellCheck: false,
               })
             : !text
               ? h(Skeleton, { lines: 6, height: '1.2em' })
-              : h('pre', { style: { whiteSpace: 'pre-wrap', fontFamily: 'var(--rh-font-code)', fontSize: 'var(--rh-font-size)' } }, text);
+              : h('pre', { className: css.content2 }, text);
 
   // TOC sidebar (only for markdown with headings, resizable)
   const tocSidebar = isMd && !editMode && headings.length > 0 && showToc && h('div', {
-    style: {
-      width: tocWidth,
-      minWidth: 150,
-      maxWidth: 400,
-      borderLeft: '1px solid var(--dsw-alias-border-l1)',
-      background: 'var(--dsw-alias-bg-layer-1)',
-      position: 'relative',
-      overflow: 'hidden',
-      flexShrink: 0,
-    }
+    className: css.pane, style: { "--rh-width-0": cssValue(tocWidth) }
   },
     h('div', {
       onMouseDown: handleMouseDown,
-      style: {
-        position: 'absolute',
-        left: 0,
-        top: 0,
-        bottom: 0,
-        width: 4,
-        cursor: 'col-resize',
-        background: 'transparent',
-        zIndex: 5,
-      }
+      className: css.size
     }),
     h(TableOfContents, {
       headings,
@@ -386,8 +343,8 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
     toolbarTarget ? createPortal(editToolbar, toolbarTarget) : editToolbar,
     tocToggle,
     h('div', { className: 'rh-file-preview-content' },
-      h('div', { ref: previewBodyRef, className: 'rh-preview-body', style: { flex: 1, overflow: 'auto', minWidth: 0 } },
-        isExtracted && h('div', { className: 'rh-op-info', role: 'status' }, '提取正文预览（只读）', parseWarnings.length > 0 && h('div', null, parseWarnings.join('；'))),
+      h('div', { ref: previewBodyRef, className: ('rh-preview-body') + ' ' + css.pane2 },
+        isExtracted && h('div', { className: 'rh-op-info', role: 'status' }, t("FilePreview.message021"), parseWarnings.length > 0 && h('div', null, parseWarnings.join('；'))),
         mainContent
       ),
       tocSidebar

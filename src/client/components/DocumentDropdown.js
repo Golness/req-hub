@@ -1,4 +1,8 @@
 'use strict';
+const { t } = require('../locale.js');
+const css = require('./DocumentDropdown.module.css').default;
+const { ModalFrame } = require('./shared/ModalFrame.js');
+const { Button } = require('./shared/Button.js');
 
 const React = require('react');
 const h = React.createElement;
@@ -62,35 +66,35 @@ function DocumentDropdown({ workspaceId, selectedReq, onSelectFile, onClose }) {
     }
   }
 
-  return h('div', { className: 'rh-modal-overlay', onClick: onClose, role: 'dialog', 'aria-modal': 'true', 'aria-label': '查看文档' },
-    h('div', { className: 'rh-modal', onClick: e => e.stopPropagation(), style: { minWidth: 400 } },
-      h('div', { className: 'rh-modal-title', style: { display: 'flex', alignItems: 'center', gap: 6 } },  ' 查看文档'),
+  return h(ModalFrame, { className: 'rh-modal-overlay', onClick: onClose, role: 'dialog', 'aria-modal': 'true', 'aria-label': t("DocumentDropdown.message001") },
+    h('div', { className: ('rh-modal') + ' ' + css.size, onClick: e => e.stopPropagation() },
+      h('div', { className: ('rh-modal-title') + ' ' + css.row },  t("DocumentDropdown.message002")),
       loading
-        ? h('div', { className: 'rh-empty' }, '加载中...')
+        ? h('div', { className: 'rh-empty' }, t("common.loading"))
         : !selectedReq
-          ? h('div', { className: 'rh-empty' }, '请先选择需求目录')
+          ? h('div', { className: 'rh-empty' }, t("DocumentDropdown.message003"))
           : allFiles.length === 0
-            ? h('div', { className: 'rh-empty' }, '当前需求目录下暂无文档')
-            : h('div', { className: 'rh-modal-list', style: { maxHeight: 400 } },
+            ? h('div', { className: 'rh-empty' }, t("DocumentDropdown.message004"))
+            : h('div', { className: ('rh-modal-list') + ' ' + css.size2 },
                 allFiles.map((file, idx) => {
-                  const docTypeLabels = { requirement: '需求', design: '技术方案', cr: 'CR', other: '文档' };
-                  return h('div', {
+                  const docTypeLabels = { requirement: t("DocsViewerBody.message072"), design: t("DocumentDropdown.message005"), cr: 'CR', other: t("DocumentDropdown.message006") };
+                  return h(Button, {
                     key: `${file.reqId}-${file.name}-${idx}`,
                     className: 'rh-modal-item',
                     onClick: () => { onSelectFile(file); onClose(); },
                   },
 
                     h('span', { className: 'rh-modal-item-name' },
-                      h('span', { style: { fontWeight: 600 } }, file.name),
-                      h('span', { className: `rh-doctype-tag ${file.type}` }, docTypeLabels[file.type] || '文档'),
-                      h('span', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 'var(--rh-font-size-sm)', marginLeft: 8 } },
+                      h('span', { className: css.heading }, file.name),
+                      h('span', { className: `rh-doctype-tag ${file.type}` }, docTypeLabels[file.type] || t("DocumentDropdown.message006")),
+                      h('span', { className: css.mutedText },
                         `${file.developer} / ${file.reqDate.slice(5)} ${file.reqTitle}`)
                     )
                   );
                 })
               ),
       h('div', { className: 'rh-modal-actions' },
-        h('button', { className: 'rh-btn', onClick: onClose }, '关闭')
+        h(Button, { className: 'rh-btn', onClick: onClose }, t("common.close"))
       )
     )
   );

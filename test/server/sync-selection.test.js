@@ -1,4 +1,4 @@
-import { beforeEach, afterEach, it, expect } from 'vitest';
+import { beforeEach, afterEach, it, expect, vi } from 'vitest';
 import { mkdtemp, writeFile, mkdir, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,10 +14,11 @@ const git = (...args) => execFileSync('git',args,{cwd:repo,encoding:'utf8',stdio
 async function commit(file, content, subject) { await writeFile(join(repo,file),content);git('add',file);git('commit','-m',subject);return git('rev-parse','HEAD'); }
 beforeEach(async()=>{
  repo=await mkdtemp(join(tmpdir(),'req-hub-commits-'));git('init','-b','main');git('config','user.name','Test');git('config','user.email','test@example.test');
+ vi.stubEnv('DSH_HOME',join(repo,'.test-dsh'));
  base=await commit('base.js','BASE','base');git('switch','-c',branch);
  first=await commit('first.js','FIRST_SELECTED','first');middle=await commit('middle.js','MIDDLE_NOT_SELECTED','middle');last=await commit('last.js','LAST_SELECTED','last');
 });
-afterEach(async()=>{await rm(repo,{recursive:true,force:true});});
+afterEach(async()=>{vi.unstubAllEnvs();await rm(repo,{recursive:true,force:true});});
 async function get(path) {
  const routes=createSyncRoutes({list:()=>[{id:'ws',path:repo}]});
  const req={method:'GET',url:'/req-hub/'+path},res={body:'',status:200,writeHead(status){this.status=status;},end(body){this.body+=body||'';}};

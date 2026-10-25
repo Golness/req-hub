@@ -34,10 +34,6 @@ const PLATFORM_EXTERNALS = [
   '@deepseek-ai/cordis',
 
   // DSH client modules
-  '@deepseek-ai/dsh-client-store',
-  '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-ui-dockkit',
 ];
 
 // CSS virtual module prefixes (must match DSH official)

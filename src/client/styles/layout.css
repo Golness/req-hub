@@ -30,7 +30,7 @@
 
   flex-shrink: 0;
   background: var(--dsw-alias-bg-layer-1);
-  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
   font-size: var(--rh-font-size);
 
   width: 100%;
@@ -91,7 +91,7 @@
 .rh-topbar-input {
   padding: 4px 10px;
   border: 1px solid var(--rh-accent);
-  border-radius: 4px;
+  border-radius: var(--dsw-radius-xs);
   font-size: var(--rh-font-size-sm);
   background: var(--dsw-alias-bg-layer-2);
   color: var(--dsw-alias-label-primary);
@@ -107,7 +107,7 @@
   align-items: center;
   padding: 8px 0;
   gap: 2px;
-  border-right: 1px solid var(--dsw-alias-border-l1);
+  border-right: 0.5px solid var(--dsw-alias-border-l1);
   background: var(--dsw-alias-bg-layer-1);
   overflow-y: auto;
 }
@@ -158,7 +158,7 @@
   gap: 2px;
   padding: 4px 0;
   background: var(--dsw-alias-bg-layer-2);
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-sm);
   margin: 2px 0;
 }
 
@@ -168,19 +168,19 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-right: 1px solid var(--dsw-alias-border-l1);
+  border-right: 0.5px solid var(--dsw-alias-border-l1);
 }
 
 .rh-doc-panel-header {
   background: var(--dsw-alias-bg-layer-1);
-  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
 
   min-height: var(--rh-header-height);
   padding: 8px 12px;
   display: flex;
   align-items: center;
   font-size: var(--rh-font-size-title);
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: normal;
   color: var(--dsw-alias-label-primary);
 }
@@ -205,7 +205,7 @@
 
 .rh-right-header {
   background: var(--dsw-alias-bg-layer-1);
-  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -215,7 +215,7 @@
   padding: 7px var(--rh-panel-padding);
   gap: 12px;
   font-size: var(--rh-font-size-title);
-  font-weight: 600;
+  font-weight: 500;
   line-height: var(--rh-line-height);
   color: var(--dsw-alias-label-primary);
   letter-spacing: normal;
@@ -255,7 +255,7 @@
   font-size: var(--rh-font-size-sm);
   color: var(--dsw-alias-label-secondary);
   background: var(--dsw-alias-bg-layer-1);
-  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
   flex-shrink: 0;
 }
 
@@ -271,7 +271,7 @@
   height: 100%;
   border: none;
   background: var(--dsw-alias-bg-base);
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-sm);
 }
 
 /* ── Status bar ── */
@@ -280,7 +280,7 @@
   padding: 6px 14px;
   font-size: var(--rh-font-size-sm);
   color: var(--dsw-alias-label-secondary);
-  border-top: 1px solid var(--dsw-alias-border-l1);
+  border-top: 0.5px solid var(--dsw-alias-border-l1);
   background: var(--dsw-alias-bg-layer-1);
   display: flex;
   justify-content: space-between;
@@ -328,7 +328,7 @@
 .rh-file-tree-sidebar {
   width: 220px;
   min-width: 220px;
-  border-right: 1px solid var(--dsw-alias-border-l1);
+  border-right: 0.5px solid var(--dsw-alias-border-l1);
   background: var(--dsw-alias-bg-layer-1);
   display: flex;
   flex-direction: column;
@@ -368,7 +368,7 @@
 
 .rh-file-tree-header {
   background: var(--dsw-alias-bg-layer-1);
-  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -378,7 +378,7 @@
   min-height: var(--rh-header-height);
   padding: 8px 12px;
   font-size: var(--rh-font-size-title);
-  font-weight: 600;
+  font-weight: 500;
   color: var(--dsw-alias-label-primary);
 }
 
@@ -387,7 +387,7 @@
   color: var(--dsw-alias-label-secondary);
   cursor: pointer;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--dsw-radius-xs);
   border: none;
   background: transparent;
 }
@@ -430,7 +430,7 @@
 .rh-file-tree-item.active {
   background: var(--dsw-alias-interactive-bg-active);
   border-left-color: transparent;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .rh-file-tree-item span {
@@ -442,7 +442,7 @@
 
 .rh-file-tree-filters {
   padding: 0;
-  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
   background: var(--dsw-alias-bg-layer-1);
   flex-shrink: 0;
 }
@@ -472,7 +472,7 @@
 .rh-filter-label {
   font-size: var(--rh-font-size-sm);
   color: var(--dsw-alias-label-secondary);
-  font-weight: 600;
+  font-weight: 500;
   min-width: 32px;
 }
 

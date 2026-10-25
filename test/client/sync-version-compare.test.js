@@ -67,10 +67,8 @@ describe('successful sync version selection', () => {
     await render();
     const trigger = container.querySelector('.rh-select-trigger');
     await act(async () => trigger.click());
-    const { menus } = require('../fixtures/host-ui-primitives.cjs');
-    const host = menus.get(trigger.id);
-    expect(host.portal).toBe(true); expect(host.autoFocus).toBe(true);
-    await act(async () => host.onClose());
+    expect(document.querySelector('[role="menu"]').parentElement).toBe(document.body);
+    await act(async () => document.querySelector('[role="menuitem"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
     await act(async () => trigger.click());
     await act(async () => root.render(null));

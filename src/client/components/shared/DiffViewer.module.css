@@ -1,0 +1,2 @@
+/* Component presentation; runtime geometry uses local CSS variables. */
+.mutedText { font-size: var(--rh-font-size-sm); color: var(--dsw-alias-label-secondary); margin-left: 8px; }

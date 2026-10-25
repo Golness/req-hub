@@ -1,3 +1,4 @@
+import { runtimeForRequest } from './delegation-context.js';
 import { randomUUID } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { hashBytes, decodeDocument } from './sync-artifacts.js';
@@ -45,19 +46,10 @@ export function installSyncTools(ctx) {
     return undefined;
   }));
   disposers.push(ctx.on('llm/stream', async function* (request, next) {
-    const marker = JSON.stringify(request.messages || []).match(/REQHUB_SYNC_V2=([a-f0-9-]{36})/);
-    if (marker && !runtimes.has(marker[1])) throw new Error('SYNC_RUNTIME_CLOSED');
-    let runtime = sessions.get(request.sessionId);
-    if (!runtime && marker && runtimes.has(marker[1])) {
-      runtime = runtimes.get(marker[1]);
-      if (runtime.sessionId && runtime.sessionId !== request.sessionId) throw new Error('SYNC_SESSION_REUSE');
-      if (!request.sessionId) throw new Error('SYNC_SESSION_REQUIRED');
-      runtime.sessionId = request.sessionId;
-      sessions.set(request.sessionId, runtime);
-    }
+    const runtime = sessions.get(request.sessionId) || runtimeForRequest(ctx, runtimes, request);
     if (runtime) {
-      runtime.assertActive?.();
       if (runtime.closed) throw new Error('SYNC_RUNTIME_CLOSED');
+      runtime.assertActive?.();
       runtime.signal?.throwIfAborted();
       runtime.onActivity?.();
       const surface = { messages: request.messages, system: request.system, tools: request.tools, toolHistory: request.toolHistory };
@@ -75,16 +67,17 @@ export function installSyncTools(ctx) {
     create(options) {
       options.signal?.throwIfAborted();
       const runtime = new SyncRuntime(ctx, options);
+      runtime.bindSession = id => sessions.set(id, runtime);
       const close = runtime.close.bind(runtime);
       runtime.close = () => {
         options.signal?.removeEventListener('abort', runtime.close);
         close(); runtimes.delete(runtime.id);
-        if (runtime.sessionId) sessions.delete(runtime.sessionId);
+        if (runtime.sessionId) sessions.set(runtime.sessionId, { closed: true });
       };
       options.signal?.addEventListener('abort', runtime.close, { once: true });
       runtimes.set(runtime.id, runtime); return runtime;
     },
-    dispose() { for (const dispose of disposers.reverse()) dispose(); installations.delete(ctx); },
+    dispose() { for (const runtime of [...runtimes.values()]) runtime.close(); for (const dispose of disposers.reverse()) dispose(); sessions.clear(); installations.delete(ctx); },
   };
   installations.set(ctx, installation);
   return installation;

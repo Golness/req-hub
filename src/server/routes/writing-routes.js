@@ -67,7 +67,7 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
         try {
           const result = await runTask(ctx, llm, config, {
             promptKey: 'writing', variables: { runtimeId: runtime.id, docTypeName: WRITING_STARTERS[input.docType].label, content: input.content, instruction: input.instruction.trim() || '结合原文和知识库完善表达、边界与可验证性', scopes: JSON.stringify(scopes) },
-            parentAgent, cwd: workspace.path, signal: job.controller.signal, toolFilter: { allow: WRITING_TOOLS },
+            runtime, parentAgent, cwd: workspace.path, signal: job.controller.signal, toolFilter: { allow: WRITING_TOOLS },
             description: `优化${WRITING_STARTERS[input.docType].label}`,
           });
           job.controller.signal.throwIfAborted();

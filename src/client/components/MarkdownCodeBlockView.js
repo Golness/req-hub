@@ -1,4 +1,5 @@
 'use strict';
+const { t } = require('../locale.js');
 
 let diagramId = 0;
 
@@ -26,7 +27,7 @@ function createMarkdownCodeBlockView(getMermaid, renderers) {
     const source = document.createElement('details');
     const summary = document.createElement('summary');
     summary.contentEditable = 'false';
-    summary.textContent = '图表源码';
+    summary.textContent = t("MarkdownCodeBlockView.message001");
     source.append(summary, pre);
     dom.append(preview, source);
 
@@ -34,7 +35,7 @@ function createMarkdownCodeBlockView(getMermaid, renderers) {
       const currentRevision = ++revision;
       const mermaid = getMermaid();
       if (!mermaid) {
-        preview.textContent = '图表加载中…';
+        preview.textContent = t("MarkdownCodeBlockView.message002");
         return;
       }
       try {
@@ -43,7 +44,7 @@ function createMarkdownCodeBlockView(getMermaid, renderers) {
         preview.innerHTML = svg;
       } catch {
         if (destroyed || currentRevision !== revision) return;
-        preview.textContent = '图表暂时无法渲染，可展开源码修改';
+        preview.textContent = t("MarkdownCodeBlockView.message003");
         source.open = true;
       }
     };

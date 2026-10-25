@@ -1,0 +1,2 @@
+/* Component presentation; runtime geometry uses local CSS variables. */
+.size { width: var(--rh-width-0); height: var(--rh-height-1); }

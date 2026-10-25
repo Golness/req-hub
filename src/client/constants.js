@@ -1,3 +1,4 @@
+'use strict';
 /**
  * Constants for ReqHub client.
  * Contains route paths, tab identifiers, and script element IDs.
@@ -5,7 +6,6 @@
  * @module req-hub/client/constants
  */
 
-'use strict';
 
 /**
  * Base route path for the ReqHub plugin.

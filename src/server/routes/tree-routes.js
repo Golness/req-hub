@@ -1,3 +1,4 @@
+import { safeDocumentPath } from '../safe-path.js';
 import { withDocumentLock } from '../sync-document-validator.js';
 /**
  * Document tree routes module.
@@ -296,7 +297,8 @@ export function createTreeRoutes(registry) {
 
         const config = await loadConfig();
         const docsRoot = resolve(workspace.path, config.docsDir);
-        const fullPath = resolve(docsRoot, path);
+        let fullPath;
+        try { if (docsRoot !== resolve(workspace.path)) await safeDocumentPath(workspace.path, config.docsDir); fullPath = await safeDocumentPath(docsRoot, path); } catch (error) { return json(res, { error: error.message }, error.status || 404); }
 
         if (!isInside(docsRoot, fullPath)) {
           json(res, { error: 'path outside docs root' }, 400);
@@ -370,7 +372,8 @@ export function createTreeRoutes(registry) {
           // 路径解析 + 安全校验
           const config = await loadConfig();
           const docsRoot = resolve(workspace.path, config.docsDir);
-          const fullPath = resolve(docsRoot, filePath);
+          if (docsRoot !== resolve(workspace.path)) await safeDocumentPath(workspace.path, config.docsDir, { allowMissing: true });
+          const fullPath = await safeDocumentPath(docsRoot, filePath, { allowMissing: true });
 
           if (!isInside(docsRoot, fullPath)) {
             json(res, { error: 'path outside docs root' }, 403);
@@ -378,7 +381,10 @@ export function createTreeRoutes(registry) {
           }
 
           // 写入文件
-          await withDocumentLock(fullPath, () => writeFile(fullPath, content, 'utf8'));
+          await withDocumentLock(fullPath, async () => {
+            await safeDocumentPath(docsRoot, filePath, { allowMissing: true });
+            await writeFile(fullPath, content, 'utf8');
+          });
 
           // 获取修改时间
           const fileStat = await stat(fullPath);
@@ -386,7 +392,7 @@ export function createTreeRoutes(registry) {
           json(res, { success: true, mtime: fileStat.mtime.toISOString() });
         } catch (e) {
           log.tree.error(`文件写入失败: ${e.message}`);
-          json(res, { success: false, error: e.message }, 500);
+          json(res, { success: false, error: e.message }, e.status || 500);
         }
       }
     },
@@ -519,7 +525,8 @@ export function createTreeRoutes(registry) {
           const config = await loadConfig();
           const docsRoot = resolve(workspace.path, config.docsDir);
           const dirName = `${date}-${title}`;
-          const targetPath = join(docsRoot, developer, dirName);
+          if (docsRoot !== resolve(workspace.path)) await safeDocumentPath(workspace.path, config.docsDir, { allowMissing: true });
+          const targetPath = await safeDocumentPath(docsRoot, join(developer, dirName), { allowMissing: true });
 
           if (!isInside(docsRoot, targetPath)) {
             json(res, { error: 'path outside docs' }, 400);

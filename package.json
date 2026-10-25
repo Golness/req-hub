@@ -11,18 +11,26 @@
     "dev": "tsdown --watch",
     "test": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:watch": "vitest watch"
+    "test:watch": "vitest watch",
+    "check:ui": "vitest run test/client/ui-contract.test.js test/client/icon-policy.test.js",
+    "verify:package": "node scripts/verify-package.mjs"
   },
   "exports": {
     ".": "./src/server/index.js",
-    "./client": "./lib/client.js"
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
   },
   "files": [
     "src/shared/",
     "lib/client.js",
     "lib/client.*.js",
     "lib/client.js.map",
-    "src/server/"
+    "src/server/",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "DSH-UI-NOTICE.md"
   ],
   "dsh": {
     "bundle": {
@@ -33,13 +41,10 @@
       "immediately": true,
       "inject": [
         "@deepseek-ai/dsh-client-ui-layout",
-        "@deepseek-ai/dsh-client-ui-sidebar-right"
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-locale"
       ]
     }
-  },
-  "meta": {
-    "title": "ReqHub - 需求中心",
-    "description": "需求文档管理、AI分析、文档同步、需求追溯 - DeepSeek Harness 插件"
   },
   "devDependencies": {
     "@tsdown/css": "^0.23.1",
@@ -68,5 +73,6 @@
     "mdast-util-from-markdown": "2.0.2",
     "pdfjs-dist": "^6.4.299",
     "yauzl": "^3.4.0"
-  }
+  },
+  "icon": "./icon.svg"
 }

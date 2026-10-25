@@ -1,4 +1,7 @@
 'use strict';
+const { t } = require('../locale.js');
+const css = require('./DocTree.module.css').default;
+const { cssValue } = require('./shared/presentation.js');
 
 const React = require('react');
 const h = React.createElement;
@@ -108,18 +111,18 @@ function DocTree({ workspaceId, docsDir, selectedReqId, onSelectReq, selectedFil
     setExpandedReqs(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
-  return h('div', { className: 'rh-doc-tree', role: 'tree', 'aria-label': '文档目录树' },
+  return h('div', { className: 'rh-doc-tree', role: 'tree', 'aria-label': t("DocTree.message001") },
     tree.developers.length === 0
-      ? h('div', { className: 'rh-empty', style: { minHeight: 80 } },
+      ? h('div', { className: ('rh-empty') + ' ' + css.size },
 
-          `No ${docsDir}/ directory or no requirements found.`)
+          t("tree.emptyDocuments", { value0: docsDir }))
       : tree.developers.map(dev => {
           const isDevExpanded = !!expandedDevs[dev.name];
           return h('div', { key: dev.name, className: 'rh-dev-node', role: 'treeitem', 'aria-expanded': isDevExpanded },
             h('div', { className: 'rh-dev-header', onClick: () => toggleDev(dev.name) },
-              h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
-                h('span', { style: { width: 10, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' } },
-                  h(IconChevronRight, { size: 10, style: { transform: isDevExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 } })
+              h('span', { className: css.row },
+                h('span', { className: css.row2 },
+                  h(IconChevronRight, { size: 10, className: css.indicator, style: { "--rh-transform-0": cssValue(isDevExpanded ? 'rotate(90deg)' : 'none') } })
                 ),
 
                 h('span', null, ` ${dev.name}`)
@@ -141,12 +144,12 @@ function DocTree({ workspaceId, docsDir, selectedReqId, onSelectReq, selectedFil
                     toggleReq(req.id);
                   },
                 },
-                  h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
-                    h('span', { style: { width: 10, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' } }),
-                    h(IconFolderOpen, { size: 14, style: { flexShrink: 0 } }),
+                  h('span', { className: css.row },
+                    h('span', { className: css.row2 }),
+                    h(IconFolderOpen, { size: 14, className: css.content }),
                     h('span', null, ` ${req.date.slice(5)} ${req.title}`)
                   ),
-                  req.fileCount > 0 && h('span', { className: 'rh-dev-count', style: { display: 'inline-flex', alignItems: 'center', gap: 2 } }, `${req.fileCount} 个文件`)
+                  req.fileCount > 0 && h('span', { className: ('rh-dev-count') + ' ' + css.row3 }, t("DocTree.message002", { value0: req.fileCount }))
                 ),
                 isReqExpanded && h('div', null,
                   req.files.length > 0
@@ -160,9 +163,9 @@ function DocTree({ workspaceId, docsDir, selectedReqId, onSelectReq, selectedFil
                             onSelectFile({ ...file, reqId: req.id, reqTitle: req.title, reqDate: req.date, developer: req.developer });
                           },
                         },
-                          h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, getDocIcon(file.type, 12), ` ${file.name}`));
+                          h('span', { className: css.row }, getDocIcon(file.type, 12), ` ${file.name}`));
                       })
-                    : h('div', { className: 'rh-empty-hint' }, '（无文档）'),
+                    : h('div', { className: 'rh-empty-hint' }, t("DocTree.message003")),
                   req.hasMeta && h('div', { className: 'rh-meta-item' }, '.meta.json')
                 )
               );

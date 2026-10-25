@@ -1,4 +1,5 @@
 'use strict';
+const { t } = require('../locale.js');
 
 /**
  * @module keyboardShortcuts
@@ -7,14 +8,8 @@
  * global keydown event listeners with IME composition awareness.
  */
 
-// DSH observeComposition — 降级为 null（包名 @deepseek-ai，非 @anthropic-ai）
-let observeComposition = null;
-try {
-  observeComposition = require('@deepseek-ai/dsh-client-ui-primitives').observeComposition;
-} catch (e) {
-  // DSH 不可用时使用自建 IME 检测
-  observeComposition = null;
-}
+// Local IME handling avoids private Harness Client dependencies.
+const observeComposition = null;
 
 /**
  * Fallback IME composition guard that checks event.isComposing and keyCode 229
@@ -33,16 +28,16 @@ function fallbackGuards(event) {
  * (e.g., 'Ctrl+K'), and each value is an object with an 'action' identifier and a human-readable 'description'.
  */
 const SHORTCUTS = {
-  'Ctrl+K': { action: 'focusSearch', description: '聚焦搜索框' },
-  'Ctrl+N': { action: 'createDir', description: '新建需求目录' },
-  'Ctrl+S': { action: 'sync', description: '同步当前需求' },
-  'Ctrl+T': { action: 'toggleFileTree', description: '切换文件树侧边栏' },
-  'Escape': { action: 'closePanel', description: '关闭当前面板/弹窗' },
-  'ArrowLeft': { action: 'collapseTree', description: '折叠目录树节点' },
-  'ArrowRight': { action: 'expandTree', description: '展开目录树节点' },
-  'ArrowUp': { action: 'prevTreeItem', description: '上一个目录项' },
-  'ArrowDown': { action: 'nextTreeItem', description: '下一个目录项' },
-  'Enter': { action: 'selectTreeItem', description: '选中/打开文件' },
+  'Ctrl+K': { action: 'focusSearch', description: t("keyboardShortcuts.message001") },
+  'Ctrl+N': { action: 'createDir', description: t("keyboardShortcuts.message002") },
+  'Ctrl+S': { action: 'sync', description: t("keyboardShortcuts.message003") },
+  'Ctrl+T': { action: 'toggleFileTree', description: t("keyboardShortcuts.message004") },
+  'Escape': { action: 'closePanel', description: t("keyboardShortcuts.message005") },
+  'ArrowLeft': { action: 'collapseTree', description: t("keyboardShortcuts.message006") },
+  'ArrowRight': { action: 'expandTree', description: t("keyboardShortcuts.message007") },
+  'ArrowUp': { action: 'prevTreeItem', description: t("keyboardShortcuts.message008") },
+  'ArrowDown': { action: 'nextTreeItem', description: t("keyboardShortcuts.message009") },
+  'Enter': { action: 'selectTreeItem', description: t("keyboardShortcuts.message010") },
 };
 
 /**

@@ -1,4 +1,8 @@
 'use strict';
+const { t } = require('../locale.js');
+const { ModalFrame } = require('./shared/ModalFrame.js');
+const { Input } = require('./shared/Input.js');
+const { Button } = require('./shared/Button.js');
 const React = require('react');
 const h = React.createElement;
 const { ROUTE } = require('../constants.js');
@@ -7,40 +11,26 @@ const { SessionList } = require('./shared/SessionList.js');
 const EMPTY = { ids: [], versions: {} };
 function ImportWarnings({ warnings = [] }) {
   return warnings.length ? h('details', { className: 'rh-codex-warnings' },
-    h('summary', null, `查看 ${warnings.length} 项拉取问题`),
+    h('summary', null, t("CodexSessionsSection.message001", { value0: warnings.length })),
     h('ul', null, warnings.map((warning, index) => h('li', { key: index }, warning)))
   ) : null;
 }
 function WorkspacePicker({ workspaces, loading, error, warnings, onSelect, onClose }) {
   const [search, setSearch] = React.useState('');
-  const ref = React.useRef(null);
-  React.useEffect(() => {
-    const previous = document.activeElement;
-    ref.current?.querySelector('input')?.focus();
-    return () => previous?.focus?.();
-  }, []);
-  const keydown = event => {
-    if (event.key === 'Escape' && !event.nativeEvent?.isComposing) { event.preventDefault(); event.stopPropagation(); onClose(); }
-    if (event.key === 'Tab') {
-      const controls = [...ref.current.querySelectorAll('input,button:not(:disabled)')];
-      const target = event.shiftKey ? controls.at(-1) : controls[0];
-      if (document.activeElement === (event.shiftKey ? controls[0] : controls.at(-1))) { event.preventDefault(); target?.focus(); }
-    }
-  };
   const needle = search.trim().toLowerCase();
   const visible = workspaces.filter(workspace => `${workspace.title} ${workspace.path}`.toLowerCase().includes(needle));
-  return h('div', { className: 'rh-modal-overlay', role: 'dialog', 'aria-modal': true, 'aria-label': '选择 Codex 工作区', onClick: onClose, onKeyDown: keydown },
-    h('div', { className: 'rh-modal', ref, onClick: event => event.stopPropagation() },
-      h('div', { className: 'rh-modal-title' }, '选择 Codex 工作区'),
-      h('input', { className: 'rh-form-input', type: 'search', 'aria-label': '搜索 Codex 工作区', placeholder: '搜索工作区名称或路径', value: search, onChange: event => setSearch(event.target.value) }),
+  return h(ModalFrame, { className: 'rh-modal-overlay', role: 'dialog', 'aria-modal': true, 'aria-label': t("CodexSessionsSection.message002"), onClick: onClose },
+    h('div', { className: 'rh-modal', onClick: event => event.stopPropagation() },
+      h('div', { className: 'rh-modal-title' }, t("CodexSessionsSection.message002")),
+      h(Input, { className: 'rh-form-input', type: 'search', 'data-modal-autofocus': true, 'aria-label': t("CodexSessionsSection.message003"), placeholder: t("CodexSessionsSection.message004"), value: search, onChange: event => setSearch(event.target.value) }),
       error && h('p', { role: 'alert', className: 'rh-error' }, error),
       h(ImportWarnings, { warnings }),
-      loading ? h('p', { role: 'status' }, '正在读取 Codex 工作区…')
-        : !visible.length ? h('p', { className: 'rh-sync-hint' }, '未找到 Codex 工作区')
-          : h('div', { className: 'rh-modal-list rh-codex-workspaces' }, visible.map(workspace => h('button', {
+      loading ? h('p', { role: 'status' }, t("CodexSessionsSection.message005"))
+        : !visible.length ? h('p', { className: 'rh-sync-hint' }, t("CodexSessionsSection.message006"))
+          : h('div', { className: 'rh-modal-list rh-codex-workspaces' }, visible.map(workspace => h(Button, {
             type: 'button', key: workspace.id, className: 'rh-btn rh-btn-ghost rh-codex-workspace', onClick: () => onSelect(workspace),
-          }, h('strong', null, workspace.title), h('span', null, workspace.path || '无目录信息'), h('small', null, `${workspace.sessionCount} 个未归档会话`)))),
-      h('div', { className: 'rh-modal-actions' }, h('button', { type: 'button', className: 'rh-btn', onClick: onClose }, '关闭'))
+          }, h('strong', null, workspace.title), h('span', null, workspace.path || t("CodexSessionsSection.message007")), h('small', null, t("CodexSessionsSection.message008", { value0: workspace.sessionCount }))))),
+      h('div', { className: 'rh-modal-actions' }, h(Button, { type: 'button', className: 'rh-btn', onClick: onClose }, t("common.close")))
     )
   );
 }
@@ -78,11 +68,11 @@ function CodexSessionsSection({ workspaceId, selection, onSelectionChange, onVie
           if (done) { consume(pending); break; }
         }
       } finally { reader.releaseLock(); }
-      if (!result) throw Error('刷新连接中断，请重新刷新 Codex 会话');
+      if (!result) throw Error(t("CodexSessionsSection.message009"));
       return result;
     }
     const result = await response.json();
-    if (!response.ok || result.error) throw Error(result.error || '读取 Codex 会话失败');
+    if (!response.ok || result.error) throw Error(result.error || t("CodexSessionsSection.message010"));
     return result;
   };
   const load = async (action, body) => {
@@ -120,23 +110,23 @@ function CodexSessionsSection({ workspaceId, selection, onSelectionChange, onVie
     onSelectionChange({ ids, versions: Object.fromEntries(ids.map(selected => [selected, selected === id ? session.snapshotVersion : selection.versions[selected]])) });
   };
   const visible = data.sessions.filter(session => `${session.title} ${session.id}`.toLowerCase().includes(search.trim().toLowerCase()));
-  return h('section', { className: 'rh-sync-source-section rh-sync-sessions', 'aria-label': '选择 Codex 会话' },
+  return h('section', { className: 'rh-sync-source-section rh-sync-sessions', 'aria-label': t("CodexSessionsSection.message011") },
     h('div', { className: 'rh-sync-section-heading' },
-      h('h3', { className: 'rh-sync-section-title' }, '选择 Codex 会话（可选）'),
-      h('button', { type: 'button', className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: loading || disabled, onClick: openPicker }, '选择 Codex 工作区'),
-      h('button', { type: 'button', className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: loading || disabled || !data.workspace, onClick: () => refresh() }, '刷新 Codex 会话')),
-    h('p', { className: 'rh-sync-hint' }, '拉取未归档主会话并保存为 Markdown；同步用户输入、助手中间回复及最终回复，分析时仅使用完整轮次。'),
-    data.workspace && h('p', { className: 'rh-sync-hint', title: data.workspace.path }, `Codex 工作区：${data.workspace.title} · ${data.workspace.path}`),
+      h('h3', { className: 'rh-sync-section-title' }, t("CodexSessionsSection.message012")),
+      h(Button, { type: 'button', className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: loading || disabled, onClick: openPicker }, t("CodexSessionsSection.message002")),
+      h(Button, { type: 'button', className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: loading || disabled || !data.workspace, onClick: () => refresh() }, t("CodexSessionsSection.message013"))),
+    h('p', { className: 'rh-sync-hint' }, t("CodexSessionsSection.message014")),
+    data.workspace && h('p', { className: 'rh-sync-hint', title: data.workspace.path }, t("CodexSessionsSection.message015", { value0: data.workspace.title, value1: data.workspace.path })),
     error && h('p', { role: 'alert', className: 'rh-error' }, error),
     loading && progress && h('div', { className: 'rh-codex-progress', role: 'status', 'aria-live': 'polite' },
-      h('span', null, progress.phase === 'queued' ? '等待刷新…' : progress.phase === 'inventory' ? '正在读取 Codex 会话列表…' : progress.phase === 'saving' ? `正在保存会话列表（${progress.completed}/${progress.total}）…` : `正在拉取 Codex 会话（${progress.completed}/${progress.total}）…`),
-      h('progress', { 'aria-label': 'Codex 会话刷新进度', max: progress.total || 1, value: progress.total === null ? undefined : progress.completed })),
+      h('span', null, progress.phase === 'queued' ? t("CodexSessionsSection.message016") : progress.phase === 'inventory' ? t("CodexSessionsSection.message017") : progress.phase === 'saving' ? t("CodexSessionsSection.message018", { value0: progress.completed, value1: progress.total }) : t("CodexSessionsSection.message019", { value0: progress.completed, value1: progress.total })),
+      h('progress', { 'aria-label': t("CodexSessionsSection.message020"), max: progress.total || 1, value: progress.total === null ? undefined : progress.completed })),
     h(ImportWarnings, { warnings }),
-    data.workspace && h('input', { className: 'rh-search-input', type: 'search', value: search, 'aria-label': '筛选 Codex 会话', placeholder: '搜索 Codex 会话…', onChange: event => setSearch(event.target.value) }),
+    data.workspace && h(Input, { className: 'rh-search-input', type: 'search', value: search, 'aria-label': t("CodexSessionsSection.message021"), placeholder: t("CodexSessionsSection.message022"), onChange: event => setSearch(event.target.value) }),
     h(SessionList, { sessions: visible, selectedIds: selection.ids, onToggle: toggle, onView, loading, disabled, source: ' Codex ',
-      emptyText: data.workspace ? (search.trim() ? '未找到匹配的 Codex 会话' : '该工作区暂无未归档会话') : '请选择 Codex 工作区以拉取会话。' }),
-    data.workspace && !loading && !error && h('p', { className: 'rh-sync-hint', role: 'status' }, `已拉取 ${data.sessions.filter(session => session.snapshotVersion).length} 个会话，Markdown 已入库${data.refreshedAt ? ' · ' + new Date(data.refreshedAt).toLocaleString() : ''}`),
-    selection.ids.length > 0 && h('p', { className: 'rh-sync-hint' }, `已选择 ${selection.ids.length} 个 Codex 会话`),
+      emptyText: data.workspace ? (search.trim() ? t("CodexSessionsSection.message023") : t("CodexSessionsSection.message024")) : t("CodexSessionsSection.message025") }),
+    data.workspace && !loading && !error && h('p', { className: 'rh-sync-hint', role: 'status' }, t("CodexSessionsSection.message026", { value0: data.sessions.filter(session => session.snapshotVersion).length, value1: data.refreshedAt ? ' · ' + new Date(data.refreshedAt).toLocaleString() : '' })),
+    selection.ids.length > 0 && h('p', { className: 'rh-sync-hint' }, t("CodexSessionsSection.message027", { value0: selection.ids.length })),
     picker && h(WorkspacePicker, { ...picker, onSelect: project => refresh(project.id), onClose: () => setPicker(null) })
   );
 }

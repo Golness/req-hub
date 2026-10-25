@@ -50,7 +50,10 @@ ReqHub 将需求文档组织为 **开发者 → 需求 → 文件** 三级目录
 - **会话快照与文件引用**：预览和同步校验同一份正文快照版本，会话变化后需刷新重选；本次同步目录的 `input/sessions/` 保存每会话及分轮 Markdown，Subagent 通过受控文件引用读取，复用代码同步的哈希核验、读取覆盖检查和完整输入预算。优先按会话分块，超限时只在轮次间拆分，单轮超限直接报错。同步去重同时考虑所选会话快照。
 - **增量合并**：AI 将代码变更智能合并到现有文档，而非覆盖
 - **Codex 会话集成**：在 DSH 会话区域下点击“选择 Codex 工作区”，按项目名称与路径搜索并选择，拉取该工作区的未归档主会话。支持多根工作区及项目关联的 worktree，会话列表、内容预览和多选方式与 DSH 一致；可与 DSH 会话混合加入同一次讨论分析。刷新会话会重新读取内容并清空旧勾选；只分析完整轮次，未完成轮次保留在预览中。
-- **Codex 读取与落库**：移植 [dsh-codex-migrate](https://github.com/polarskicpl/dsh-codex-migrate) 的 JSONL 文本读取能力（[MIT 来源说明](src/server/codex-sessions/NOTICE.md)）。只读 `CODEX_HOME`（默认 `~/.codex`）的项目、会话及归档元数据，无 SQLite 时读取活跃 JSONL 和标题索引。用户输入、补充输入、中间回复和最终回复保留原顺序，去除镜像重复；不导入系统上下文、隐藏推理和工具结果。独立保存到 `<DSH_HOME>/req-hub/codex/codex.sqlite`，同目录 `documents/` 存放按内容版本生成的 Markdown；不修改 Codex，不创建 DSH 会话。会话发生变化、被归档或读取失败时，旧版本不能进入分析；选中内容会再次冻结到需求同步快照的 `input/sessions/`。
+- **Codex 读取**：移植 [dsh-codex-migrate](https://github.com/polarskicpl/dsh-codex-migrate) 的 JSONL 文本读取能力（[MIT 来源说明](src/server/codex-sessions/NOTICE.md)）。只读 `CODEX_HOME`（默认 `~/.codex`）的项目、会话及归档元数据，无 SQLite 时读取活跃 JSONL 和标题索引。用户输入、补充输入、中间回复和最终回复保留原顺序，去除镜像重复；不导入系统上下文、隐藏推理和工具结果。不修改 Codex，不创建 DSH 会话。
+- **统一会话库**：DSH 与 Codex 共用 `<DSH 全局目录>/req-hub/conversations/conversations.sqlite`，优先使用宿主 `profileContext.home`，独立运行回退 `DSH_HOME` 或 `~/.dsh`。按来源实例、来源工作区区分内容，按当前 DSH profile 保存工作区绑定。SQLite 保存正文和不可变版本，`documents/<scope>/<conversation>/versions/<hash>.md` 与 `current.md` 是可重建投影。
+- **会话管理**：同步页“管理会话”可搜索、按来源筛选、查看版本及任务引用数量、删除本地副本或未引用的旧版本、查看刷新任务进度及取消。首次选择 DSH 会话工作区自动入库，后续显式刷新；Codex 保留选择工作区及流式刷新进度。列表、预览与同步分析共用版本；来源改变、归档或不可读时不能静默使用旧内容。同步任务锁定所用版本，删除任务后解除引用，任务自己的冻结证据继续保留。
+- **旧会话数据移除**：不迁移、不双读、不兼容旧会话存储。插件首次处理同步相关请求时删除旧 `req-hub/codex/`；扫描当前注册工作区的配置文档目录，删除旧任务 `input/sessions/` 并清理相应列表引用，已生成文档、其他任务产物和知识库保留。之后载入旧任务状态时也会清理。源 DSH/Codex 会话始终只读；链接越界或损坏状态会明确报错，避免扩大删除范围。
 - **同步历史**：记录每次同步的完整过程和结果，支持回溯查看
 - **发布即结束**：同步完成文档校验与发布后直接结束，不再执行额外 AI 元数据分析。
 - **后台任务与通知**：离开同步页面或关闭 ReqHub 标签页不会取消服务端任务；底部栏独立显示文档类型、需求、当前步骤和分块进度，结束后保留成功、失败或终止提示，可点击查看详情。需求文档与技术方案在整个 ReqHub 中共用一个执行名额，服务端阻止跨页面、跨工作区并发启动。
@@ -348,6 +351,15 @@ pnpm run build
 
 ---
 
+### 4.6 界面开发约定
+
+- 操作按钮、输入、复选框、弹窗、菜单和通知由插件内 `shared/controls.js` 统一实现，参考 DSH 结构、交互和主题令牌；禁止运行时导入 Harness Client 组件包。语义图标集中在 `src/client/icons.js`，使用随插件发布的私有 SVG 快照，来源见 `DSH-UI-NOTICE.md`。
+- 导航、富内容选择行、三态目录选择及编辑器保留各自语义；没有对应宿主原子组件时，只维护布局并消费宿主设计令牌。
+- 页面固定样式放在相邻 CSS Modules；React `style` 仅传递运行时几何或状态值的局部 CSS 变量。界面字重不超过 500，Markdown 字重由宿主排版令牌决定。
+- 界面文案通过 `src/client/locale.js` 调用 `reqHub` 命名空间，字典集中在 `src/client/locales/zh.js`。目前提供中文；宿主选择其他语言时保留中文回退。
+- 通知由 `shell.overlay` 持有，操作页和工作区切换不会重置其生命周期。
+- 提交界面变更前运行 `npm run check:ui`、相关客户端行为测试和 `npm run build`，并检查明暗主题和窄窗口。
+
 ## 5. 技术栈
 
 | 层面 | 技术 |
@@ -370,3 +382,9 @@ pnpm run build
 多选全局知识库中的工作区分区后，输入正文和可选优化要求，点击“优化”。沿用当前 DSH 会话与 TaskExecutor 的 subagent 调用方式，要求 spawn provider 支持工具隔离。子代理仅能搜索所选库、分页读取冻结资料与提交候选，不会写文件或修改知识库；每个非空所选库至少完整阅读并引用一篇资料。候选返回来源路径和版本。未选择库时仅优化当前正文。
 
 使用现有 DiffViewer 审阅整体与局部差异，可逐处合并、保留原文或合并全部剩余建议。审阅期间正文锁定，避免将旧建议覆盖到新版本；已合并修改即时保存，结束审阅后继续编辑和优化。优化任务支持取消，错误时草稿保留。切换侧栏面板保留当前任务，切换工作区或关闭页面后已保存正文仍在浏览器；服务重启后的优化任务需要重新发起。
+
+### 配置与操作入口
+
+配置优先使用宿主 `profileContext.dir`，保存到 `<profileContext.dir>/req-hub/config.json`。独立运行时依次回退到 `<DSH_PROFILE_DIR>/req-hub/config.json`、`<DSH_HOME>/profiles/<DSH_PROFILE>/req-hub/config.json`，无 profile 时使用 `<DSH_HOME>/req-hub/config.json`。DSH_HOME 默认 `~/.dsh`。首次读取迁移安装目录中的旧配置并保留旧文件；损坏配置明确报错。Cordis `Config` 支持声明部署配置并校验，显式部署字段优先于界面保存的值。
+
+HTTP 操作通过宿主 Connection 认证；`req_hub_action` 工具与页面调用同一 Host 实现，写作和分析使用工具调用方的真实会话，不能冒充另一会话。工具不暴露打开系统文件管理器等用户专属操作。

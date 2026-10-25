@@ -246,7 +246,7 @@ export class PhasedSyncEngine {
       promptKey: key, variables, preparedPromptData: options.preparedPromptData,
       parentAgent: this.parentAgent, cwd: this.cwd, signal: this.signal,
       timeout: TaskExecutorConfig.defaultTimeout, maxInputTokens: MAX_SYNC_INPUT_TOKENS,
-      syncV2: true, liveness: { enabled: false },
+      runtime: options.runtime, syncV2: true, liveness: { enabled: false },
       toolFilter: { allow: SYNC_TOOLS }, description: '同步 v2: ' + key,
       callbacks: { onProgress: progress => {
         if (progress.stage === 'executing') return options.onSubagentStart?.(progress.sessionId);
@@ -276,7 +276,7 @@ export class PhasedSyncEngine {
         try {
           const variables = { runtimeId: runtime.id, manifestId: stage.manifestId, reportId: 'report', changesId: 'changes' };
           const preparedPromptData = await this.preparePrompt(key, variables);
-          await this.executeTask(key, variables, { preparedPromptData, onSubagentStart: sessionId => progress({ phase: which, status: Number.isInteger(stage.index) ? 'chunk_subagent' : 'summary_subagent', chunkIndex: stage.index, sessionId }) });
+          await this.executeTask(key, variables, { preparedPromptData, runtime, onSubagentStart: sessionId => progress({ phase: which, status: Number.isInteger(stage.index) ? 'chunk_subagent' : 'summary_subagent', chunkIndex: stage.index, sessionId }) });
           await runtime.assertCoverage();
           result.stats.totalLLMCalls++;
           if (edit) return runtime.journal;

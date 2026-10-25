@@ -1,0 +1,4 @@
+/* Component presentation; runtime geometry uses local CSS variables. */
+.indicator { transform: var(--rh-transform-0); }
+.spacing { margin-left: var(--rh-margin-left-0); }
+.pane { font-family: var(--rh-font-code); font-size: var(--rh-font-size); line-height: 1.6; padding: 8px; overflow: auto; white-space: pre; }

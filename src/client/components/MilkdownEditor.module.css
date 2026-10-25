@@ -1,0 +1,4 @@
+/* Component presentation; runtime geometry uses local CSS variables. */
+.row { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--dsw-alias-label-secondary); font-size: var(--rh-font-size); }
+.section { padding: 12px; color: var(--dsw-alias-state-error-primary); font-size: var(--rh-font-size); }
+.pane { min-height: 100%; overflow: visible; display: var(--rh-display-2); }

@@ -1,6 +1,6 @@
 /* All selectors share the surrounding 13px typography and compact control scale. */
 .rh-select { display: inline-flex; min-width: 0; max-width: 100%; vertical-align: middle; }
-.rh-select-trigger {
+.rh-select-trigger[data-rh-button] {
   display: inline-flex;
   align-items: center;
   justify-content: space-between;
@@ -29,14 +29,12 @@
 .rh-select-chevron { flex: none; width: 14px; height: 14px; color: var(--dsw-alias-label-secondary); }
 .rh-form-select { width: 100%; }
 
-/* The host's portal needs its own class: wrapper rules cannot reach this card.
- * DSH still owns theme, placement, outside-click dismissal and row keyboard walk.
- */
+/* The plugin portal follows host material and viewport boundaries. */
 .rh-select-menu[role='menu'] {
   width: max-content;
   min-width: min(180px, calc(100vw - 24px));
   max-width: min(420px, calc(100vw - 24px));
-  max-height: min(320px, calc(100dvh - 12px - max(12px, var(--dsh-frame-overlay-top, 12px))));
+  max-height: min(320px, var(--rh-overlay-height, 320px), calc(100dvh - 12px - max(12px, var(--dsh-frame-overlay-top, 12px))));
   font-family: var(--rh-font-family);
   font-size: var(--rh-font-size);
   line-height: var(--rh-line-height);

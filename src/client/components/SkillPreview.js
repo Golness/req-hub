@@ -1,4 +1,6 @@
 'use strict';
+const { t } = require('../locale.js');
+const css = require('./SkillPreview.module.css').default;
 
 const React = require('react');
 const h = React.createElement;
@@ -83,7 +85,7 @@ function SkillPreview({ skillName, workspaceId, onBack }) {
         const res = await fetch(url);
         const data = await res.json();
         if (cancelled) return;
-        if (!res.ok) setError(data.error || 'load failed');
+        if (!res.ok) setError(data.error || t('common.loadFailed'));
         else {
           setText(data.content || '');
           setDescription(data.description || '');
@@ -158,23 +160,18 @@ function SkillPreview({ skillName, workspaceId, onBack }) {
     });
   }, [rendered, hljsLoaded]);
 
-  return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--dsw-alias-bg-base)' } },
+  return h('div', { className: css.column },
     // Header with back button
-    h('div', { style: {
-      display: 'flex', alignItems: 'center', gap: 8,
-      padding: '8px 12px',
-      borderBottom: '1px solid var(--dsw-alias-border-l1)',
-      background: 'var(--dsw-alias-bg-layer-1)'
-    }},
-      h(HeaderBack, { onBack: onBack, label: '返回设置' }),
-      h('div', { style: { flex: 1 } },
-        h('div', { style: { fontWeight: 600, fontSize: 'var(--rh-font-size)', display: 'flex', alignItems: 'center', gap: 4 } }, ` ${skillName}`),
-        description && h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', marginTop: 2 } }, description)
+    h('div', { className: css.row},
+      h(HeaderBack, { onBack: onBack, label: t("SettingsPanel.message001") }),
+      h('div', { className: css.content },
+        h('div', { className: css.row2 }, ` ${skillName}`),
+        description && h('div', { className: css.mutedText }, description)
       )
     ),
     // Content
-    h('div', { className: 'rh-preview-body', style: { flex: 1, overflow: 'auto' } },
-      error ? h('span', { className: 'rh-error' }, 'Error: ', error)
+    h('div', { className: ('rh-preview-body') + ' ' + css.pane },
+      error ? h('span', { className: 'rh-error' }, t("FilePreview.message019"), error)
         : text
           ? (markedLoaded && rendered)
             ? h('div', { ref: markdownRef, className: 'rh-markdown', dangerouslySetInnerHTML: { __html: rendered } })

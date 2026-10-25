@@ -1,4 +1,6 @@
 'use strict';
+const { t } = require('../locale.js');
+const { Button } = require('./shared/Button.js');
 const React = require('react'), h = React.createElement;
 const model = require('../../shared/sync-task.cjs');
 const { DeleteSyncTaskButton } = require('./shared/DeleteSyncTaskButton.js');
@@ -10,15 +12,15 @@ function SyncStatusBar({ monitor, onOpen }) {
   const steps = task.steps || [], step = steps.find(item => ['running','queued'].includes(item.status));
   const done = steps.filter(item => ['completed','skipped'].includes(item.status)).length;
   const chunks = step?.chunks || [], chunkDone = chunks.filter(item => ['completed','skipped'].includes(item.status)).length;
-  const text = task.status === 'cancelling' ? '正在终止' : active ? '后台同步中' : ({completed:'同步完成',failed:'同步失败',aborted:'同步已终止'}[task.status] || '同步结束');
-  const detail = active ? ` · ${step?.label || '同步检查'} · ${done}/${steps.length} 步${chunks.length ? ` · 分块 ${chunkDone}/${chunks.length}` : ''}` : task.error ? ` · ${task.error}` : '';
+  const text = task.status === 'cancelling' ? t("SyncStatusBar.message001") : active ? t("SyncStatusBar.message002") : ({completed:t("SyncStatusBar.message003"),failed:t("SyncStatusBar.message004"),aborted:t("SyncStatusBar.message005")}[task.status] || t("SyncStatusBar.message006"));
+  const detail = active ? t("SyncStatusBar.message009", { value0: step?.label || t("SyncStatusBar.message007"), value1: done, value2: steps.length, value3: chunks.length ? t("SyncStatusBar.message008", { value0: chunkDone, value1: chunks.length }) : '' }) : task.error ? ` · ${task.error}` : '';
   return h('div', { className: 'rh-sync-status', role: 'status', 'aria-live': 'polite', 'data-status': task.status },
-    h('button', { type:'button',className:'rh-btn rh-btn-ghost rh-btn-sm rh-sync-status-link',disabled:!task.id,
+    h(Button, { type:'button',className:'rh-btn rh-btn-ghost rh-btn-sm rh-sync-status-link',disabled:!task.id,
       onClick:()=>{ onOpen(task); monitor.dismiss(); },title:`${task.requirementId} · ${text}${detail}` },
-      `${task.docTypeName || (task.docType === 'design' ? '技术方案' : '需求文档')} · ${task.requirementId} · ${text}${detail}`),
-    monitor.error && h('button', {type:'button',className:'rh-btn rh-btn-ghost rh-btn-sm',onClick:monitor.refresh}, monitor.error + '，重试'),
+      `${task.docTypeName || (task.docType === 'design' ? t("DocumentDropdown.message005") : t("DocsViewerBody.message073"))} · ${task.requirementId} · ${text}${detail}`),
+    monitor.error && h(Button, {type:'button',className:'rh-btn rh-btn-ghost rh-btn-sm',onClick:monitor.refresh}, monitor.error + t("SyncStatusBar.message010")),
     h(DeleteSyncTaskButton, { task }),
-    !active && h('button', {type:'button',className:'rh-btn rh-btn-ghost rh-btn-sm','aria-label':'关闭同步通知',onClick:monitor.dismiss}, '关闭')
+    !active && h(Button, {type:'button',className:'rh-btn rh-btn-ghost rh-btn-sm','aria-label':t("SyncStatusBar.message011"),onClick:monitor.dismiss}, t("common.close"))
   );
 }
 module.exports = { SyncStatusBar };

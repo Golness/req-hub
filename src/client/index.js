@@ -1,3 +1,5 @@
+'use strict';
+const { t, installLocale } = require('./locale.js');
 /**
  * ReqHub - Requirements Hub
  * DSH (Developer Service Hub) plugin entry file.
@@ -10,7 +12,6 @@
  * @module req-hub/client
  */
 
-'use strict';
 
 const React = require('react');
 const h = React.createElement;
@@ -31,6 +32,7 @@ const { TAB_ID, TAB_KIND } = require('./constants.js');
 // 同步加载的组件（入口需要）
 const { TabBodyWrapper } = require('./components/TabBodyWrapper.js');
 const { TabTitle } = require('./components/TabTitle.js');
+const { ToastContainer } = require('./components/shared/ToastContainer.js');
 const { TriggerButton } = require('./components/TriggerButton.js');
 
 
@@ -43,12 +45,14 @@ const { TriggerButton } = require('./components/TriggerButton.js');
  * @property {Function} apply.dispose - Cleanup function returned by apply that disposes all registrations.
  */
 module.exports = {
-  inject: ['slots', 'sidebarRightTabs', 'sidebarRight', 'layout'],
+  inject: ['slots', 'sidebarRightTabs', 'sidebarRight', 'layout', 'locale'],
   apply(ctx) {
-    const disposers = [];
+    const disposers = [ctx.effect(() => installLocale(ctx))];
 
     // Store context globally for components to access
     window.__DSH_CTX__ = ctx;
+
+    disposers.push(ctx.slots.inject('shell.overlay', () => ctx.slots.register({ name: 'shell.overlay', id: 'req-hub-notifications' }, ToastContainer)));
 
     // 注册右侧边栏 Tab
     disposers.push(ctx.sidebarRightTabs.register({
@@ -56,14 +60,19 @@ module.exports = {
       kind: TAB_KIND,
       multiple: false,
       priority: 'user',
-      title: () => 'Req Hub',
+      title: () => t("common.brand"),
     }));
+
+    function LocalizedTabBody() {
+      React.useSyncExternalStore(listener => ctx.locale.subscribe(listener), () => ctx.locale.getSnapshot());
+      return h(TabBodyWrapper);
+    }
 
     // 注册 Tab 内容
     disposers.push(ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
       name: 'sidebar.right.pane.tab',
       key: TAB_ID,
-    }, TabBodyWrapper)));
+    }, LocalizedTabBody)));
 
     // 注册 Tab 标题
     disposers.push(ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
@@ -76,7 +85,7 @@ module.exports = {
       name: 'sidebar.footer.action',
       id: 'req-hub-trigger',
       order: 10,
-      label: 'Req Hub',
+      label: t("common.brand"),
     }, ({ wide }) => {
       const handleClick = () => {
         ctx.layout.openRightbar(true, false);
@@ -85,10 +94,15 @@ module.exports = {
       return h(TriggerButton, { onClick: handleClick, wide });
     })));
 
-    // 清理函数
-    return () => {
+    // The Client fiber owns teardown as well as direct-call test callers.
+    let disposed = false;
+    const cleanup = () => {
+      if (disposed) return;
+      disposed = true;
       for (const d of disposers) d();
       delete window.__DSH_CTX__;
     };
+    ctx.effect(() => cleanup, 'req-hub: client lifecycle');
+    return cleanup;
   },
 };

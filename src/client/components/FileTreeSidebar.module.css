@@ -1,0 +1,15 @@
+/* Component presentation; runtime geometry uses local CSS variables. */
+.row { display: flex; align-items: center; gap: 4px; padding: var(--rh-padding-3); cursor: pointer; font-size: var(--rh-font-size); border-radius: var(--dsw-radius-xs); user-select: none; }
+.mutedText { display: inline-block; width: 10px; transition: transform 0.15s; transform: var(--rh-transform-3); color: var(--dsw-alias-label-secondary); }
+.heading { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--rh-font-size); font-weight: 500; color: var(--dsw-alias-label-primary); }
+.spacing { font-size: var(--rh-font-size-sm); color: var(--dsw-alias-label-tertiary); margin-left: 4px; flex-shrink: 0; }
+.row2 { display: flex; align-items: center; gap: 6px; padding: var(--rh-padding-3); cursor: pointer; font-size: var(--rh-font-size); border-radius: var(--dsw-radius-xs); background: var(--rh-background-7); color: var(--rh-color-8); transition: background 0.1s; }
+.pane { flex: 1; overflow: hidden; min-width: 0; }
+.pane2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mutedText2 { font-size: var(--rh-font-size-sm); color: var(--dsw-alias-label-secondary); margin-top: 2px; }
+.content { flex-shrink: 0; }
+.size { width: var(--rh-width-0); min-width: var(--rh-min-width-1); }
+.indicator { transform: var(--rh-transform-0); }
+.size2 { min-height: 80px; }
+.pane3 { flex: 1; overflow: auto; padding: 4px 0; }
+.mutedText3 { padding: 4px 12px 8px; font-size: var(--rh-font-size-sm); color: var(--dsw-alias-label-secondary); }

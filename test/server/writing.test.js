@@ -1,3 +1,4 @@
+import {bindOwnedSession} from '../../src/server/delegation-context.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -38,6 +39,7 @@ it('isolates runtime tools to the child session and denies calls after close', a
   const search = definitions.get(WRITING_TOOLS[0]);
   expect(() => search.execute({ scopeId: 'a', query: '订单' }, { agent: { session: { id: 'parent' } } })).toThrow('DENIED');
   async function* next() { yield 'ok'; }
+  bindOwnedSession(runtime, 'child');
   for await (const _ of hook({ sessionId: 'child', messages: [{ content: `REQHUB_WRITING=${runtime.id}` }], tools: [] }, next)) {}
   expect(search.execute({ scopeId: 'a', query: '订单' }, { agent: { session: { id: 'child' } } })[0].id).toBe('one');
   expect(guard({ name: 'shell', agent: { session: { id: 'child' } } })).toContain('仅允许');
@@ -64,6 +66,7 @@ beforeEach(async () => {
   execute = vi.fn(async (_ctx, _llm, _config, options) => {
     const sessionId = `child-${execute.mock.calls.length}`;
     async function* next() { yield 'ok'; }
+    bindOwnedSession(options.runtime, sessionId);
     for await (const _ of streamHook({ sessionId, messages: [`REQHUB_WRITING=${options.variables.runtimeId}`], tools: WRITING_TOOLS.map(name => ({ name })) }, next)) {}
     const exec = { agent: { session: { id: sessionId } }, signal: options.signal };
     const evidenceIds = [];

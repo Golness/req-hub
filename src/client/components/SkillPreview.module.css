@@ -1,0 +1,7 @@
+/* Component presentation; runtime geometry uses local CSS variables. */
+.column { display: flex; flex-direction: column; height: 100%; background: var(--dsw-alias-bg-base); }
+.row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 0.5px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-1); }
+.content { flex: 1; }
+.row2 { font-weight: 500; font-size: var(--rh-font-size); display: flex; align-items: center; gap: 4px; }
+.mutedText { font-size: var(--rh-font-size-sm); color: var(--dsw-alias-label-secondary); margin-top: 2px; }
+.pane { flex: 1; overflow: auto; }

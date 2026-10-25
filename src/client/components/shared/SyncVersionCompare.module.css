@@ -1,0 +1,4 @@
+/* Component presentation; runtime geometry uses local CSS variables. */
+.spacing { margin-top: 20px; }
+.mutedText { color: var(--dsw-alias-label-secondary); font-size: var(--rh-font-size); }
+.row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }

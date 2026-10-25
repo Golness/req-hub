@@ -1,4 +1,9 @@
 'use strict';
+const { t } = require('../locale.js');
+const css = require('./InputModal.module.css').default;
+const { ModalFrame } = require('./shared/ModalFrame.js');
+const { Input } = require('./shared/Input.js');
+const { Button } = require('./shared/Button.js');
 
 const React = require('react');
 const h = React.createElement;
@@ -27,37 +32,27 @@ function InputModal({ title, value, placeholder, onConfirm, onCancel }) {
     onConfirm(inputValue.trim());
   };
 
-  return h('div', { className: 'rh-modal-overlay', onClick: onCancel, role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
+  return h(ModalFrame, { className: 'rh-modal-overlay', onClick: onCancel, role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
     h('div', { className: 'rh-modal', onClick: e => e.stopPropagation() },
       h('div', { className: 'rh-modal-title' }, title),
-      h('div', { style: { marginBottom: 12 } },
-        h('input', {
+      h('div', { className: css.spacing },
+        h(Input, {
           type: 'text',
           value: inputValue,
           onChange: e => setInputValue(e.target.value),
           onKeyDown: e => {
-            if (e.key === 'Enter') handleConfirm();
-            if (e.key === 'Escape') onCancel();
+            if (e.key === 'Enter' && !e.nativeEvent?.isComposing) handleConfirm();
+
           },
-          placeholder: placeholder || '请输入...',
+          placeholder: placeholder || t("InputModal.message001"),
           'aria-label': title,
-          autoFocus: true,
-          style: {
-            width: '100%',
-            padding: '8px 12px',
-            border: '1px solid var(--dsw-alias-border-l1)',
-            borderRadius: '6px',
-            fontSize: '12px',
-            background: 'var(--dsw-alias-bg-layer-2)',
-            color: 'var(--dsw-alias-label-primary)',
-            outline: 'none',
-            boxSizing: 'border-box',
-          }
+          'data-modal-autofocus': true,
+          className: css.size
         })
       ),
       h('div', { className: 'rh-modal-actions' },
-        h('button', { className: 'rh-btn', onClick: onCancel }, '取消'),
-        h('button', { className: 'rh-btn rh-btn-primary', onClick: handleConfirm }, '确定')
+        h(Button, { className: 'rh-btn', onClick: onCancel }, t("common.cancel")),
+        h(Button, { className: 'rh-btn rh-btn-primary', onClick: handleConfirm }, t("common.confirm"))
       )
     )
   );

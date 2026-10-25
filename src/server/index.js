@@ -1,3 +1,8 @@
+import { createOperations, installOperationTool } from './operations.js';
+import { authenticatedRoute, disposeAll } from './plugin-boundaries.js';
+import { configureStorage, Config } from './config.js';
+import { join } from 'node:path';
+export { Config };
 import { installSyncTools } from './sync-controlled-tools.js';
 /**
  * ReqHub — Requirement document management plugin for DeepSeek Harness.
@@ -28,18 +33,7 @@ export const name = 'req-hub';
  * Declared service dependencies — Cordis resolves load order from this list.
  * @type {string[]}
  */
-export const inject = ['workspaceRegistry', 'webServer', 'llm', 'sessions', 'skills', 'agents', 'agentPresets', 'sessionQuery', 'subagents', 'sessionProjections', 'tools'];
-
-/**
- * Plugin configuration schema.
- *
- * NOTE: A full schemastery/zod Config export is omitted because @deepseek-ai/schemastery
- * is not yet available as a standalone package. When it becomes available, replace this
- * with a proper z.object({...}) schema to enable DSH Settings UI integration.
- *
- * Configuration is managed via config.json loaded by the config module.
- * @see {@link module:config.loadConfig}
- */
+export const inject = ['workspaceRegistry', 'connection', 'webServer', 'llm', 'sessions', 'skills', 'agents', 'agentPresets', 'sessionQuery', 'subagents', 'sessionProjections', 'tools'];
 
 /**
  * Apply plugin effects to the DSH context.
@@ -60,7 +54,13 @@ export const inject = ['workspaceRegistry', 'webServer', 'llm', 'sessions', 'ski
  * @param {Object} ctx.sessionProjections - Session projections service
  * @returns {Function} Disposer function that cleans up all registered routes
  */
-export function apply(ctx) {
+export function apply(ctx, config = {}) {
+  // ctx.get is Cordis' optional-service lookup; profile launchers provide this
+  // before activating bundles. Shell environment variables are only a fallback.
+  const profile = ctx.get?.('profileContext');
+  const releaseConfig = configureStorage(config, {
+    filePath: profile?.dir ? join(profile.dir, 'req-hub', 'config.json') : undefined,
+  });
   const { workspaceRegistry, webServer, llm, sessions, skills, agents, agentPresets, sessionQuery, subagents, sessionProjections } = ctx;
 
   // 设置 skills 服务到 prompts 模块
@@ -78,14 +78,15 @@ export function apply(ctx) {
     hasSessionProjections: !!sessionProjections
   });
 
-  const disposers = [];
+  const disposers = [releaseConfig];
   const knowledge = createKnowledgeRoutes(workspaceRegistry);
   const writing = createWritingRoutes(workspaceRegistry, llm, agents, ctx, knowledge.service);
-  disposers.push(() => { void writing.dispose(); });
-  disposers.push(() => { void knowledge.dispose(); });
+  disposers.push(() => writing.dispose());
+  disposers.push(() => knowledge.dispose());
   const syncTools = installSyncTools(ctx);
   if (syncTools) disposers.push(() => syncTools.dispose());
 
+  const analysisRoutes = createAnalyzeRoutes(workspaceRegistry, llm, sessions, agents, agentPresets, sessionQuery, ctx);
   const syncRoutes = createSyncRoutes(workspaceRegistry, llm, sessions, agents, ctx);
 
   // 创建所有路由
@@ -98,7 +99,7 @@ export function apply(ctx) {
     ...createTreeRoutes(workspaceRegistry),
     
     // AI 分析相关（传入 ctx 用于 subagent）
-    ...createAnalyzeRoutes(workspaceRegistry, llm, sessions, agents, agentPresets, sessionQuery, ctx),
+    ...analysisRoutes,
     
     // 文档同步相关（传入 agents 和 ctx 用于 subagent）
     ...syncRoutes,
@@ -304,6 +305,7 @@ export function apply(ctx) {
           return;
         }
 
+        let scopeLease;
         try {
           // 获取 cwd（用于工作区相关的技能）
           let cwd = undefined;
@@ -340,7 +342,7 @@ export function apply(ctx) {
                 // 3. 如果没有活跃 agent，尝试从 preset 获取 scope
                 if (!scoped && agentPreset) {
                   try {
-                    const lease = await agentPresets.acquireScope(agentPreset);
+                    const lease = scopeLease = await agentPresets.acquireScope(agentPreset);
                     if (lease) {
                       scope = lease.key;
                       // 注意：lease 需要在使用后释放，但我们这里直接返回结果，
@@ -389,7 +391,7 @@ export function apply(ctx) {
         } catch (e) {
           log.startup.error(`获取 skills 失败: ${e.message}`, { stack: e.stack });
           json(res, { skills: [], error: e.message }, 500);
-        }
+        } finally { await scopeLease?.[Symbol.asyncDispose](); }
       }
     },
     // Skill 内容接口
@@ -418,6 +420,7 @@ export function apply(ctx) {
           return;
         }
 
+        let scopeLease;
         try {
           // 获取 cwd
           let cwd = undefined;
@@ -449,7 +452,7 @@ export function apply(ctx) {
                 
                 if (!scoped && agentPreset) {
                   try {
-                    const lease = await agentPresets.acquireScope(agentPreset);
+                    const lease = scopeLease = await agentPresets.acquireScope(agentPreset);
                     if (lease) {
                       scope = lease.key;
                     }
@@ -481,31 +484,24 @@ export function apply(ctx) {
         } catch (e) {
           log.startup.error(`获取 skill 内容失败: ${e.message}`);
           json(res, { error: e.message }, 500);
-        }
+        } finally { await scopeLease?.[Symbol.asyncDispose](); }
       }
     }
   ];
 
-  // 注册所有路由
-  for (const route of routes) {
-    try {
-      const dispose = webServer.register(route);
-      disposers.push(dispose);
-    } catch (err) {
-      if (!String(err.message).includes('duplicate')) {
-        log.startup.error(`路由注册失败: ${err.message}`);
-      }
-    }
+  const operations = createOperations(routes);
+  disposers.push(installOperationTool(ctx, operations));
+
+  let closing;
+  const cleanup = () => closing ||= disposeAll([
+    () => analysisRoutes.dispose(), () => syncRoutes.dispose(),
+    ...disposers.slice(1), releaseConfig,
+  ]).then(() => { log.startup.info('ReqHub 插件卸载'); });
+  // Cordis owns effects; returning a function from apply alone is insufficient.
+  ctx.effect(() => cleanup, 'req-hub: lifecycle');
+  for (const route of operations.routes) {
+    disposers.push(webServer.register(authenticatedRoute(ctx.connection, route)));
   }
-
   log.startup.info(`已注册 ${routes.length} 个路由`);
-
-  // 返回清理函数
-  return async () => {
-    await syncRoutes.dispose();
-    for (const dispose of disposers) {
-      await dispose();
-    }
-    log.startup.info('ReqHub 插件卸载');
-  };
+  return cleanup;
 }

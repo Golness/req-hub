@@ -1,4 +1,7 @@
 'use strict';
+const { Input } = require('./shared/Input.js');
+const { t } = require('../locale.js');
+const { Button } = require('./shared/Button.js');
 const React = require('react');
 const h = React.createElement;
 const { formatSourceLocation } = require('../utils/formatSourceLocation.js');
@@ -34,24 +37,24 @@ function SearchPanel({ onOpenKnowledge, onOpenSource, active = true }) {
   return h('div', { className: 'rh-knowledge-panel' },
     h('form', { className: 'rh-search-bar', role: 'search', onSubmit: submit },
       h('div', { className: 'rh-knowledge-toolbar' },
-        h('input', { ref: inputRef, className: 'rh-search-input', type: 'search', 'aria-label': '搜索整个知识库', placeholder: '搜索整个知识库的内容…', value: query, onChange: e => setQuery(e.target.value), onKeyDown: e => { if (e.key === 'Enter' && (e.nativeEvent.isComposing || e.keyCode === 229)) e.preventDefault(); } }),
-        h('button', { className: 'rh-btn rh-btn-primary', type: 'submit', disabled: search.loading || !query.trim() }, '搜索'))),
-    search.error && h('div', { role: 'alert', className: 'rh-knowledge-error' }, search.error, h('button', { className: 'rh-btn rh-btn-ghost rh-btn-sm', onClick: submit }, '重试')),
-    search.warnings?.length > 0 && h('div', { role: 'alert', className: 'rh-knowledge-error' }, `部分知识库暂时无法检索：${search.warnings.map(w => `${w.workspaceTitle}（${w.message}）`).join('；')}`),
-    search.knowledgeReady === false && h(EmptyState, { title: '知识库尚无已入库内容', description: '先在知识库勾选文件并分析，再搜索知识内容。', actions: [{ label: '进入知识库', onClick: onOpenKnowledge }] }),
+        h(Input, { ref: inputRef, className: 'rh-search-input', type: 'search', 'aria-label': t("SearchPanel.message001"), placeholder: t("SearchPanel.message002"), value: query, onChange: e => setQuery(e.target.value), onKeyDown: e => { if (e.key === 'Enter' && (e.nativeEvent.isComposing || e.keyCode === 229)) e.preventDefault(); } }),
+        h(Button, { className: 'rh-btn rh-btn-primary', type: 'submit', disabled: search.loading || !query.trim() }, t("DocsViewerBody.message055")))),
+    search.error && h('div', { role: 'alert', className: 'rh-knowledge-error' }, search.error, h(Button, { className: 'rh-btn rh-btn-ghost rh-btn-sm', onClick: submit }, t("common.retry"))),
+    search.warnings?.length > 0 && h('div', { role: 'alert', className: 'rh-knowledge-error' }, t("SearchPanel.message003", { value0: search.warnings.map(w => `${w.workspaceTitle}（${w.message}）`).join('；') })),
+    search.knowledgeReady === false && h(EmptyState, { title: t("SearchPanel.message004"), description: t("SearchPanel.message005"), actions: [{ label: t("SearchPanel.message006"), onClick: onOpenKnowledge }] }),
     h('div', { className: 'rh-knowledge-results' },
       search.loading ? h(Skeleton, { lines: 4 }) : detailId
-        ? h('section', { 'aria-label': '知识详情' },
-          h(HeaderBack, { onBack: () => setDetailId(null), active, label: '返回搜索结果' }),
+        ? h('section', { 'aria-label': t("SearchPanel.message007") },
+          h(HeaderBack, { onBack: () => setDetailId(null), active, label: t("SearchPanel.message008") }),
           detailError && h('p', { role: 'alert' }, detailError),
           !detail && !detailError && h(Skeleton, { lines: 3 }),
-          detail && h(React.Fragment, null, h('h3', null, detail.title), h('p', null, `${detail.workspaceTitle} · 版本 v${detail.version} · ${detail.tags.join(' · ')}`), h('div', { className: 'rh-knowledge-text' }, detail.body),
-            h('h4', null, '来源文件'), detail.sources.map((source, i) => h('div', { key: i }, h('button', { className: 'rh-btn rh-btn-ghost rh-btn-sm', onClick: () => onOpenSource?.(source), disabled: ['missing', 'unavailable'].includes(source.status), title: source.relativePath }, `${source.relativePath} · ${formatSourceLocation(source)}`), ['missing', 'unavailable'].includes(source.status) && h('span', null, '来源不存在或无法读取'), source.status === 'stale' && h('span', null, '来源已更新，请重新分析'))),
-            h('details', null, h('summary', null, '版本历史'), detail.versions?.map(version => h('div', { key: version.version }, h('strong', null, `v${version.version}`), h('div', { className: 'rh-knowledge-text' }, version.body))))))
+          detail && h(React.Fragment, null, h('h3', null, detail.title), h('p', null, t("SearchPanel.message009", { value0: detail.workspaceTitle, value1: detail.version, value2: detail.tags.join(' · ') })), h('div', { className: 'rh-knowledge-text' }, detail.body),
+            h('h4', null, t("SearchPanel.message010")), detail.sources.map((source, i) => h('div', { key: i }, h(Button, { className: 'rh-btn rh-btn-ghost rh-btn-sm', onClick: () => onOpenSource?.(source), disabled: ['missing', 'unavailable'].includes(source.status), title: source.relativePath }, `${source.relativePath} · ${formatSourceLocation(source)}`), ['missing', 'unavailable'].includes(source.status) && h('span', null, t("SearchPanel.message011")), source.status === 'stale' && h('span', null, t("SearchPanel.message012")))),
+            h('details', null, h('summary', null, t("SearchPanel.message013")), detail.versions?.map(version => h('div', { key: version.version }, h('strong', null, `v${version.version}`), h('div', { className: 'rh-knowledge-text' }, version.body))))))
         : search.searched && !search.error && search.knowledgeReady !== false
-          ? h(React.Fragment, null, h('div', { className: 'rh-search-count' }, `找到 ${search.results.length} 条知识${search.hasMore ? '（还有更多）' : ''}`),
-            search.results.length ? search.results.map(entry => h('button', { key: `${entry.workspaceId}:${entry.id}`,  type: 'button', className: 'rh-result-card rh-knowledge-hit', onClick: () => setDetailId({ id: entry.id, workspaceId: entry.workspaceId, workspaceTitle: entry.workspaceTitle }) }, h('strong', { className: 'rh-result-title' }, entry.title), h('div', { className: 'rh-result-summary' }, entry.snippet), h('div', { className: 'rh-result-meta' }, `${entry.workspaceTitle} · ${entry.sources.map(s => `${s.relativePath} · ${formatSourceLocation(s)}`).join(' · ')}`))) : h(EmptyState, { title: '无匹配知识', description: '请尝试其他关键词，或分析更多来源文件。' }),
-            search.hasMore && (limit < 100 ? h('button', { className: 'rh-btn rh-btn-ghost', onClick: () => { const next = Math.min(100, limit + 20); setLimit(next); search.handleSearch(query, next); } }, '显示更多') : h('p', null, '已显示前 100 条，请收窄查询。')))
-          : search.knowledgeReady !== false && !search.error && h(EmptyState, { title: '搜索整个知识库', description: '输入关键词搜索所有工作区已入库的文档内容。' })));
+          ? h(React.Fragment, null, h('div', { className: 'rh-search-count' }, t("SearchPanel.message015", { value0: search.results.length, value1: search.hasMore ? t("SearchPanel.message014") : '' })),
+            search.results.length ? search.results.map(entry => h('button', { key: `${entry.workspaceId}:${entry.id}`,  type: 'button', className: 'rh-result-card rh-knowledge-hit', onClick: () => setDetailId({ id: entry.id, workspaceId: entry.workspaceId, workspaceTitle: entry.workspaceTitle }) }, h('strong', { className: 'rh-result-title' }, entry.title), h('div', { className: 'rh-result-summary' }, entry.snippet), h('div', { className: 'rh-result-meta' }, `${entry.workspaceTitle} · ${entry.sources.map(s => `${s.relativePath} · ${formatSourceLocation(s)}`).join(' · ')}`))) : h(EmptyState, { title: t("SearchPanel.message016"), description: t("SearchPanel.message017") }),
+            search.hasMore && (limit < 100 ? h(Button, { className: 'rh-btn rh-btn-ghost', onClick: () => { const next = Math.min(100, limit + 20); setLimit(next); search.handleSearch(query, next); } }, t("SearchPanel.message018")) : h('p', null, t("SearchPanel.message019"))))
+          : search.knowledgeReady !== false && !search.error && h(EmptyState, { title: t("SearchPanel.message001"), description: t("SearchPanel.message020") })));
 }
 module.exports = { SearchPanel };

@@ -13,19 +13,19 @@
 .rh-markdown h6 {
   margin-top: 1.5em;
   margin-bottom: 0.5em;
-  font-weight: 600;
+  font-weight: var(--dsw-font-markdown-base-strong-font-weight);
   color: var(--dsw-alias-label-primary);
 }
 
 .rh-markdown h1 {
   font-size: 1.8em;
-  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
   padding-bottom: 0.3em;
 }
 
 .rh-markdown h2 {
   font-size: 1.5em;
-  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
   padding-bottom: 0.3em;
 }
 
@@ -54,7 +54,7 @@
 .rh-markdown code {
   background: var(--dsw-alias-bg-layer-2);
   padding: 0.2em 0.4em;
-  border-radius: 3px;
+  border-radius: var(--dsw-radius-xs);
   font-family: var(--rh-font-code);
   font-size: 0.9em;
 }
@@ -62,7 +62,7 @@
 .rh-markdown pre {
   background: var(--dsw-alias-bg-layer-2);
   padding: 1em;
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-sm);
   overflow-x: auto;
   margin: 1em 0;
 }
@@ -97,14 +97,14 @@
 
 .rh-markdown th,
 .rh-markdown td {
-  border: 1px solid var(--dsw-alias-border-l1);
+  border: 0.5px solid var(--dsw-alias-border-l1);
   padding: 0.5em;
   text-align: left;
 }
 
 .rh-markdown th {
   background: var(--dsw-alias-bg-layer-2);
-  font-weight: 600;
+  font-weight: var(--dsw-font-markdown-base-strong-font-weight);
 }
 
 .rh-markdown img {
@@ -114,7 +114,7 @@
 
 .rh-markdown hr {
   border: none;
-  border-top: 1px solid var(--dsw-alias-border-l1);
+  border-top: 0.5px solid var(--dsw-alias-border-l1);
   margin: 2em 0;
 }
 
@@ -133,9 +133,12 @@
   display: block;
   background: var(--dsw-alias-bg-layer-2);
   padding: 1em;
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-sm);
   font-family: var(--rh-font-code);
   font-size: 0.85em;
   white-space: pre;
   overflow-x: auto;
 }
+
+.rh-markdown :where(strong, b),
+.rh-milkdown-editor :where(strong, b) { font-weight: var(--dsw-font-markdown-base-strong-font-weight); }

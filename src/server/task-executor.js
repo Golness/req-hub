@@ -1,3 +1,4 @@
+import { delegationContext, bindOwnedSession } from './delegation-context.js';
 /**
  * Task executor module.
  * All LLM tasks are delegated to DSH Subagent for execution.
@@ -666,17 +667,22 @@ export class TaskExecutor {
     );
 
     // 启动 subagent
-    const startController = options.syncV2 ? new AbortController() : null;
+    const startController = new AbortController();
     const startSignal = startController ? AbortSignal.any([startController.signal, this.signal].filter(Boolean)) : this.signal;
     startSignal?.throwIfAborted();
-    const startPromise = Promise.resolve(this.ctx.subagents.start(provider, {
+    if (options.runtime) options.runtime.parentSessionId = this.parentAgent.session.id;
+    const startPromise = Promise.resolve(delegationContext.run(options.runtime, () => this.ctx.subagents.start(provider, {
       label: description || promptKey,
       prompt: [{ type: 'text', text: fullPrompt }],
       parent: this.parentAgent,
       signal: startSignal,
       ...(options.toolFilter ? { toolFilter: options.toolFilter } : {}),
       ...Object.values(mergedAgentOptions).some(v => v !== undefined) ? { agentOptions: mergedAgentOptions } : {},
-    })).then(run => {
+    }))).then(async run => {
+      if (options.runtime && !options.runtime.closed && !startSignal.aborted) {
+        try { bindOwnedSession(options.runtime, run.id); }
+        catch (error) { await run.dispose(); throw error; }
+      }
       // A child may settle while an awaited progress callback persists its ID.
       if (options.syncV2) void run.result.catch(() => {});
       return run;
@@ -695,7 +701,8 @@ export class TaskExecutor {
 
     try {
       const run = await Promise.race([startPromise, startTimeoutPromise]);
-      if (options.syncV2) startSignal.throwIfAborted();
+      startSignal.throwIfAborted();
+      if (options.runtime?.closed) throw new Error('DELEGATION_RUNTIME_CLOSED');
       return { run, provider, startController };
     } catch (e) {
       if (startController) {
@@ -1037,6 +1044,7 @@ export class TaskExecutor {
       // ====== 四、Subagent 执行 ======
       const execResult = await this.executeSubagent(run, options);
       const { result, sessionId } = execResult;
+      this.signal?.throwIfAborted();
 
       // 提取输出
       const output = this.extractOutput(result.output);

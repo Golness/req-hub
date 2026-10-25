@@ -1,4 +1,6 @@
 'use strict';
+const { t } = require('../locale.js');
+const { Button } = require('./shared/Button.js');
 
 const React = require('react');
 const { Select } = require('./shared/Select.js');
@@ -7,12 +9,12 @@ const { useState, useRef, useId } = React;
 
 // Follow the rail order. Features without prompts do not need empty tabs.
 const CATEGORIES = [
-  { id: 'create', label: '新建' },
-  { id: 'sync', label: '同步' },
-  { id: 'view', label: '查看' },
-  { id: 'trace', label: '追溯' },
-  { id: 'writing', label: '写作' },
-  { id: 'other', label: '其他' },
+  { id: 'create', label: t("DocsViewerBody.message051") },
+  { id: 'sync', label: t("DocsViewerBody.message052") },
+  { id: 'view', label: t("DocsViewerBody.message053") },
+  { id: 'trace', label: t("PromptManager.message001") },
+  { id: 'writing', label: t("DocsViewerBody.message056") },
+  { id: 'other', label: t("FileTreeSidebar.message021") },
 ];
 
 function getPromptCategory(key, meta) {
@@ -40,15 +42,15 @@ function PromptManager({ registry, error, onRetry, prompts, skillBindings, skill
     onChange(key, value);
   };
 
-  return h('section', { className: 'rh-prompt-manager', 'aria-label': 'Prompt 管理' },
-    h('div', { className: 'rh-prompt-section-title' }, 'Prompt 管理'),
+  return h('section', { className: 'rh-prompt-manager', 'aria-label': t("PromptManager.message002") },
+    h('div', { className: 'rh-prompt-section-title' }, t("PromptManager.message002")),
     error ? h('div', { className: 'rh-prompt-empty', role: 'alert' },
-      h('span', null, 'Prompt 加载失败'),
-      h('button', { className: 'rh-btn rh-btn-sm', onClick: onRetry, type: 'button' }, '重试')
-    ) : !registry ? h('div', { className: 'rh-prompt-empty', role: 'status' }, '加载中…')
-      : !selected ? h('div', { className: 'rh-prompt-empty' }, '暂无 Prompt')
+      h('span', null, t("PromptManager.message003")),
+      h(Button, { className: 'rh-btn rh-btn-sm', onClick: onRetry, type: 'button' }, t("common.retry"))
+    ) : !registry ? h('div', { className: 'rh-prompt-empty', role: 'status' }, t("common.loadingEllipsis"))
+      : !selected ? h('div', { className: 'rh-prompt-empty' }, t("PromptManager.message006"))
       : h(React.Fragment, null,
-        h('div', { className: 'rh-workbench-tabs rh-prompt-tabs', role: 'tablist', 'aria-label': '功能分类' },
+        h('div', { className: 'rh-workbench-tabs rh-prompt-tabs', role: 'tablist', 'aria-label': t("PromptManager.message007") },
           categories.map(item => h('button', {
             key: item.id,
             id: `${id}-tab-${item.id}`,
@@ -73,7 +75,7 @@ function PromptManager({ registry, error, onRetry, prompts, skillBindings, skill
         ),
         h('div', { className: 'rh-prompt-workspace', role: 'tabpanel', id: `${id}-panel`, 'aria-labelledby': `${id}-tab-${category.id}` },
           h(Select, {
-            className: 'rh-form-select rh-prompt-picker', 'aria-label': '选择 Prompt', value: selected[0],
+            className: 'rh-form-select rh-prompt-picker', 'aria-label': t("PromptManager.message008"), value: selected[0],
             onChange: event => setSelectedKeys(prev => ({ ...prev, [category.id]: event.target.value })),
           }, category.entries.map(([key, meta]) => h('option', { key, value: key }, meta.label))),
           h('nav', { className: 'rh-prompt-list', 'aria-label': `${category.label} Prompt` },
@@ -85,7 +87,7 @@ function PromptManager({ registry, error, onRetry, prompts, skillBindings, skill
               onClick: () => setSelectedKeys(prev => ({ ...prev, [category.id]: key })),
             },
               h('span', null, meta.label),
-              ((prompts[key]?.trim() && prompts[key] !== meta.default) || skillBindings[key]) && h('span', { className: 'rh-prompt-dot', title: '已自定义', 'aria-label': '已自定义' })
+              ((prompts[key]?.trim() && prompts[key] !== meta.default) || skillBindings[key]) && h('span', { className: 'rh-prompt-dot', title: t("PromptManager.message009"), 'aria-label': t("PromptManager.message009") })
             ))
           ),
           (() => {
@@ -98,45 +100,45 @@ function PromptManager({ registry, error, onRetry, prompts, skillBindings, skill
             return h('fieldset', { className: 'rh-prompt-editor', disabled, key },
               h('div', { className: 'rh-prompt-editor-heading' },
                 h('label', { htmlFor: `${id}-editor`, className: 'rh-prompt-name' }, meta.label),
-                h('span', { className: 'rh-prompt-status' }, customized ? '自定义' : '默认'),
-                h('button', {
+                h('span', { className: 'rh-prompt-status' }, customized ? t("PromptManager.message010") : t("FileTreeSidebar.message024")),
+                h(Button, {
                   type: 'button', className: 'rh-btn rh-btn-ghost rh-btn-sm',
                   disabled: !custom && !binding && !Object.prototype.hasOwnProperty.call(drafts, key),
-                  title: '恢复默认 Prompt 并解除 Skill 绑定',
+                  title: t("PromptManager.message011"),
                   onClick: () => {
                     setDrafts(prev => { const next = { ...prev }; delete next[key]; return next; });
                     onReset(key);
                   },
-                }, '恢复默认')
+                }, t("PromptManager.message012"))
               ),
               meta.description && h('p', { className: 'rh-prompt-description' }, meta.description),
               h('div', { className: 'rh-prompt-skill' },
-                h('label', { htmlFor: `${id}-skill` }, 'Skill'),
+                h('label', { htmlFor: `${id}-skill` }, t("common.skillLabel")),
                 h(Select, {
                   id: `${id}-skill`, className: 'rh-form-select', value: binding,
-                  'aria-label': 'Skill', searchable: true, searchPlaceholder: '搜索 Skill…',
+                  'aria-label': t("common.skillLabel"), searchable: true, searchPlaceholder: t("PromptManager.message013"),
                   onChange: event => onBindSkill(key, event.target.value),
                 },
-                  h('option', { value: '' }, '不绑定'),
-                  binding && !skills.some(skill => skill.name === binding) && h('option', { value: binding }, `${binding}（不可用）`),
+                  h('option', { value: '' }, t("PromptManager.message014")),
+                  binding && !skills.some(skill => skill.name === binding) && h('option', { value: binding }, t("PromptManager.message015", { value0: binding })),
                   skills.map(skill => h('option', { key: skill.name, value: skill.name, title: skill.description }, skill.name))
                 ),
-                binding && h('button', { type: 'button', className: 'rh-btn rh-btn-sm', onClick: () => onPreviewSkill(binding) }, '预览 Skill')
+                binding && h(Button, { type: 'button', className: 'rh-btn rh-btn-sm', onClick: () => onPreviewSkill(binding) }, t("PromptManager.message016"))
               ),
               h('textarea', {
                 ref: editorRef, id: `${id}-editor`, className: 'rh-form-textarea rh-prompt-textarea',
                 value, onChange: event => updateDraft(key, event.target.value),
-                spellCheck: false, placeholder: '留空使用默认 Prompt',
+                spellCheck: false, placeholder: t("PromptManager.message017"),
                 'aria-describedby': missing.length ? `${id}-warning` : undefined,
               }),
               missing.length > 0 && h('div', { id: `${id}-warning`, className: 'rh-prompt-warning', role: 'status' },
-                `缺少变量：${missing.map(variable => `{${variable.name}}`).join('、')}`
+                t("PromptManager.message018", { value0: missing.map(variable => `{${variable.name}}`).join('、') })
               ),
               h('details', { className: 'rh-prompt-reference', key: `${key}-reference` },
-                h('summary', null, '变量与输出', meta.outputFormat ? ` · ${meta.outputFormat}` : ''),
-                h('div', { className: 'rh-prompt-variables' }, (meta.variables || []).map(variable => h('button', {
+                h('summary', null, t("PromptManager.message019"), meta.outputFormat ? ` · ${meta.outputFormat}` : ''),
+                h('div', { className: 'rh-prompt-variables' }, (meta.variables || []).map(variable => h(Button, {
                   key: variable.name, type: 'button', className: 'rh-btn rh-btn-sm rh-prompt-variable',
-                  title: `${variable.description || variable.name}${variable.required ? '（必填）' : ''}，点击插入`,
+                  title: t("PromptManager.message021", { value0: variable.description || variable.name, value1: variable.required ? t("PromptManager.message020") : '' }),
                   onClick: () => {
                     const editor = editorRef.current;
                     const start = editor.selectionStart;

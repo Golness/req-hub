@@ -1,0 +1,12 @@
+.modal { width: min(960px, 92vw); max-height: 85vh; display: flex; flex-direction: column; gap: 12px; }
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.toolbar > :first-child { flex: 1; min-width: 140px; }
+.content { display: flex; gap: 12px; min-height: 180px; overflow: auto; }
+.list { flex: 1; min-width: 0; overflow: auto; }
+.item { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 0; border-bottom: 0.5px solid var(--dsw-alias-border-l3); }
+.item > :first-child { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.item small { flex-basis: 100%; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
+.preview { flex: 2; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.transcript { font-family: inherit; font-size: 13px; line-height: 20px; white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; margin: 0; }
+.job { font-size: 12px; line-height: 18px; display: flex; align-items: center; gap: 8px; }
+@media (max-width: 600px) { .content { flex-direction: column; } .list { max-height: 200px; flex: none; } .preview { min-height: 120px; } }

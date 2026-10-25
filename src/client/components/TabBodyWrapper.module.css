@@ -1,0 +1,2 @@
+/* Component presentation; runtime geometry uses local CSS variables. */
+.column { display: flex; flex-direction: column; height: 100%; }

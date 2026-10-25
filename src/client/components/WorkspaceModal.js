@@ -1,4 +1,8 @@
 'use strict';
+const { t } = require('../locale.js');
+const css = require('./WorkspaceModal.module.css').default;
+const { ModalFrame } = require('./shared/ModalFrame.js');
+const { Button } = require('./shared/Button.js');
 
 const React = require('react');
 const h = React.createElement;
@@ -17,18 +21,17 @@ const h = React.createElement;
  * @returns {JSX.Element}
  */
 function WorkspaceModal({ workspaces, selectedId, onSelect, onClose }) {
-  return h('div', { className: 'rh-modal-overlay', onClick: onClose, role: 'dialog', 'aria-modal': 'true', 'aria-label': '选择工作区' },
+  return h(ModalFrame, { className: 'rh-modal-overlay', onClick: onClose, role: 'dialog', 'aria-modal': 'true', 'aria-label': t("WorkspaceModal.message001") },
     h('div', { className: 'rh-modal', onClick: e => e.stopPropagation() },
-      h('div', { className: 'rh-modal-title', style: { display: 'flex', alignItems: 'center', gap: 6 } },  ' 选择工作区'),
+      h('div', { className: ('rh-modal-title') + ' ' + css.row },  t("WorkspaceModal.message002")),
       workspaces.length === 0
-        ? h('div', { className: 'rh-empty' }, '暂无工作区')
-        : h('div', { className: 'rh-modal-list', role: 'listbox' },
+        ? h('div', { className: 'rh-empty' }, t("WorkspaceModal.message003"))
+        : h('div', { className: 'rh-modal-list', role: 'group' },
             workspaces.map(ws =>
-              h('div', {
+              h(Button, {
                 key: ws.id,
                 className: `rh-modal-item${selectedId === ws.id ? ' selected' : ''}`,
-                role: 'option',
-                'aria-selected': selectedId === ws.id ? 'true' : 'false',
+                'aria-pressed': selectedId === ws.id,
                 onClick: () => { onSelect(ws); onClose(); },
               },
 
@@ -37,7 +40,7 @@ function WorkspaceModal({ workspaces, selectedId, onSelect, onClose }) {
             )
           ),
       h('div', { className: 'rh-modal-actions' },
-        h('button', { className: 'rh-btn', onClick: onClose }, '关闭')
+        h(Button, { className: 'rh-btn', onClick: onClose }, t("common.close"))
       )
     )
   );

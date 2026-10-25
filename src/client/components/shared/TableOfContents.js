@@ -1,4 +1,7 @@
 'use strict';
+const { t } = require('../../locale.js');
+const css = require('./TableOfContents.module.css').default;
+const { cssValue } = require('./presentation.js');
 const React = require('react');
 const h = React.createElement;
 
@@ -27,16 +30,16 @@ function TableOfContents({ headings, activeId, onNavigate, width }) {
 
   return h('nav', {
     ref: navRef,
-    className: 'rh-toc',
-    'aria-label': '文档目录',
-    style: { width: width || '100%' },
+    className: ('rh-toc') + ' ' + css.size,
+    'aria-label': t("TableOfContents.message001"),
+    style: { "--rh-width-0": cssValue(width || '100%') },
   },
-    h('div', { className: 'rh-toc-title' }, '目录'),
+    h('div', { className: 'rh-toc-title' }, t("TableOfContents.message002")),
     headings.map(heading =>
       h('button', {
         key: heading.id,
-        className: `rh-toc-item rh-toc-level-${heading.level}${activeId === heading.id ? ' active' : ''}`,
-        style: { paddingLeft: `${(heading.level - 1) * 12 + 12}px` },
+        className: (`rh-toc-item rh-toc-level-${heading.level}${activeId === heading.id ? ' active' : ''}`) + ' ' + css.content,
+        style: { "--rh-padding-left-0": cssValue(`${(heading.level - 1) * 12 + 12}px`) },
         onClick: () => onNavigate && onNavigate(heading.id),
         'aria-current': activeId === heading.id ? 'location' : undefined,
       }, heading.text)
@@ -62,7 +65,7 @@ function extractHeadings(markdown) {
     if (match) {
       const text = match[2].trim();
       // 生成稳定的 ID（基于行号和内容）
-      const id = `heading-${i}-${text.toLowerCase().replace(/[^a-z0-9一-龥]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')}`;
+      const id = `heading-${i}-${text.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')}`;
       headings.push({
         id,
         level: match[1].length,

@@ -1,3 +1,4 @@
+'use strict';
 /**
  * React Context for ReqHub cross-component communication.
  * Provides shared state and methods to descendant components.
@@ -5,7 +6,6 @@
  * @module req-hub/client/context
  */
 
-'use strict';
 
 const React = require('react');
 

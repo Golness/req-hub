@@ -12,15 +12,7 @@
   animation: rh-spin 1s linear infinite;
 }
 
-.rh-spinner {
-  width: 18px;
-  height: 18px;
-  border: 2px solid var(--dsw-alias-border-l1);
-  border-top-color: var(--rh-accent);
-  border-radius: 50%;
-  animation: rh-spin 0.6s linear infinite;
-  margin-right: 8px;
-}
+
 
 /* ── Timeline ── */
 .rh-timeline {
@@ -48,7 +40,7 @@
   width: 8px;
   height: 8px;
   margin-top: 6px;
-  border-radius: 50%;
+  border-radius: 50%; corner-shape: round;
   flex-shrink: 0;
   background: var(--dsw-alias-label-tertiary);
 }
@@ -61,12 +53,12 @@
 .rh-tl-date {
   font-size: 11px;
   color: var(--dsw-alias-label-secondary);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .rh-tl-title {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--dsw-alias-label-primary);
 }
 
@@ -75,3 +67,5 @@
   color: var(--dsw-alias-label-secondary);
   margin-top: 2px;
 }
+
+@media (prefers-reduced-motion: reduce) { .rh-spin, .rh-skeleton-line { animation: none; } }

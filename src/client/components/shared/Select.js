@@ -1,15 +1,19 @@
 'use strict';
+const { Input } = require('./Input.js');
+const { Button } = require('./Button.js');
+const { t } = require('../../locale.js');
 
 const React = require('react');
-const { Menu, IconChevronDownOutlineRegular } = require('@deepseek-ai/dsh-client-ui-primitives');
+const { Menu } = require('./controls.js');
 const h = React.createElement;
+const { IconChevronDown } = require('../../icons.js').createIconComponents(h);
 
 function labelText(node) {
   return React.Children.toArray(node).map(child => React.isValidElement(child) ? labelText(child.props.children) : String(child)).join('');
 }
 
-/** Host Menu supplies placement and keyboard navigation; long lists add local search. */
-function Select({ children, options, value, onChange, disabled = false, className = '', id, placeholder = '请选择', searchable, searchPlaceholder = '搜索选项…', ...aria }) {
+/** Plugin Menu follows host placement and keyboard behavior; long lists add search. */
+function Select({ children, options, value, onChange, disabled = false, className = '', id, placeholder = t("common.select"), searchable, searchPlaceholder = t("Select.message001"), ...aria }) {
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState('');
   const triggerRef = React.useRef(null);
@@ -26,7 +30,7 @@ function Select({ children, options, value, onChange, disabled = false, classNam
   React.useEffect(() => { setOpen(false); }, [value, disabled, itemIds]);
   React.useEffect(() => {
     if (!open || !canSearch) return;
-    // A portal first mounts hidden for host placement; focus after that layout pass.
+    // Focus the search box after the menu placement layout pass.
     const frame = requestAnimationFrame(() => searchRef.current?.focus({ preventScroll: true }));
     return () => cancelAnimationFrame(frame);
   }, [open, canSearch]);
@@ -36,7 +40,7 @@ function Select({ children, options, value, onChange, disabled = false, classNam
     setOpen(false);
     onChange?.({ target: { value: nextValue } });
   };
-  const anchor = h('button', {
+  const anchor = h(Button, {
     ref: triggerRef, id: id || generatedId, type: 'button', className: 'rh-select-trigger',
     disabled: disabled || !items.some(item => !item.disabled),
     'aria-haspopup': 'menu', 'aria-expanded': open && !disabled,
@@ -49,7 +53,7 @@ function Select({ children, options, value, onChange, disabled = false, classNam
         event.preventDefault(); setQuery(''); setOpen(true);
       }
     },
-  }, h('span', { className: 'rh-select-value' }, selected?.label ?? placeholder), h(IconChevronDownOutlineRegular, { className: 'rh-select-chevron', 'aria-hidden': true }));
+  }, h('span', { className: 'rh-select-value' }, selected?.label ?? placeholder), h(IconChevronDown, { className: 'rh-select-chevron', 'aria-hidden': true }));
   return h(Menu, {
     open: open && !disabled, onClose: () => setOpen(false),
     anchor, items: filtered.map(({ title, ...item }) => ({ ...item, label: h('span', { title: title || labelText(item.label) }, item.label) })),
@@ -58,9 +62,9 @@ function Select({ children, options, value, onChange, disabled = false, classNam
     className: `rh-select ${className}`.trim(),
     listClassName: `rh-select-menu${canSearch ? ' rh-select-menu-searchable' : ''}`,
   }, canSearch && h('div', { className: 'rh-select-search', role: 'presentation' },
-    h('input', {
+    h(Input, {
       ref: searchRef, type: 'search', value: query, placeholder: searchPlaceholder,
-      'aria-label': `搜索${aria['aria-label'] || '选项'}`,
+      'aria-label': t("Select.message003", { value0: aria['aria-label'] || t("Select.message002") }),
       onChange: event => setQuery(event.target.value),
       onKeyDown: event => {
         if (event.nativeEvent?.isComposing) return;
@@ -72,8 +76,8 @@ function Select({ children, options, value, onChange, disabled = false, classNam
         }
       },
     }),
-    h('span', { className: 'rh-select-count', role: 'status' }, needle ? `${filtered.length} / ${items.length} 项` : `共 ${items.length} 项`)
-  ), !filtered.length && h('div', { className: 'rh-select-empty', role: 'status' }, '无匹配选项'));
+    h('span', { className: 'rh-select-count', role: 'status' }, needle ? t("Select.message004", { value0: filtered.length, value1: items.length }) : t("Select.message005", { value0: items.length }))
+  ), !filtered.length && h('div', { className: 'rh-select-empty', role: 'status' }, t("Select.message006")));
 }
 
 module.exports = { Select };

@@ -1,4 +1,7 @@
 'use strict';
+const { t } = require('../../locale.js');
+const css = require('./DiffViewer.module.css').default;
+const { Button } = require('./Button.js');
 const React = require('react');
 const h = React.createElement;
 const { useState, useMemo, useCallback } = React;
@@ -230,11 +233,11 @@ function DiffViewer({ oldContent, newContent, fileName, defaultViewMode = 'inlin
     className: 'rh-diff-body',
   },
     renderRows(head),
-    hidden > 0 && h('button', {
+    hidden > 0 && h(Button, {
       className: 'rh-btn rh-btn-ghost rh-btn-sm rh-diff-expand',
       onClick: onToggle,
       'aria-expanded': expanded,
-    }, expanded ? '收起' : `展开 ${hidden} 行`),
+    }, expanded ? t("FileTreeSidebar.message008") : t("DiffViewer.message001", { value0: hidden })),
     renderRows(tail, head.length)
   );
 
@@ -248,18 +251,18 @@ function DiffViewer({ oldContent, newContent, fileName, defaultViewMode = 'inlin
       if (!capped) return sideRows;
       return [
         ...sideRows.slice(0, headLines),
-        { kind: 'gap', text: `⋯ ${hidden} 行` },
+        { kind: 'gap', text: t("DiffViewer.message002", { value0: hidden }) },
         ...sideRows.slice(sideRows.length - tailLines),
       ];
     };
 
     return h('div', { className: 'rh-diff-split' },
       h('div', { className: 'rh-diff-pane rh-diff-pane-old' },
-        h('div', { className: 'rh-diff-pane-header' }, '变更前'),
+        h('div', { className: 'rh-diff-pane-header' }, t("DiffViewer.message003")),
         h('div', { className: 'rh-diff-body' }, renderRows(applyCap(oldSide)))
       ),
       h('div', { className: 'rh-diff-pane rh-diff-pane-new' },
-        h('div', { className: 'rh-diff-pane-header' }, '变更后'),
+        h('div', { className: 'rh-diff-pane-header' }, t("DiffViewer.message004")),
         h('div', { className: 'rh-diff-body' }, renderRows(applyCap(newSide)))
       )
     );
@@ -275,39 +278,39 @@ function DiffViewer({ oldContent, newContent, fileName, defaultViewMode = 'inlin
     h('div', { className: 'rh-diff-toolbar' },
       h('div', { className: 'rh-diff-toolbar-left' },
         h('span', { className: 'rh-diff-filename' }, fileName || 'diff'),
-        oldLabel && h('span', { className: 'rh-diff-version-label', style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', marginLeft: 8 } }, `${oldLabel} → ${newLabel || ''}`),
+        oldLabel && h('span', { className: ('rh-diff-version-label') + ' ' + css.mutedText }, `${oldLabel} → ${newLabel || ''}`),
         totals.added > 0 && h('span', { className: 'rh-diff-stat rh-diff-stat-add' }, `+${totals.added}`),
         totals.removed > 0 && h('span', { className: 'rh-diff-stat rh-diff-stat-del' }, `-${totals.removed}`)
       ),
       h('div', { className: 'rh-diff-toolbar-right' },
         // 视图模式切换
         h('div', { className: 'rh-diff-mode-toggle' },
-          h('button', {
+          h(Button, {
             className: `rh-btn rh-btn-ghost rh-btn-sm rh-diff-mode-btn${mode === 'inline' ? ' active' : ''}`,
             'aria-pressed': mode === 'inline',
             onClick: () => setMode('inline'),
-            title: '内联视图',
-          }, '行内'),
-          h('button', {
+            title: t("DiffViewer.message005"),
+          }, t("DiffViewer.message006")),
+          h(Button, {
             className: `rh-btn rh-btn-ghost rh-btn-sm rh-diff-mode-btn${mode === 'split' ? ' active' : ''}`,
             'aria-pressed': mode === 'split',
             onClick: () => setMode('split'),
-            title: '并排视图',
-          }, '并排')
+            title: t("DiffViewer.message007"),
+          }, t("DiffViewer.message008"))
         ),
         // 换行切换
-        h('button', {
+        h(Button, {
           className: 'rh-btn rh-btn-ghost rh-btn-sm rh-diff-toolbar-btn',
           onClick: onWrap,
           'aria-pressed': wrapped,
-          title: wrapped ? '取消换行' : '自动换行',
-        }, wrapped ? '取消换行' : '自动换行'),
+          title: wrapped ? t("DiffViewer.message009") : t("DiffViewer.message010"),
+        }, wrapped ? t("DiffViewer.message009") : t("DiffViewer.message010")),
         // 复制
-        h('button', {
+        h(Button, {
           className: 'rh-btn rh-btn-ghost rh-btn-sm rh-diff-toolbar-btn',
           onClick: onCopy,
-          title: copied ? '已复制' : '复制',
-        }, copied ? '已复制' : '复制')
+          title: copied ? t("DiffViewer.message011") : t("DiffViewer.message012"),
+        }, copied ? t("DiffViewer.message011") : t("DiffViewer.message012"))
       )
     ),
     // Body

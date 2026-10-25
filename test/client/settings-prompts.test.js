@@ -123,7 +123,7 @@ it('preserves the editor when returning from a skill preview', async () => {
   await click(document.querySelector('.rh-prompt-skill .rh-select-trigger'));
   await click([...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent === 'review'));
   await click([...document.querySelectorAll('.rh-prompt-skill button')].find(button => button.textContent === '预览 Skill'));
-  expect(document.querySelector('.rh-settings-panel').style.display).toBe('none');
+  expect(document.querySelector('.rh-settings-panel').hidden).toBe(true);
   expect(document.querySelectorAll('header .rh-header-back')).toHaveLength(1);
   expect(document.querySelector('.rh-preview .rh-header-back')).toBeNull();
   await click(document.querySelector('header [aria-label="返回设置"]'));

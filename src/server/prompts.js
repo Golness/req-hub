@@ -235,11 +235,7 @@ export async function getScopedSkills(sessionId, sessionQuery, agents, agentPres
     if (!scoped && agentPreset) {
       try {
         const lease = await agentPresets.acquireScope(agentPreset);
-        if (lease) {
-          // 注意：这里返回 lease.key 作为 scope，但不返回 skills
-          // 因为 scoped skills 需要从 agent preset 获取
-          return null; // 暂时不支持 cold session
-        }
+        try { return null; } finally { await lease?.[Symbol.asyncDispose](); }
       } catch (e) {
         // preset 不可用
         return null;

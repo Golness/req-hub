@@ -1,4 +1,6 @@
 'use strict';
+const { t } = require('../../locale.js');
+const { Button } = require('./Button.js');
 const React = require('react'), h = React.createElement;
 const { ROUTE } = require('../../constants.js');
 
@@ -19,7 +21,7 @@ function DeleteSyncTaskButton({ task, onDeleted }) {
     } catch { /* No termination-failure popup; leave the action available for a network retry. */ }
     finally { setBusy(false); }
   };
-  return h('button', { type: 'button', className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: busy, onClick: remove,
-    title: '删除任务与中间文件，保留正式文档', 'aria-label': '删除同步任务' }, busy ? '删除中…' : '删除任务');
+  return h(Button, { type: 'button', className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: busy, onClick: remove,
+    title: t("DeleteSyncTaskButton.message001"), 'aria-label': t("DeleteSyncTaskButton.message002") }, busy ? t("DeleteSyncTaskButton.message003") : t("DeleteSyncTaskButton.message004"));
 }
 module.exports = { DeleteSyncTaskButton };

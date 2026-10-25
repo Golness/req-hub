@@ -1,4 +1,6 @@
 'use strict';
+const { t } = require('../locale.js');
+const css = require('./TabBodyWrapper.module.css').default;
 
 const React = require('react');
 const h = React.createElement;
@@ -71,14 +73,14 @@ function TabBodyWrapper() {
   }, []);
 
   if (!workspaces.length) {
-    return h('div', { className: 'rh-empty' }, 'No workspaces available');
+    return h('div', { className: 'rh-empty' }, t("TabBodyWrapper.message001"));
   }
 
   if (!selectedWs) {
-    return h('div', { className: 'rh-empty' }, 'Select a workspace');
+    return h('div', { className: 'rh-empty' }, t("TabBodyWrapper.message002"));
   }
 
-  return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%' }, role: 'main' },
+  return h('div', { className: css.column, role: 'main' },
     h(DocsViewerBody, {
       key: `${selectedWs.id}:${docsDir}`,
       workspace: selectedWs,

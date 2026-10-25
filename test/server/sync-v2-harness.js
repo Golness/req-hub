@@ -1,3 +1,4 @@
+import { delegationContext, bindOwnedSession } from '../../src/server/delegation-context.js';
 import { readFile, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 
@@ -17,6 +18,8 @@ export function createSyncHarness({ noChange = false, skipCoverage = false, over
       async start(provider, request) {
         requests.push(request); onStart?.(request);
         const id = randomUUID(), signal = request.signal || new AbortController().signal, agent = { session: { id } };
+        // Model the Host publishing its child before the first LLM request.
+        const runtime = delegationContext.getStore(); if (runtime) bindOwnedSession(runtime, id);
         const invoke = async (name, args) => {
           const exec = { agent, signal, name, arguments: args };
           for (const guard of guards) { const denied = guard(exec); if (denied) throw new Error(denied); }

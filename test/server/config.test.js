@@ -14,6 +14,7 @@ vi.mock('node:fs/promises', () => ({
   readFile: (...args) => mockReadFile(...args),
   writeFile: (...args) => mockWriteFile(...args),
   readdir: (...args) => mockReaddir(...args),
+  mkdir: vi.fn(), rename: vi.fn(),
 }));
 
 vi.mock('node:fs', () => ({
@@ -45,23 +46,34 @@ describe('loadConfig', () => {
     mockReadFile.mockResolvedValue(JSON.stringify(saved));
 
     const config = await loadConfig();
-    expect(config).toEqual(saved);
+    expect(config).toMatchObject(saved);
   });
 
-  it('should return default config on parse error', async () => {
+  it('reports a corrupt config rather than resetting user settings', async () => {
     mockExistsSync.mockReturnValue(true);
     mockReadFile.mockResolvedValue('not valid json');
 
-    const config = await loadConfig();
-    expect(config.docsDir).toBe('docs');
+    await expect(loadConfig()).rejects.toThrow();
   });
 
-  it('should return default config on read error', async () => {
+  it('reports unreadable configuration', async () => {
     mockExistsSync.mockReturnValue(true);
     mockReadFile.mockRejectedValue(new Error('EACCES'));
 
+    await expect(loadConfig()).rejects.toThrow();
+  });
+
+  it('migrates legacy settings once into profile storage without writing the source', async () => {
+    mockExistsSync.mockReturnValueOnce(false).mockReturnValueOnce(true);
+    mockReadFile.mockResolvedValue(JSON.stringify({ docsDir: 'requirements', ai: { selectedModel: 'saved-model' } }));
     const config = await loadConfig();
-    expect(config.docsDir).toBe('docs');
+    expect(config.docsDir).toBe('requirements'); expect(config.ai.selectedModel).toBe('saved-model');
+    expect(mockWriteFile).toHaveBeenCalledOnce();
+    const legacy = mockReadFile.mock.calls[0][0], migrated = mockWriteFile.mock.calls[0][0];
+    expect(migrated).not.toBe(legacy);
+    expect(migrated).toContain('req-hub');
+    mockExistsSync.mockReturnValue(true); await loadConfig();
+    expect(mockWriteFile).toHaveBeenCalledOnce();
   });
 });
 
@@ -70,11 +82,9 @@ describe('saveConfig', () => {
     const config = { docsDir: 'docs', workspaceId: 'ws1' };
     await saveConfig(config);
 
-    expect(mockWriteFile).toHaveBeenCalledWith(
-      expect.any(String),
-      JSON.stringify(config, null, 2),
-      'utf8',
-    );
+    expect(mockWriteFile).toHaveBeenCalledOnce();
+    expect(JSON.parse(mockWriteFile.mock.calls[0][1])).toEqual(config);
+    expect(mockWriteFile.mock.calls[0][0]).toMatch(/config\.json\..+\.tmp$/);
   });
 });
 

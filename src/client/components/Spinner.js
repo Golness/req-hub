@@ -1,16 +1,10 @@
 'use strict';
-
+// Loading artwork is bundled locally; the page owns its centered placement.
 const React = require('react');
-const h = React.createElement;
-
-/**
- * @component
- * A simple loading spinner indicator with "Loading…" text.
- * Displays a centered spinner animation with an accessible status role.
- * @returns {JSX.Element}
- */
+const { IconLoading } = require('../icons.js').createIconComponents(React.createElement);
+const { t } = require('../locale.js');
 function Spinner() {
-  return h('div', { className: 'rh-loading', role: 'status', 'aria-label': 'Loading' }, h('div', { className: 'rh-spinner' }), 'Loading…');
+  return React.createElement('div', { className: 'rh-loading', role: 'status', 'aria-label': t('common.loading') },
+    React.createElement(IconLoading, { size: 18, className: 'rh-spin' }));
 }
-
 module.exports = { Spinner };

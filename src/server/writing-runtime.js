@@ -1,3 +1,4 @@
+import { runtimeForRequest } from './delegation-context.js';
 import { randomUUID } from 'node:crypto';
 import { relevanceScore } from './knowledge/retrieval.js';
 import { estimateSubagentInputTokens, MAX_SYNC_INPUT_TOKENS } from './token-utils.js';
@@ -69,8 +70,7 @@ export function installWritingTools(ctx) {
   }));
   disposers.push(ctx.tools.guard(exec => sessions.has(exec.agent?.session?.id) && !WRITING_TOOLS.includes(exec.name) && exec.name !== 'run_code' ? '写作仅允许读取所选知识库与提交候选文档' : undefined));
   disposers.push(ctx.on('llm/stream', async function* (request, next) {
-    const marker = JSON.stringify(request.messages || []).match(/REQHUB_WRITING=([a-f0-9-]{36})/);
-    const runtime = sessions.get(request.sessionId) || runtimes.get(marker?.[1]);
+    const runtime = sessions.get(request.sessionId) || runtimeForRequest(ctx, runtimes, request);
     if (runtime) {
       if (runtime.closed || !request.sessionId || (runtime.sessionId && runtime.sessionId !== request.sessionId)) throw new Error('WRITING_SESSION_DENIED');
       runtime.sessionId = request.sessionId; sessions.set(request.sessionId, runtime);
@@ -82,7 +82,7 @@ export function installWritingTools(ctx) {
     yield* next();
   }, { global: true, prepend: true }));
   return {
-    add(runtime) { runtimes.set(runtime.id, runtime); },
+    add(runtime) { runtime.bindSession = id => sessions.set(id, runtime); runtimes.set(runtime.id, runtime); },
     close(runtime) { runtime.closed = true; runtimes.delete(runtime.id); if (runtime.sessionId) sessions.set(runtime.sessionId, { closed: true }); },
     dispose() { for (const dispose of disposers.reverse()) dispose(); runtimes.clear(); sessions.clear(); },
   };

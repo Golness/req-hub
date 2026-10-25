@@ -1,4 +1,7 @@
 'use strict';
+const { t } = require('../locale.js');
+const css = require('./MilkdownEditor.module.css').default;
+const { cssValue } = require('./shared/presentation.js');
 
 const React = require('react');
 const h = React.createElement;
@@ -128,32 +131,15 @@ function MilkdownEditor({ content, onChange, readOnly = false, mermaid = null })
 
   // Keep the root mounted while the async editor is being created.
   const status = loading ? h('div', {
-      className: 'rh-milkdown-loading',
-      style: {
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100%',
-        color: 'var(--dsw-alias-label-secondary)',
-        fontSize: 'var(--rh-font-size)',
-      }
-    }, '加载编辑器...') : error ? h('div', {
-      className: 'rh-milkdown-error',
-      style: {
-        padding: 12,
-        color: 'var(--dsw-alias-state-error-primary)',
-        fontSize: 'var(--rh-font-size)',
-      }
-    }, `编辑器加载失败：${error}`) : null;
+      className: ('rh-milkdown-loading') + ' ' + css.row
+    }, t("MilkdownEditor.message001")) : error ? h('div', {
+      className: ('rh-milkdown-error') + ' ' + css.section
+    }, t("MilkdownEditor.message002", { value0: error })) : null;
 
   return h(React.Fragment, null, status, h('div', {
     ref: editorRef,
-    className: 'rh-milkdown-editor',
-    style: {
-      minHeight: '100%',
-      overflow: 'visible',
-      display: loading || error ? 'none' : undefined,
-    }
+    className: ('rh-milkdown-editor') + ' ' + css.pane,
+    style: { "--rh-display-2": cssValue(loading || error ? 'none' : undefined) }
   }));
 }
 

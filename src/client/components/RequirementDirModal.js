@@ -1,4 +1,9 @@
 'use strict';
+const { t } = require('../locale.js');
+const css = require('./RequirementDirModal.module.css').default;
+const { cssValue } = require('./shared/presentation.js');
+const { ModalFrame } = require('./shared/ModalFrame.js');
+const { Button } = require('./shared/Button.js');
 
 const React = require('react');
 const h = React.createElement;
@@ -49,42 +54,40 @@ function RequirementDirModal({ workspaceId, selectedReqId, onSelect, onClose }) 
     setExpandedDevs(prev => ({ ...prev, [devName]: !prev[devName] }));
   };
 
-  return h('div', { className: 'rh-modal-overlay', onClick: onClose, role: 'dialog', 'aria-modal': 'true', 'aria-label': '选择需求目录' },
-    h('div', { className: 'rh-modal', onClick: e => e.stopPropagation(), style: { minWidth: 400 } },
-      h('div', { className: 'rh-modal-title', style: { display: 'flex', alignItems: 'center', gap: 6 } },  ' 选择需求目录'),
+  return h(ModalFrame, { className: 'rh-modal-overlay', onClick: onClose, role: 'dialog', 'aria-modal': 'true', 'aria-label': t("DocsViewerBody.message067") },
+    h('div', { className: ('rh-modal') + ' ' + css.size, onClick: e => e.stopPropagation() },
+      h('div', { className: ('rh-modal-title') + ' ' + css.row },  t("RequirementDirModal.message001")),
       loading
-        ? h('div', { className: 'rh-empty' }, '加载中...')
+        ? h('div', { className: 'rh-empty' }, t("common.loading"))
         : !tree || tree.developers.length === 0
-          ? h('div', { className: 'rh-empty' }, '暂无需求目录')
-          : h('div', { className: 'rh-modal-list', style: { maxHeight: 400 } },
+          ? h('div', { className: 'rh-empty' }, t("RequirementDirModal.message002"))
+          : h('div', { className: ('rh-modal-list') + ' ' + css.size2 },
               tree.developers.map(dev =>
                 h('div', { key: dev.name },
-                  h('div', {
-                    className: 'rh-modal-item',
-                    onClick: () => toggleDev(dev.name),
-                    style: { fontWeight: 600 }
+                  h(Button, {
+                    className: ('rh-modal-item') + ' ' + css.heading,
+                    onClick: () => toggleDev(dev.name)
                   },
-                    h('span', { className: 'rh-modal-item-icon' }, h(IconChevronRight, { size: 12, style: { transform: expandedDevs[dev.name] ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' } })),
+                    h('span', { className: 'rh-modal-item-icon' }, h(IconChevronRight, { size: 12, className: css.indicator, style: { "--rh-transform-0": cssValue(expandedDevs[dev.name] ? 'rotate(90deg)' : 'none') } })),
                     h('span', { className: 'rh-modal-item-name' }, dev.name),
                     h('span', { className: 'rh-modal-item-count' }, `(${dev.requirementCount})`)
                   ),
                   expandedDevs[dev.name] && dev.requirements.map(req =>
-                    h('div', {
+                    h(Button, {
                       key: req.id,
-                      className: `rh-modal-item${selectedReqId === req.id ? ' selected' : ''}`,
-                      style: { paddingLeft: 32 },
+                      className: (`rh-modal-item${selectedReqId === req.id ? ' selected' : ''}`) + ' ' + css.content,
                       onClick: () => { onSelect(req); onClose(); },
                     },
                       h('span', { className: 'rh-modal-item-icon' }, h(IconFolderOpen, { size: 14 })),
                       h('span', { className: 'rh-modal-item-name' }, `${req.date.slice(5)} ${req.title}`),
-                      h('span', { className: 'rh-modal-item-count', style: { display: 'inline-flex', alignItems: 'center', gap: 2 } }, `${req.fileCount} 个文件`)
+                      h('span', { className: ('rh-modal-item-count') + ' ' + css.row2 }, t("DocTree.message002", { value0: req.fileCount }))
                     )
                   )
                 )
               )
             ),
       h('div', { className: 'rh-modal-actions' },
-        h('button', { className: 'rh-btn', onClick: onClose }, '关闭')
+        h(Button, { className: 'rh-btn', onClick: onClose }, t("common.close"))
       )
     )
   );

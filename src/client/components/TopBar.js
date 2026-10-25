@@ -1,4 +1,7 @@
 'use strict';
+const { showToast } = require('./shared/ToastContainer.js');
+const { t } = require('../locale.js');
+const { Button } = require('./shared/Button.js');
 
 const React = require('react');
 const h = React.createElement;
@@ -56,10 +59,10 @@ function TopBar({ docsDir, currentWorkspace, currentReq, onEditDocsDir, onChange
       });
       if (!res.ok) {
         const data = await res.json();
-        alert(data.error || '打开失败');
+        showToast({ tone: 'error', text: data.error || t("TopBar.message001") });
       }
     } catch (e) {
-      alert('打开失败: ' + e.message);
+      showToast({ tone: 'error', text: t("TopBar.message002") + e.message });
     }
   };
 
@@ -70,57 +73,57 @@ function TopBar({ docsDir, currentWorkspace, currentReq, onEditDocsDir, onChange
         className: 'rh-rail-btn',
         type: 'button',
         onClick: onLocateSessionReq,
-        title: '自动定位到当前 DSH 会话对应的需求文档目录',
-        'aria-label': '定位到当前会话需求',
+        title: t("TopBar.message003"),
+        'aria-label': t("TopBar.message004"),
       },
         h('span', null, h(IconTarget, { size: 18 })),
-        h('span', { className: 'rh-rail-label' }, '定位')
+        h('span', { className: 'rh-rail-label' }, t("TopBar.message005"))
       )
     ),
     h('div', { className: 'rh-topbar-left' },
       // 工作区
-      h('span', { className: 'rh-topbar-label' }, '工作区:'),
-      h('button', {
+      h('span', { className: 'rh-topbar-label' }, t("TopBar.message006")),
+      h(Button, {
           type: 'button',
           className: `rh-btn rh-btn-sm rh-topbar-value${currentWorkspace ? ' selected' : ' unselected'}`,
           onClick: onChangeWorkspace,
-          title: '点击切换工作区',
-          'aria-label': `工作区: ${currentWorkspace?.title || currentWorkspace?.id || '未选择'}`,
-        }, currentWorkspace?.title || currentWorkspace?.id || '(未选择)'),
+          title: t("TopBar.message007"),
+          'aria-label': t("TopBar.message009", { value0: currentWorkspace?.title || currentWorkspace?.id || t("TopBar.message008") }),
+        }, currentWorkspace?.title || currentWorkspace?.id || t("TopBar.message010")),
 
       // 项目路径
-      h('span', { className: 'rh-topbar-label' }, '项目路径:'),
-      h('button', {
+      h('span', { className: 'rh-topbar-label' }, t("TopBar.message011")),
+      h(Button, {
           type: 'button',
           className: 'rh-btn rh-btn-sm rh-topbar-value selected',
           onClick: () => setShowPathModal(true),
-          title: '点击修改项目 docs 路径',
-          'aria-label': `项目路径: ${docsDir}`,
+          title: t("TopBar.message012"),
+          'aria-label': t("TopBar.message013", { value0: docsDir }),
         }, docsDir),
 
       // 需求目录
-      h('span', { className: 'rh-topbar-label' }, '需求目录:'),
-      h('button', {
+      h('span', { className: 'rh-topbar-label' }, t("TopBar.message014")),
+      h(Button, {
           type: 'button',
           className: `rh-btn rh-btn-sm rh-topbar-value${currentReq ? ' selected' : ' unselected'}`,
           onClick: onChangeReq,
-          title: '点击选择需求目录',
-        }, currentReq ? `${currentReq.date?.slice(5)} ${currentReq.title}` : '(未选择)'),
+          title: t("TopBar.message015"),
+        }, currentReq ? `${currentReq.date?.slice(5)} ${currentReq.title}` : t("TopBar.message010")),
 
       // 在文件资源管理器中打开按钮
-      currentReq && h('button', {
+      currentReq && h(Button, {
         className: 'rh-btn rh-btn-sm rh-btn-icon rh-open-directory',
         onClick: handleOpenInExplorer,
-        title: '在文件资源管理器中打开此需求目录',
-        'aria-label': '打开需求目录',
+        title: t("TopBar.message016"),
+        'aria-label': t("TopBar.message017"),
       }, h(IconFolderExternal, { size: 16 }))
     ),
 
     // 项目路径输入弹框
     showPathModal && h(InputModal, {
-      title: '修改项目路径',
+      title: t("TopBar.message018"),
       value: docsDir,
-      placeholder: '请输入 docs 目录路径',
+      placeholder: t("TopBar.message019"),
       onConfirm: handlePathConfirm,
       onCancel: () => setShowPathModal(false),
     })

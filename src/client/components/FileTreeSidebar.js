@@ -1,4 +1,9 @@
 'use strict';
+const { DOCUMENT_NAME_HINTS } = require('../document-name-hints.js');
+const { t } = require('../locale.js');
+const css = require('./FileTreeSidebar.module.css').default;
+const { cssValue } = require('./shared/presentation.js');
+const { Button } = require('./shared/Button.js');
 
 const React = require('react');
 const { Select } = require('./shared/Select.js');
@@ -29,12 +34,12 @@ function getFileExt(name) {
 function inferDocType(filename) {
   const lower = filename.toLowerCase();
   if (/\bcr\b/.test(lower) || lower.includes('code review') || lower.includes('codereview')) return 'cr';
-  if (lower.includes('技术') || lower.includes('design') || lower.includes('tech') || lower.includes('technical')) return 'design';
-  if (lower.includes('需求') || lower.includes('require') || lower.includes('prd')) return 'requirement';
+  if (lower.includes(DOCUMENT_NAME_HINTS.design) || lower.includes('design') || lower.includes('tech') || lower.includes('technical')) return 'design';
+  if (lower.includes(DOCUMENT_NAME_HINTS.requirement) || lower.includes('require') || lower.includes('prd')) return 'requirement';
   return 'other';
 }
 
-const docTypeLabels = { requirement: '需求', design: '技术方案', cr: 'CR', other: '文档' };
+const docTypeLabels = { requirement: t("DocsViewerBody.message072"), design: t("DocumentDropdown.message005"), cr: 'CR', other: t("DocumentDropdown.message006") };
 
 /**
  * @component TreeNode
@@ -61,45 +66,22 @@ function TreeNode({ node, depth, expandedDirs, toggleDir, activeFilePath, onFile
     const isExpanded = expandedDirs.has(node.path);
     return h('div', { className: 'rh-tree-node' },
       h('div', {
-        className: 'rh-tree-dir',
-        style: {
-          display: 'flex',
-          alignItems: 'center',
-          gap: 4,
-          padding: `4px 8px 4px ${depth * 14 + 8}px`,
-          cursor: 'pointer',
-          fontSize: 'var(--rh-font-size)',
-          borderRadius: 4,
-          userSelect: 'none',
-        },
+        className: ('rh-tree-dir') + ' ' + css.row,
+        style: { "--rh-padding-3": cssValue(`4px 8px 4px ${depth * 14 + 8}px`) },
         onClick: () => toggleDir(node.path),
         role: 'treeitem', tabIndex: 0, 'aria-expanded': isExpanded,
         onKeyDown: event => { if (event.target !== event.currentTarget) return; if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowRight' && !isExpanded || event.key === 'ArrowLeft' && isExpanded) { event.preventDefault(); toggleDir(node.path); } },
       },
-        selection && h(TreeCheckbox, { paths: leafPaths(node), ...selection, label: `选择目录 ${node.path}` }),
+        selection && h(TreeCheckbox, { paths: leafPaths(node), ...selection, label: t("FileTreeSidebar.message002", { value0: node.path }) }),
         h('span', {
-          style: {
-            display: 'inline-block',
-            width: 10,
-            transition: 'transform 0.15s',
-            transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-            color: 'var(--dsw-alias-label-secondary)',
-          }
+          className: css.mutedText, style: { "--rh-transform-3": cssValue(isExpanded ? 'rotate(90deg)' : 'rotate(0deg)') }
         }, h(IconChevronRight, { size: 10 })),
         isExpanded ? h(IconFolderOpen, { size: 14 }) : h(IconFolder, { size: 14 }),
         h('span', {
-          style: {
-            flex: 1,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            fontSize: 'var(--rh-font-size)',
-            fontWeight: 500,
-            color: 'var(--dsw-alias-label-primary)',
-          }
+          className: css.heading
         }, node.name),
         node.children && h('span', {
-          style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-tertiary)', marginLeft: 4, flexShrink: 0 }
+          className: css.spacing
         }, `${node.children.length}`)
       ),
       isExpanded && node.children && node.children.map((child, idx) =>
@@ -121,34 +103,22 @@ function TreeNode({ node, depth, expandedDirs, toggleDir, activeFilePath, onFile
   const isActive = activeFilePath === node.path;
   const docType = inferDocType(node.name);
   return h('div', {
-    className: `rh-tree-file${isActive ? ' active' : ''}`,
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 6,
-      padding: `4px 8px 4px ${depth * 14 + 22}px`,
-      cursor: 'pointer',
-      fontSize: 'var(--rh-font-size)',
-      borderRadius: 4,
-      background: isActive ? 'var(--rh-accent-bg)' : 'transparent',
-      color: isActive ? 'var(--rh-accent)' : 'var(--dsw-alias-label-primary)',
-      transition: 'background 0.1s',
-    },
+    className: (`rh-tree-file${isActive ? ' active' : ''}`) + ' ' + css.row2,
+    style: { "--rh-padding-3": cssValue(`4px 8px 4px ${depth * 14 + 22}px`), "--rh-background-7": cssValue(isActive ? 'var(--rh-accent-bg)' : 'transparent'), "--rh-color-8": cssValue(isActive ? 'var(--rh-accent)' : 'var(--dsw-alias-label-primary)') },
     onClick: () => onFileClick(node),
     role: 'treeitem', tabIndex: 0, 'aria-selected': isActive,
     onKeyDown: event => { if (event.target === event.currentTarget && event.key === 'Enter') { event.preventDefault(); onFileClick(node); } },
     title: node.path,
   },
-    selection && h(TreeCheckbox, { paths: [node.path], ...selection, label: `选择文件 ${node.path}` }),
+    selection && h(TreeCheckbox, { paths: [node.path], ...selection, label: t("FileTreeSidebar.message003", { value0: node.path }) }),
     getDocIcon(docType, 14),
-    h('div', { style: { flex: 1, overflow: 'hidden', minWidth: 0 } },
-      h('div', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, node.name),
-      node.mtime && h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', marginTop: 2 } }, formatTime(node.mtime))
+    h('div', { className: css.pane },
+      h('div', { className: css.pane2 }, node.name),
+      node.mtime && h('div', { className: css.mutedText2 }, formatTime(node.mtime))
     ),
     h('span', {
-      className: 'rh-doctype-tag',
-      style: { flexShrink: 0 },
-    }, docTypeLabels[docType] || '文档')
+      className: ('rh-doctype-tag') + ' ' + css.content,
+    }, docTypeLabels[docType] || t("DocumentDropdown.message006"))
   );
 }
 
@@ -193,7 +163,7 @@ function FileTreeSidebar({ workspaceId, selectedReq, onSelectFile, multiSelect =
     (async () => {
       try {
         const res = await fetch(`${ROUTE}/file-tree?workspaceId=${encodeURIComponent(workspaceId)}&requirementId=${encodeURIComponent(selectedReq.id)}&requirementPath=${encodeURIComponent(selectedReq.path || "")}`);
-        if (!res.ok) throw new Error('文件树加载失败，请重新选择需求目录');
+        if (!res.ok) throw new Error(t("FileTreeSidebar.message004"));
         if (res.ok) {
           const data = await res.json();
           if (!cancelled) {
@@ -350,54 +320,54 @@ function FileTreeSidebar({ workspaceId, selectedReq, onSelectFile, multiSelect =
 
   return h('div', {
     ref: sidebarRef,
-    className: `rh-file-tree-sidebar${!expanded ? ' collapsed' : ''}${isResizing ? ' resizing' : ''}`,
-    style: { width: `${width}px`, minWidth: `${width}px` },
+    className: (`rh-file-tree-sidebar${!expanded ? ' collapsed' : ''}${isResizing ? ' resizing' : ''}`) + ' ' + css.size,
+    style: { "--rh-width-0": cssValue(`${width}px`), "--rh-min-width-1": cssValue(`${width}px`) },
   },
     // Resize handle
     expanded && h('div', {
       className: `rh-resize-handle${isResizing ? ' dragging' : ''}`,
       onMouseDown: handleMouseDown,
-      title: '拖动调整宽度',
+      title: t("FileTreeSidebar.message005"),
     }),
 
     // Toggle button
     h('button', {
       className: 'rh-file-tree-toggle',
       onClick: () => setExpanded(!expanded),
-      'aria-label': expanded ? '收起文件树' : '展开文件树',
-      title: expanded ? '收起' : '展开',
-    }, h(IconChevronRight, { size: 16, style: { transform: expanded ? 'rotate(180deg)' : undefined } })),
+      'aria-label': expanded ? t("FileTreeSidebar.message006") : t("FileTreeSidebar.message007"),
+      title: expanded ? t("FileTreeSidebar.message008") : t("FileTreeSidebar.message009"),
+    }, h(IconChevronRight, { size: 16, className: css.indicator, style: { "--rh-transform-0": cssValue(expanded ? 'rotate(180deg)' : undefined) } })),
 
     // Content
     expanded && h('div', { className: 'rh-file-tree-content' },
       multiSelect && h('div', { className: 'rh-knowledge-selection' },
-        h('span', { role: 'status' }, `已选 ${selectedPaths.length} 个${selectedPaths.length > visibleSelected ? `（${selectedPaths.length - visibleSelected} 个不在当前筛选结果）` : ''}`),
-        h('button', { className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: !visiblePaths.length, onClick: () => togglePaths(visiblePaths, true) }, '全选当前筛选结果'),
-        h('button', { className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: !selectedPaths.length, onClick: () => onSelectionChange?.([]) }, '清空选择')),
+        h('span', { role: 'status' }, t("FileTreeSidebar.message011", { value0: selectedPaths.length, value1: selectedPaths.length > visibleSelected ? t("FileTreeSidebar.message010", { value0: selectedPaths.length - visibleSelected }) : '' })),
+        h(Button, { className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: !visiblePaths.length, onClick: () => togglePaths(visiblePaths, true) }, t("FileTreeSidebar.message012")),
+        h(Button, { className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: !selectedPaths.length, onClick: () => onSelectionChange?.([]) }, t("FileTreeSidebar.message013"))),
       // Filters (collapsible, default collapsed)
       h('div', { className: 'rh-file-tree-filters' },
-        h('button', {
+        h(Button, {
           type: 'button',
           className: 'rh-btn rh-btn-ghost rh-btn-sm rh-filter-toggle',
           onClick: () => setShowFilters(!showFilters),
           'aria-expanded': showFilters,
         },
-          h('span', null, '筛选'),
+          h('span', null, t("FileTreeSidebar.message014")),
           h(IconChevronDown, { size: 16, className: `rh-filter-arrow${showFilters ? ' expanded' : ''}` })
         ),
         showFilters && h('div', { className: 'rh-filter-content' },
           // Extension filter
           h('div', { className: 'rh-filter-group' },
-            h('label', { className: 'rh-filter-label' }, '类型:'),
+            h('label', { className: 'rh-filter-label' }, t("FileTreeSidebar.message015")),
             h(Select, {
-              className: 'rh-filter-select', 'aria-label': '文件类型',
+              className: 'rh-filter-select', 'aria-label': t("FileTreeSidebar.message016"),
               value: filterExt,
               onChange: (e) => setFilterExt(e.target.value),
             },
-              h('option', { value: 'all' }, '全部'),
+              h('option', { value: 'all' }, t("FileTreeSidebar.message017")),
               h('option', { value: '.md' }, 'Markdown'),
               h('option', { value: '.html' }, 'HTML'),
-              h('option', { value: '.txt' }, '文本'),
+              h('option', { value: '.txt' }, t("FileTreeSidebar.message018")),
               h('option', { value: '.json' }, 'JSON'),
               h('option', { value: '.pdf' }, 'PDF'),
               h('option', { value: '.docx' }, 'Word'),
@@ -406,41 +376,41 @@ function FileTreeSidebar({ workspaceId, selectedReq, onSelectFile, multiSelect =
           ),
           // Document type filter
           h('div', { className: 'rh-filter-group' },
-            h('label', { className: 'rh-filter-label' }, '文档:'),
+            h('label', { className: 'rh-filter-label' }, t("FileTreeSidebar.message019")),
             h(Select, {
-              className: 'rh-filter-select', 'aria-label': '文档类型',
+              className: 'rh-filter-select', 'aria-label': t("FileTreeSidebar.message020"),
               value: filterType,
               onChange: (e) => setFilterType(e.target.value),
             },
-              h('option', { value: 'all' }, '全部'),
-              h('option', { value: 'requirement' }, '需求'),
-              h('option', { value: 'design' }, '技术方案'),
+              h('option', { value: 'all' }, t("FileTreeSidebar.message017")),
+              h('option', { value: 'requirement' }, t("DocsViewerBody.message072")),
+              h('option', { value: 'design' }, t("DocumentDropdown.message005")),
               h('option', { value: 'cr' }, 'CR'),
-              h('option', { value: 'other' }, '其他')
+              h('option', { value: 'other' }, t("FileTreeSidebar.message021"))
             )
           ),
           // Sort buttons
           h('div', { className: 'rh-filter-group' },
-            h('label', { className: 'rh-filter-label' }, '排序:'),
+            h('label', { className: 'rh-filter-label' }, t("FileTreeSidebar.message022")),
             h('div', { className: 'rh-sort-buttons' },
-              h('button', {
+              h(Button, {
                 className: `rh-btn rh-btn-ghost rh-btn-sm rh-sort-btn${sortBy === 'none' ? ' active' : ''}`,
                 'aria-pressed': sortBy === 'none',
                 onClick: () => setSortBy('none'),
-                title: '不排序',
-              }, '默认'),
-              h('button', {
+                title: t("FileTreeSidebar.message023"),
+              }, t("FileTreeSidebar.message024")),
+              h(Button, {
                 className: `rh-btn rh-btn-ghost rh-btn-sm rh-sort-btn${sortBy === 'mtime-asc' ? ' active' : ''}`,
                 'aria-pressed': sortBy === 'mtime-asc',
                 onClick: () => setSortBy('mtime-asc'),
-                title: '编辑时间升序',
-              }, '最早'),
-              h('button', {
+                title: t("FileTreeSidebar.message025"),
+              }, t("FileTreeSidebar.message026")),
+              h(Button, {
                 className: `rh-btn rh-btn-ghost rh-btn-sm rh-sort-btn${sortBy === 'mtime-desc' ? ' active' : ''}`,
                 'aria-pressed': sortBy === 'mtime-desc',
                 onClick: () => setSortBy('mtime-desc'),
-                title: '编辑时间降序',
-              }, '最新')
+                title: t("FileTreeSidebar.message027"),
+              }, t("FileTreeSidebar.message028"))
             )
           )
         )
@@ -448,28 +418,20 @@ function FileTreeSidebar({ workspaceId, selectedReq, onSelectFile, multiSelect =
 
       // Tree content
       loading
-        ? h('div', { className: 'rh-empty', style: { minHeight: 80 } }, '加载中...')
+        ? h('div', { className: ('rh-empty') + ' ' + css.size2 }, t("common.loading"))
         : loadError ? h('div', { className: 'rh-knowledge-error', role: 'alert' }, loadError)
         : !selectedReq
-          ? h('div', { className: 'rh-empty', style: { minHeight: 80 } }, '请先选择需求目录')
+          ? h('div', { className: ('rh-empty') + ' ' + css.size2 }, t("DocumentDropdown.message003"))
           : filteredTree.length === 0
-            ? h('div', { className: 'rh-empty', style: { minHeight: 80 } }, '无匹配文件')
+            ? h('div', { className: ('rh-empty') + ' ' + css.size2 }, t("FileTreeSidebar.message029"))
             : h('div', {
-                role: 'tree', 'aria-label': '需求文件',
-                style: {
-                  flex: 1,
-                  overflow: 'auto',
-                  padding: '4px 0',
-                }
+                role: 'tree', 'aria-label': t("FileTreeSidebar.message030"),
+                className: css.pane3
               },
                 // File count header
                 h('div', {
-                  style: {
-                    padding: '4px 12px 8px',
-                    fontSize: 'var(--rh-font-size-sm)',
-                    color: 'var(--dsw-alias-label-secondary)',
-                  }
-                }, `${countFiles(filteredTree)} 个文件`),
+                  className: css.mutedText3
+                }, t("DocTree.message002", { value0: countFiles(filteredTree) })),
                 filteredTree.map((node, idx) =>
                   h(TreeNode, {
                     key: node.path || idx,

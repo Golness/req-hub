@@ -1,4 +1,5 @@
 'use strict';
+const { t } = require('../locale.js');
 const React = require('react');
 const { ROUTE } = require('../constants.js');
 const { isSyncActive } = require('../../shared/sync-task.cjs');
@@ -18,11 +19,11 @@ function useSyncMonitor() {
       fetching = true;
       try {
         const response = await fetch(`${ROUTE}/sync-overview`), data = await response.json();
-        if (!response.ok || data.error) throw new Error(data.error || '读取同步任务失败');
+        if (!response.ok || data.error) throw new Error(data.error || t("useSyncMonitor.message001"));
         if (!disposed) setState({ ...data, active: removedTasks.current.has(taskKey(data.active)) ? null : data.active,
           latest: removedTasks.current.has(taskKey(data.latest)) ? null : data.latest, error: '' });
       } catch (error) {
-        if (!disposed) setState(previous => ({ ...previous, error: '同步状态连接中断，后台状态待确认' }));
+        if (!disposed) setState(previous => ({ ...previous, error: t("useSyncMonitor.message002") }));
       } finally { fetching = false; }
     };
     refreshRef.current = refresh;

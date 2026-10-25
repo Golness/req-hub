@@ -1,4 +1,9 @@
 'use strict';
+const { Checkbox } = require('./shared/controls.js');
+const { t } = require('../locale.js');
+const css = require('./LogPanel.module.css').default;
+const { cssValue } = require('./shared/presentation.js');
+const { Button } = require('./shared/Button.js');
 
 const React = require('react');
 const h = React.createElement;
@@ -146,17 +151,10 @@ function LogPanel({ onClose }) {
 
   return h('div', { className: 'rh-op-panel', role: 'log', 'aria-live': 'polite' },
     // 顶部工具栏
-    h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, padding: '8px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)' } },
-      h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
-        h('label', { style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--rh-font-size)' } },
-          h('input', {
-            type: 'checkbox',
-            checked: autoRefresh,
-            onChange: (e) => setAutoRefresh(e.target.checked)
-          }),
-          '自动刷新'
-        ),
-        h('button', {
+    h('div', { className: css.row },
+      h('div', { className: css.row2 },
+        h('div', { className: css.row3 }, h(Checkbox, { checked: autoRefresh, onChange: checked => setAutoRefresh(checked), label: t("LogPanel.message001") })),
+        h(Button, {
           className: 'rh-btn rh-btn-secondary',
           onClick: async () => {
             try {
@@ -166,43 +164,43 @@ function LogPanel({ onClose }) {
               console.error('Failed to clear logs:', err);
             }
           }
-        }, '清空')
+        }, t("LogPanel.message002"))
       ),
-      hasFilterChanges && h('button', {
+      hasFilterChanges && h(Button, {
         className: 'rh-btn rh-btn-secondary',
         onClick: resetFilters
-      }, '重置筛选')
+      }, t("LogPanel.message003"))
     ),
 
     // 第一层：等级筛选器
-    h('div', { style: { marginBottom: 12 } },
-      h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 } },
-        h('span', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', fontWeight: 600 } },
-          '日志等级：',
-          selectedLevels.length > 0 ? `已选 ${selectedLevels.length}/${4}` : '请选择'
+    h('div', { className: css.spacing },
+      h('div', { className: css.row4 },
+        h('span', { className: css.heading },
+          t("LogPanel.message004"),
+          selectedLevels.length > 0 ? t("LogPanel.message005", { value0: selectedLevels.length, value1: 4 }) : t("common.select")
         ),
-        h('div', { style: { display: 'flex', gap: 4 } },
-          selectedLevels.length < 4 && h('button', {
+        h('div', { className: css.row5 },
+          selectedLevels.length < 4 && h(Button, {
             className: 'rh-btn rh-btn-secondary rh-btn-sm',
             onClick: selectAllLevels,
-          }, '全选'),
-          selectedLevels.length > 0 && h('button', {
+          }, t("LogPanel.message007")),
+          selectedLevels.length > 0 && h(Button, {
             className: 'rh-btn rh-btn-secondary rh-btn-sm',
             onClick: clearAllLevels,
-          }, '清除')
+          }, t("LogPanel.message008"))
         )
       ),
-      h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
+      h('div', { className: css.row6 },
         ['debug', 'info', 'warn', 'error'].map(level => {
           const isSelected = selectedLevels.includes(level);
           const count = levelCounts[level] || 0;
-          return h('button', {
+          return h(Button, {
             key: level,
             className: 'rh-btn rh-btn-ghost rh-btn-pill',
             'aria-pressed': isSelected,
             onClick: () => toggleLevel(level),
             style: { '--rh-filter-color': getLevelColor(level) },
-          }, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
+          }, h('span', { className: css.row7 },
             h('span', null, `${getLevelLabel(level)} (${count})`)
           ));
         })
@@ -210,30 +208,30 @@ function LogPanel({ onClose }) {
     ),
 
     // 第二层：标签筛选器
-    h('div', { style: { marginBottom: 12 } },
-      h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 } },
-        h('span', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', fontWeight: 600 } },
-          '功能模块：',
-          selectedTags.length > 0 ? `已选 ${selectedTags.length}/${Object.keys(tagCounts).length}` : '全部'
+    h('div', { className: css.spacing },
+      h('div', { className: css.row4 },
+        h('span', { className: css.heading },
+          t("LogPanel.message009"),
+          selectedTags.length > 0 ? t("LogPanel.message005", { value0: selectedTags.length, value1: Object.keys(tagCounts).length }) : t("FileTreeSidebar.message017")
         ),
-        selectedTags.length > 0 && h('button', {
+        selectedTags.length > 0 && h(Button, {
           className: 'rh-btn rh-btn-secondary rh-btn-sm',
           onClick: clearAllTags,
-        }, '清除')
+        }, t("LogPanel.message008"))
       ),
-      h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
+      h('div', { className: css.row6 },
         Object.keys(tagCounts).sort().map(tag => {
           const isSelected = selectedTags.includes(tag);
           const count = tagCounts[tag] || 0;
           const tagLabel = logMeta.tags[tag] || tag;
-          return h('button', {
+          return h(Button, {
             key: tag,
             className: 'rh-btn rh-btn-ghost rh-btn-pill',
             'aria-pressed': isSelected,
             onClick: () => toggleTag(tag),
           }, `${tagLabel} (${count})`);
         }),
-        Object.keys(tagCounts).length === 0 && h('span', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)' } }, '暂无标签')
+        Object.keys(tagCounts).length === 0 && h('span', { className: css.mutedText }, t("LogPanel.message010"))
       )
     ),
 
@@ -242,46 +240,30 @@ function LogPanel({ onClose }) {
       filteredLogs.length === 0
         ? h('div', { className: 'rh-empty' },
             logs.length === 0
-              ? '暂无日志'
+              ? t("LogPanel.message011")
               : selectedLevels.length === 0
-                ? '请至少选择一个日志等级'
-                : '没有匹配的日志，请调整筛选条件')
+                ? t("LogPanel.message012")
+                : t("LogPanel.message013"))
         : filteredLogs.map((log, idx) =>
             h('div', {
               key: idx,
-              className: 'rh-log-item',
-              style: { borderLeft: `3px solid ${getLevelColor(log.level)}` }
+              className: ('rh-log-item') + ' ' + css.content,
+              style: { "--rh-border-left-0": cssValue(`3px solid ${getLevelColor(log.level)}`) }
             },
               h('div', { className: 'rh-log-item-header' },
 
                 h('span', {
-                  className: 'rh-log-time',
-                  style: { color: getLevelColor(log.level) }
+                  className: ('rh-log-time') + ' ' + css.content2,
+                  style: { "--rh-color-0": cssValue(getLevelColor(log.level)) }
                 }, new Date(log.timestamp).toLocaleTimeString()),
                 h('span', {
-                  className: 'rh-log-type',
-                  style: {
-                    background: 'var(--dsw-alias-bg-layer-3)',
-                    color: 'var(--dsw-alias-label-secondary)'
-                  }
+                  className: ('rh-log-type') + ' ' + css.mutedText2
                 }, logMeta.tags[log.tag] || log.tag)
               ),
               h('div', { className: 'rh-log-message' }, log.message),
               // 显示附加数据（debug 级别的详细信息）
               log.data && h('div', {
-                style: {
-                  marginTop: 6,
-                  padding: '6px 8px',
-                  background: 'var(--dsw-alias-bg-layer-3)',
-                  borderRadius: 4,
-                  fontSize: 'var(--rh-font-size-sm)',
-                  fontFamily: 'var(--rh-font-code)',
-                  color: 'var(--dsw-alias-label-secondary)',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-all',
-                  maxHeight: 200,
-                  overflowY: 'auto'
-                }
+                className: css.mutedText3
               }, typeof log.data === 'object' ? JSON.stringify(log.data, null, 2) : String(log.data))
             )
           )

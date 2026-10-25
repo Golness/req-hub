@@ -52,8 +52,10 @@ function ToastContainer() {
     setToasts(prev => prev.filter(t => t.id !== id));
   };
 
-  return h('div', { className: 'rh-toast-container' },
-    toasts.map(toast =>
+  // Host Toast owns one fixed banner seat. Queue outcomes instead of stacking
+  // several body portals at the same viewport coordinates.
+  return h(React.Fragment, null,
+    toasts.slice(0, 1).map(toast =>
       h(Toast, {
         key: toast.id,
         text: toast.text,

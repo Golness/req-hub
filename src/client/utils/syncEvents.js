@@ -1,9 +1,10 @@
 'use strict';
+const { t } = require('../locale.js');
 
 // Parse transport data separately from business events: server errors must never
 // be swallowed by a JSON parsing catch, including the last unterminated line.
 async function readSyncEvents(body, onEvent) {
-  if (!body) throw new Error('同步响应缺少事件流');
+  if (!body) throw new Error(t("syncEvents.message001"));
   const reader = body.getReader(), decoder = new TextDecoder();
   let buffer = '';
   const line = async text => {
@@ -11,7 +12,7 @@ async function readSyncEvents(body, onEvent) {
     if (!text.startsWith('data:')) return;
     let event;
     try { event = JSON.parse(text.slice(5).trimStart()); }
-    catch { throw new Error('同步事件格式错误，请刷新任务状态'); }
+    catch { throw new Error(t("syncEvents.message002")); }
     await onEvent(event);
   };
   try {

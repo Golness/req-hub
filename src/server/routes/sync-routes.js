@@ -1,3 +1,4 @@
+import { safeDocumentPath } from '../safe-path.js';
 import taskModel from '../../shared/sync-task.cjs';
 import { SyncLifecycle } from '../sync-lifecycle.js';
 import { syncSupervisor } from '../sync-supervisor.js';
@@ -21,10 +22,15 @@ import { defaultSyncBaseBranch, listSyncCommits } from '../sync-branches.js';
 import { buildSyncTimeline } from '../sync-timeline.js';
 import { compareSyncSnapshots } from '../sync-snapshots.js';
 import { PhasedSyncEngine } from '../phased-sync-engine.js';
-import { listRelatedSessions } from '../session-selector.js';
-import { readSessionSnapshot, extractMultipleSessionTurns } from '../session-utils.js';
+import { extractMultipleSessionTurns } from '../session-utils.js';
 import { CodexSessionService } from '../codex-sessions/service.js';
 import { createCodexSessionRoutes } from './codex-session-routes.js';
+import { ConversationStore, conversationDatabasePath } from '../conversations/store.js';
+import { ConversationService } from '../conversations/service.js';
+import { dshSource } from '../conversations/dsh-source.js';
+import { createConversationRoutes } from './conversation-routes.js';
+import { clearRetiredWorkspaceConversations, removeRetiredCodexStore } from '../conversations/retired-storage.js';
+import { homedir } from 'node:os';
 import { json, readBody } from '../utils.js';
 import { log } from '../logger.js';
 import {
@@ -56,9 +62,23 @@ import { charsToTokens, formatTokens } from '../token-utils.js';
 export function createSyncRoutes(registry, llm, sessions, agents, ctx, options = {}) {
   // 从 ctx 获取 sessionQuery 服务
   const sessionQuery = ctx?.sessionQuery;
-  const codex = options.codexService || new CodexSessionService(options.codex);
+  const profile = ctx?.get?.('profileContext');
+  const library = new ConversationService({ store: new ConversationStore(options.conversationDatabasePath || conversationDatabasePath(profile?.home)), owner: profile?.dir || process.env.DSH_PROFILE_DIR || process.env.DSH_PROFILE || 'default' });
+  const dsh = dshSource({ registry, sessionQuery, sessions, instance: library.owner });
+  const codex = options.codexService || new CodexSessionService({ ...options.codex, library });
+  const adapters = [dsh, codex.adapter].filter(Boolean);
+  let retirement;
+  const retire = () => retirement ||= (async () => {
+    await removeRetiredCodexStore(profile?.home || process.env.DSH_HOME || join(homedir(), '.dsh'));
+    const config = await loadConfig();
+    for (const workspace of registry.list()) await clearRetiredWorkspaceConversations(workspace.path, config.docsDir);
+  })();
+  const dshSnapshot = async (workspaceId, id) => {
+    if (!(await library.list(workspaceId, dsh)).workspace) await library.refresh(workspaceId, workspaceId, dsh);
+    return library.snapshot(workspaceId, id, dsh);
+  };
 
-  const pendingSyncs = new Set(), controllers = new Map();
+  const pendingSyncs = new Set(), controllers = new Map(), pendingRequests = new Set();
   let closed = false;
   const ownerScope = {};
   const reconcileOrphans = async () => {
@@ -74,6 +94,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
   watchdog.unref?.();
   const routes = [
     ...createCodexSessionRoutes(registry, codex),
+    ...createConversationRoutes(registry, library, adapters),
     {
       kind: 'exact', path: '/req-hub/sync-delete',
       async handler(req, res) {
@@ -110,6 +131,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
           if (syncSupervisor.owner?.task && syncSupervisor.owner.task.snapshotDir === task.snapshotDir && syncSupervisor.owner.task.id === task.id) syncSupervisor.owner.cleanup = cleanup;
           syncSupervisor.remove(task);
           await removeSyncTask(task);
+          await library.store.unpin(JSON.stringify([task.workspaceId, task.requirementId, task.snapshotDir]));
           const clean = async () => {
             try { await cleanup(); }
             catch (error) {
@@ -268,7 +290,8 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
         }
 
         try {
-          const sessionsList = await listRelatedSessions(sessions, workspace.path, { limit, query, sessionQuery, registry });
+          if (!(await library.list(workspaceId, dsh)).workspace) await library.refresh(workspaceId, workspaceId, dsh);
+          const sessionsList = (await library.list(workspaceId, dsh)).sessions.filter(item => !query || item.title.toLowerCase().includes(query.toLowerCase())).slice(0, Math.max(0, Math.min(limit || 20, 200)));
           json(res, { sessions: sessionsList });
         } catch (e) {
           log.sync.error(`获取会话列表失败: ${e.message}`);
@@ -483,7 +506,9 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
         }
 
         try {
-          const snapshot = sessionId.startsWith('codex:') ? await codex.snapshot(sessionId) : await readSessionSnapshot(sessionQuery, sessionId, sessions);
+          const workspaceId = url.searchParams.get('workspaceId');
+          if (!registry.list().some(item => item.id === workspaceId)) return json(res, { error: 'WORKSPACE_MISSING' }, 404);
+          const snapshot = sessionId.startsWith('codex:') ? await codex.snapshot(sessionId, workspaceId) : await dshSnapshot(workspaceId, sessionId);
           if (url.searchParams.get('version') !== snapshot.version) {
             return json(res, { success: false, error: 'SESSION_CHANGED: 会话已变化，请刷新会话列表后重新选择' }, 409);
           }
@@ -570,9 +595,12 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
             if (!Array.isArray(sessionIds) || sessionIds.some(id => typeof id !== 'string') || new Set(sessionIds).size !== sessionIds.length) {
               return json(res, { error: 'SESSION_SELECTION_INVALID: 会话选择无效' }, 400);
             }
-            const codexSnapshots = new Map((await codex.snapshots(sessionIds.filter(id => id.startsWith('codex:')))).map(snapshot => [snapshot.sessionId, snapshot]));
+            const codexSnapshots = new Map((await codex.snapshots(sessionIds.filter(id => id.startsWith('codex:')), workspaceId)).map(snapshot => [snapshot.sessionId, snapshot]));
+            const dshIds = sessionIds.filter(id => !id.startsWith('codex:'));
+            if (dshIds.length && !(await library.list(workspaceId, dsh)).workspace) await library.refresh(workspaceId, workspaceId, dsh);
+            const dshSnapshots = new Map((await library.snapshots(workspaceId, dshIds, dsh)).map(snapshot => [snapshot.sessionId, snapshot]));
             const sessionInput = await extractMultipleSessionTurns(sessionQuery, sessionIds, { sessions,
-              readSnapshot: id => codexSnapshots.get(id) || readSessionSnapshot(sessionQuery, id, sessions) });
+              readSnapshot: id => codexSnapshots.get(id) || dshSnapshots.get(id) });
             for (const snapshot of sessionInput.snapshots) {
               if (input.sessionVersions?.[snapshot.sessionId] !== snapshot.version) {
                 return json(res, { error: 'SESSION_CHANGED: 会话已变化，请刷新会话列表后重新选择' }, 409);
@@ -589,7 +617,8 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
               docTypeName,
               requirementPath: relative(docsRoot, reqDir).replaceAll('\\', '/'),
               sessionIds,
-              sessionSnapshots: sessionInput.snapshots.map(({ sessionId, version, syncTurnCount }) => ({ sessionId, version, syncTurnCount })),
+              conversationStorageVersion: 1,
+              sessionSnapshots: sessionInput.snapshots.map(({ sessionId, conversationId, version, syncTurnCount }) => ({ sessionId, conversationId, version, syncTurnCount })),
               baseBranch: input.baseBranch?.trim() || await defaultSyncBaseBranch(workspace.path),
               commitHashes: input.commitHashes,
               branchTip: input.branchTip,
@@ -619,6 +648,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
             }
             if (prepared.active || prepared.skipped) { json(res, prepared); return; }
             syncTask = prepared.sync;
+            await library.store.pin(JSON.stringify([workspaceId, requirementId, syncTask.snapshotDir]), sessionInput.snapshots.filter(snapshot => snapshot.conversationId));
             syncId = syncTask.id;
             syncSupervisor.attach(lease, syncTask, reason => recoverSyncTask(syncTask, reason));
             controllers.set(abortController, syncTask);
@@ -896,6 +926,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
 
           const config = await loadConfig();
           const docsRoot = resolve(workspace.path, config.docsDir || 'docs');
+          await safeDocumentPath(workspace.path, relative(workspace.path, docsRoot));
           const reqDir = await findRequirementDir(docsRoot, requirementId);
 
           if (reqDir) {
@@ -1027,12 +1058,14 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
             return;
           }
 
-          const filePath = join(reqDir, fileName);
+          await safeDocumentPath(workspace.path, relative(workspace.path, docsRoot));
+          await safeDocumentPath(docsRoot, relative(docsRoot, reqDir));
+          const filePath = await safeDocumentPath(reqDir, fileName);
           const content = await readFile(filePath, 'utf8');
           json(res, { content, fileName });
         } catch (e) {
           log.sync.error(`Failed to read sync file: ${e.message}`);
-          json(res, { error: e.message }, 500);
+          json(res, { error: e.message }, e.status || 500);
         }
       }
     },
@@ -1095,8 +1128,21 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
       await abortSync(task.id, task.workspaceId, task.requirementId);
     }
     const grace = setTimeout(() => { if (owner) void syncSupervisor.expire(owner, 'SYNC_SHUTDOWN_TIMEOUT: 插件退出时同步未能正常收尾，已回收').catch(error => log.sync.error(error.message)); }, syncSupervisor.limits.cancelling);
-    try { await Promise.allSettled([...pendingSyncs]); } finally { clearTimeout(grace); if (!options.codexService) await codex.close(); }
+    const stoppingLibrary = library.close();
+    try { await Promise.allSettled([...pendingSyncs, ...pendingRequests, stoppingLibrary]); } finally { clearTimeout(grace); if (!options.codexService) await codex.close(); await library.store.close(); }
   };
+  for (const route of routes) {
+    const handler = route.handler;
+    route.handler = (req, res) => {
+      if (closed) return json(res, { error: 'SESSION_SERVICE_CLOSED' }, 503);
+      const pending = (async () => {
+        try { await retire(); if (closed) return json(res, { error: 'SESSION_SERVICE_CLOSED' }, 503); return await handler(req, res); }
+        catch (error) { json(res, { error: error.message }, error.statusCode || error.status || 500); }
+      })();
+      pendingRequests.add(pending);
+      return pending.finally(() => pendingRequests.delete(pending));
+    };
+  }
   return routes;
 }
 

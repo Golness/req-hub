@@ -1,0 +1,6 @@
+/* Component presentation; runtime geometry uses local CSS variables. */
+.size { min-width: 400px; }
+.row { display: flex; align-items: center; gap: 6px; }
+.size2 { max-height: 400px; }
+.heading { font-weight: 500; }
+.mutedText { color: var(--dsw-alias-label-secondary); font-size: var(--rh-font-size-sm); margin-left: 8px; }

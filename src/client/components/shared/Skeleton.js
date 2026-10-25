@@ -1,4 +1,6 @@
 'use strict';
+const css = require('./Skeleton.module.css').default;
+const { cssValue } = require('./presentation.js');
 const React = require('react');
 const h = React.createElement;
 
@@ -15,11 +17,8 @@ function Skeleton({ lines = 3, height = '1em' }) {
     Array.from({ length: lines }).map((_, i) =>
       h('div', {
         key: i,
-        className: 'rh-skeleton-line',
-        style: {
-          width: i === lines - 1 ? '60%' : '100%',
-          height: height,
-        },
+        className: ('rh-skeleton-line') + ' ' + css.size,
+        style: { "--rh-width-0": cssValue(i === lines - 1 ? '60%' : '100%'), "--rh-height-1": cssValue(height) },
         'aria-hidden': 'true',
       })
     )

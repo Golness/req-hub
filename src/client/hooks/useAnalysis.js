@@ -1,4 +1,5 @@
 'use strict';
+const { t } = require('../locale.js');
 
 /**
  * @module useAnalysis
@@ -52,7 +53,7 @@ function useAnalysis(workspaceId, selectedReq) {
     let previewData;
     try {
       const res = await fetch(url);
-      if (!res.ok) throw new Error('获取预览失败');
+      if (!res.ok) throw new Error(t("useAnalysis.message001"));
       previewData = await res.json();
     } catch (e) {
       setError(String(e));
@@ -86,7 +87,7 @@ function useAnalysis(workspaceId, selectedReq) {
     }
 
     if (!currentSessionId) {
-      setError('分析功能需要在活跃的 DSH 会话中调用');
+      setError(t("useAnalysis.message002"));
       setAnalyzing(false);
       return;
     }
@@ -128,13 +129,13 @@ function useAnalysis(workspaceId, selectedReq) {
             }
             return next;
           });
-          setSuccess(`分析已终止: ${data.success}/${data.total} 完成 (${data.elapsed}s)`);
+          setSuccess(t("useAnalysis.message003", { value0: data.success, value1: data.total, value2: data.elapsed }));
           refreshTree();
           eventSource.close();
           eventSourceRef.current = null;
           setAnalyzing(false);
         } else if (data.type === 'done') {
-          setSuccess(`${mode === 'single' ? '当前需求' : '全量'}分析完成: ${data.success}/${data.total} 成功 (${data.elapsed}s)`);
+          setSuccess(t("useAnalysis.message006", { value0: mode === 'single' ? t("useAnalysis.message004") : t("useAnalysis.message005"), value1: data.success, value2: data.total, value3: data.elapsed }));
           refreshTree();
           // Refresh selectedReq to update hasMeta status
           refreshSelectedReq();
@@ -152,7 +153,7 @@ function useAnalysis(workspaceId, selectedReq) {
       eventSource.onerror = () => {
         // If user cancelled, don't show error
         if (!eventSourceRef.current) return;
-        setError('连接中断');
+        setError(t("useAnalysis.message007"));
         eventSource.close();
         eventSourceRef.current = null;
         setAnalyzing(false);
@@ -164,29 +165,12 @@ function useAnalysis(workspaceId, selectedReq) {
   };
 
   const cancelAnalysis = async () => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-    }
-    // Mark all pending/analyzing as cancelled
-    setAnalysisStatus(prev => {
-      const next = { ...prev };
-      for (const key of Object.keys(next)) {
-        if (next[key].status === 'pending' || next[key].status === 'analyzing') {
-          next[key] = { status: 'cancelled' };
-        }
-      }
-      return next;
-    });
-    setSuccess('分析已终止');
-    setAnalyzing(false);
-    refreshTree();
-    // Notify server to stop processing
     try {
-      await fetch(`${ROUTE}/analysis-cancel`, { method: 'POST' });
-    } catch (e) {
-      console.error('Failed to cancel analysis on server:', e);
-    }
+      const response = await fetch(`${ROUTE}/analysis-cancel`, { method: 'POST' });
+      if (!response.ok) throw new Error(t('common.loadFailed'));
+      // Keep SSE and the running state until Host confirms quiescence.
+      if (!eventSourceRef.current) await restoreAnalysis({ mode: analysisMode, status: analysisStatus });
+    } catch (error) { setError(String(error)); }
   };
 
   const restoreAnalysis = async (taskData) => {
@@ -208,7 +192,7 @@ function useAnalysis(workspaceId, selectedReq) {
           } else {
             // Task completed
             setAnalyzing(false);
-            setSuccess(`分析完成: ${data.successCount || '?'}/${data.totalCount || '?'} 成功`);
+            setSuccess(t("useAnalysis.message009", { value0: data.successCount || '?', value1: data.totalCount || '?' }));
             refreshTree();
             refreshSelectedReq();
             return { continue: false, data };

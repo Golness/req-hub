@@ -1,4 +1,8 @@
 'use strict';
+const { t } = require('../locale.js');
+const css = require('./DocsViewerBody.module.css').default;
+const { cssValue } = require('./shared/presentation.js');
+const { Button } = require('./shared/Button.js');
 
 const React = require('react');
 const h = React.createElement;
@@ -30,7 +34,7 @@ const { SearchPanel } = require('./SearchPanel.js');
 const { EmptyState } = require('./shared/EmptyState.js');
 const { Breadcrumb } = require('./shared/Breadcrumb.js');
 const { HeaderBack } = require('./shared/HeaderBack.js');
-const { ToastContainer, showToast } = require('./shared/ToastContainer.js');
+const { showToast } = require('./shared/ToastContainer.js');
 const { ConfirmDialogContainer, showConfirm } = require('./shared/ConfirmDialog.js');
 const { Skeleton } = require('./shared/Skeleton.js');
 const { setupKeyboardShortcuts } = require('../utils/keyboardShortcuts.js');
@@ -71,7 +75,7 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
     if (focusedSync.workspaceId !== workspace.id) {
       const target = workspaces.find(item => item.id === focusedSync.workspaceId);
       if (target) onSelectWorkspace(target);
-      else { pendingSyncNavigation.current = null; setFocusedSync(null); showToast({ tone: 'warning', text: '任务所属工作区当前不可用，请先恢复工作区。' }); }
+      else { pendingSyncNavigation.current = null; setFocusedSync(null); showToast({ tone: 'warning', text: t("DocsViewerBody.message001") }); }
       return;
     }
     setSelectedReq({ id: focusedSync.requirementId, title: focusedSync.requirementId, path: focusedSync.requirementPath || focusedSync.requirementId });
@@ -274,11 +278,11 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
 
       const createData = await createRes.json();
       if (!createRes.ok) {
-        showToast({ tone: 'error', text: `创建需求目录失败：${createData.error || '未知错误'}`, holdMs: 5000 });
+        showToast({ tone: 'error', text: t("DocsViewerBody.message003", { value0: createData.error || t("DocsViewerBody.message002") }), holdMs: 5000 });
         return;
       }
 
-      showToast({ tone: 'success', text: `需求目录 ${developer}/${requirementId} 创建成功`, holdMs: 3000 });
+      showToast({ tone: 'success', text: t("DocsViewerBody.message004", { value0: developer, value1: requirementId }), holdMs: 3000 });
       await refreshTree();
       await new Promise(resolve => setTimeout(resolve, 300));
 
@@ -299,17 +303,17 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
         }
       }
     } catch (e) {
-      console.error('创建需求目录失败:', e);
+      console.error(t("DocsViewerBody.message005"), e);
     }
   };
 
   const handleLocateSessionReq = async () => {
-    console.log('[定位会话需求] 开始执行');
+    console.log(t("DocsViewerBody.message006"));
     try {
       // 1. 获取当前会话 ID（从 DSH 上下文获取）
       const ctx = window.__DSH_CTX__;
       if (!ctx) {
-        console.error('[定位会话需求] 无法获取 DSH 上下文');
+        console.error(t("DocsViewerBody.message007"));
         return;
       }
 
@@ -321,14 +325,14 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
           // 尝试从 selection 属性获取
           if (uiWorkspace.selection && typeof uiWorkspace.selection.getSnapshot === 'function') {
             const selection = uiWorkspace.selection.getSnapshot();
-            console.log('[定位会话需求] uiWorkspace.selection:', selection);
+            console.log(t("DocsViewerBody.message008"), selection);
             if (selection?.sessionId) {
               currentSessionId = selection.sessionId;
             }
           }
         }
       } catch (e) {
-        console.error('[定位会话需求] 获取 uiWorkspace.selection 失败:', e);
+        console.error(t("DocsViewerBody.message009"), e);
       }
 
       // 备用方案：从 sessions 服务获取最新的主会话
@@ -337,49 +341,49 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
           const sessions = ctx.get?.('sessions');
           if (sessions && typeof sessions.list?.getSnapshot === 'function') {
             const snapshot = sessions.list.getSnapshot();
-            console.log('[定位会话需求] sessions.list:', snapshot?.ids?.slice(0, 3));
+            console.log(t("DocsViewerBody.message010"), snapshot?.ids?.slice(0, 3));
             if (snapshot?.ids && snapshot.ids.length > 0) {
               currentSessionId = snapshot.ids[0];
             }
           }
         } catch (e) {
-          console.error('[定位会话需求] 获取 sessions 失败:', e);
+          console.error(t("DocsViewerBody.message011"), e);
         }
       }
 
       if (!currentSessionId) {
-        console.error('[定位会话需求] 无法获取当前会话 ID');
+        console.error(t("DocsViewerBody.message012"));
         return;
       }
 
-      console.log('[定位会话需求] 当前会话 ID:', currentSessionId);
+      console.log(t("DocsViewerBody.message013"), currentSessionId);
 
       // 2. 获取会话详情
       const sessionRes = await fetch(`${ROUTE}/session-info?sessionId=${encodeURIComponent(currentSessionId)}`);
       if (!sessionRes.ok) {
-        console.error('[定位会话需求] 获取会话详情失败:', sessionRes.status);
+        console.error(t("DocsViewerBody.message014"), sessionRes.status);
         return;
       }
       const sessionData = await sessionRes.json();
-      console.log('[定位会话需求] 会话数据:', sessionData);
+      console.log(t("DocsViewerBody.message015"), sessionData);
 
       if (!sessionData.session) {
-        console.error('[定位会话需求] 没有找到会话');
+        console.error(t("DocsViewerBody.message016"));
         return;
       }
 
       const session = sessionData.session;
       const sessionCwd = session.cwd;
-      console.log('[定位会话需求] 会话工作目录:', sessionCwd);
+      console.log(t("DocsViewerBody.message017"), sessionCwd);
 
       if (!sessionCwd) {
-        console.error('[定位会话需求] 会话没有工作目录信息');
+        console.error(t("DocsViewerBody.message018"));
         return;
       }
 
       // 3. 根据会话的工作目录找到对应的工作区
-      console.log('[定位会话需求] 查找匹配的工作区...');
-      console.log('[定位会话需求] 可用工作区:', workspaces.map(w => ({ id: w.id, path: w.path, title: w.title })));
+      console.log(t("DocsViewerBody.message019"));
+      console.log(t("DocsViewerBody.message020"), workspaces.map(w => ({ id: w.id, path: w.path, title: w.title })));
 
       let targetWorkspace = null;
       for (const ws of workspaces) {
@@ -393,15 +397,15 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
       }
 
       if (!targetWorkspace) {
-        console.error('[定位会话需求] 没有找到匹配的工作区，会话 cwd:', sessionCwd);
+        console.error(t("DocsViewerBody.message021"), sessionCwd);
         return;
       }
 
-      console.log('[定位会话需求] 找到匹配的工作区:', targetWorkspace);
+      console.log(t("DocsViewerBody.message022"), targetWorkspace);
 
       // 4. 如果工作区不匹配，先切换工作区并持久化
       if (targetWorkspace.id !== workspace.id) {
-        console.log('[定位会话需求] 切换工作区到:', targetWorkspace.id);
+        console.log(t("DocsViewerBody.message023"), targetWorkspace.id);
 
         // 更新配置（持久化工作区选择）
         try {
@@ -410,9 +414,9 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ workspaceId: targetWorkspace.id }),
           });
-          console.log('[定位会话需求] 工作区配置已持久化');
+          console.log(t("DocsViewerBody.message024"));
         } catch (e) {
-          console.error('[定位会话需求] 持久化工作区配置失败:', e);
+          console.error(t("DocsViewerBody.message025"), e);
         }
 
         // 切换工作区（更新 React 状态）
@@ -423,32 +427,32 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
       }
 
       // 5. 获取工作区的 Git 分支
-      console.log('[定位会话需求] 获取 Git 分支...');
+      console.log(t("DocsViewerBody.message026"));
       const branchRes = await fetch(`${ROUTE}/git-branch?workspaceId=${encodeURIComponent(targetWorkspace.id)}`);
       if (!branchRes.ok) {
-        console.error('[定位会话需求] 获取分支失败:', branchRes.status);
+        console.error(t("DocsViewerBody.message027"), branchRes.status);
         return;
       }
       const branchData = await branchRes.json();
-      console.log('[定位会话需求] 分支数据:', branchData);
+      console.log(t("DocsViewerBody.message028"), branchData);
       if (!branchData.branch) {
-        console.error('[定位会话需求] 没有分支信息');
+        console.error(t("DocsViewerBody.message029"));
         return;
       }
 
       // 6. 解析分支名（支持三种格式）
       const branch = branchData.branch;
       const parsed = parseBranchName(branch);
-      console.log('[定位会话需求] 当前分支:', branch);
-      console.log('[定位会话需求] 分支解析结果:', parsed);
+      console.log(t("DocsViewerBody.message030"), branch);
+      console.log(t("DocsViewerBody.message031"), parsed);
 
       // parseBranchName 总是返回对象，需要检查 developer 和 date 是否存在
       const isValidBranch = parsed && parsed.developer && parsed.date;
-      console.log('[定位会话需求] 是否符合规范:', isValidBranch);
+      console.log(t("DocsViewerBody.message032"), isValidBranch);
 
       if (!isValidBranch) {
         // 分支名不符合规范 → 跳转到新建功能，默认勾选新建分支
-        console.warn('[定位会话需求]  分支名不符合规范，跳转到新建功能:', branch);
+        console.warn(t("DocsViewerBody.message033"), branch);
         if (targetWorkspace.id !== workspace.id) {
           // 等待工作区切换完成
           await new Promise(resolve => setTimeout(resolve, 200));
@@ -457,26 +461,26 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
         setInitialCreateBranch(true);
         showToast({
           tone: 'warning',
-          text: `当前分支 "${branch}" 不符合命名规范，请新建分支和需求目录`,
+          text: t("DocsViewerBody.message034", { value0: branch }),
           holdMs: 5000,
         });
         return;
       }
 
-      console.log('[定位会话需求]  分支名符合规范，继续查找需求目录');
+      console.log(t("DocsViewerBody.message035"));
 
       const { developer, date, title, requirementId } = parsed;
-      console.log('[定位会话需求] 解析结果 - 开发者:', developer, '日期:', date, '标题:', title, '需求ID:', requirementId);
+      console.log(t("DocsViewerBody.message036"), developer, t("DocsViewerBody.message037"), date, t("DocsViewerBody.message038"), title, t("DocsViewerBody.message039"), requirementId);
 
       // 7. 获取目录树
-      console.log('[定位会话需求] 获取目录树...');
+      console.log(t("DocsViewerBody.message040"));
       const treeRes = await fetch(`${ROUTE}/tree?workspaceId=${encodeURIComponent(targetWorkspace.id)}&t=${Date.now()}`);
       if (!treeRes.ok) {
-        console.error('[定位会话需求] 获取目录树失败:', treeRes.status);
+        console.error(t("DocsViewerBody.message041"), treeRes.status);
         return;
       }
       const treeData = await treeRes.json();
-      console.log('[定位会话需求] 目录树数据:', treeData);
+      console.log(t("DocsViewerBody.message042"), treeData);
 
       // 7. 查找需求目录
       let existingReq = null;
@@ -487,12 +491,12 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
           : treeData.tree.developers;
 
         for (const dev of devsToSearch) {
-          console.log('[定位会话需求] 检查开发者:', dev.name);
+          console.log(t("DocsViewerBody.message043"), dev.name);
           for (const req of dev.requirements) {
-            console.log('[定位会话需求] 检查需求:', req.id, 'vs', requirementId);
+            console.log(t("DocsViewerBody.message044"), req.id, 'vs', requirementId);
             if (req.id === requirementId) {
               existingReq = { ...req, developer: dev.name };
-              console.log('[定位会话需求] 找到匹配的需求:', existingReq);
+              console.log(t("DocsViewerBody.message045"), existingReq);
               break;
             }
           }
@@ -501,7 +505,7 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
       }
 
       if (existingReq) {
-        console.log('[定位会话需求] 切换到已存在的需求:', existingReq);
+        console.log(t("DocsViewerBody.message046"), existingReq);
         setSelectedReq(existingReq);
         setSelectedFile(null);
         // 保存到配置
@@ -516,18 +520,18 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
             }),
           });
         } catch (e) {
-          console.error('[定位会话需求] 保存配置失败:', e);
+          console.error(t("DocsViewerBody.message047"), e);
         }
-        console.log('[定位会话需求] 切换完成');
+        console.log(t("DocsViewerBody.message048"));
         return;
       }
 
-      console.log('[定位会话需求] 需求不存在，显示确认弹窗');
+      console.log(t("DocsViewerBody.message049"));
       // 8. 目录不存在，弹出确认弹窗
       setPendingCreateReq({ workspace: targetWorkspace, developer, date, title, requirementId });
       setShowCreateConfirm(true);
     } catch (e) {
-      console.error('[定位会话需求] 异常:', e);
+      console.error(t("DocsViewerBody.message050"), e);
     }
   };
 
@@ -541,16 +545,16 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
 
   // Rail buttons config
   const topButtons = [
-    { id: 'create', icon: h(IconPlus, { size: 18 }), label: '新建' },
-    { id: 'sync', icon: h(IconSync, { size: 18 }), label: '同步' },
-    { id: 'view', icon: h(IconEye, { size: 18 }), label: '查看' },
-    { id: 'knowledge', icon: h(IconBooks, { size: 18 }), label: '知识库' },
-    { id: 'search', icon: h(IconSearch, { size: 18 }), label: '搜索' },
-    { id: 'writing', icon: h(IconEdit, { size: 18 }), label: '写作' },
+    { id: 'create', icon: h(IconPlus, { size: 18 }), label: t("DocsViewerBody.message051") },
+    { id: 'sync', icon: h(IconSync, { size: 18 }), label: t("DocsViewerBody.message052") },
+    { id: 'view', icon: h(IconEye, { size: 18 }), label: t("DocsViewerBody.message053") },
+    { id: 'knowledge', icon: h(IconBooks, { size: 18 }), label: t("DocsViewerBody.message054") },
+    { id: 'search', icon: h(IconSearch, { size: 18 }), label: t("DocsViewerBody.message055") },
+    { id: 'writing', icon: h(IconEdit, { size: 18 }), label: t("DocsViewerBody.message056") },
   ];
   const bottomButtons = [
-    { id: 'log', icon: h(IconLog, { size: 18 }), label: '日志' },
-    { id: 'settings', icon: h(IconSettings, { size: 18 }), label: '设置' },
+    { id: 'log', icon: h(IconLog, { size: 18 }), label: t("DocsViewerBody.message057") },
+    { id: 'settings', icon: h(IconSettings, { size: 18 }), label: t("DocsViewerBody.message058") },
   ];
 
   const renderPanel = () => {
@@ -626,40 +630,40 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
     }
     // An existing requirement needs next-step guidance, not another creation prompt.
     if (selectedReq) return h(EmptyState, {
-      title: '继续完善当前需求',
-      description: `已选择需求目录「${selectedReq.title || selectedReq.id}」，可以编写文档或整理相关知识。${hasSyncCommits ? '当前分支有可同步的提交，也可以根据代码变更同步文档。' : ''}`,
+      title: t("DocsViewerBody.message059"),
+      description: t("DocsViewerBody.message061", { value0: selectedReq.title || selectedReq.id, value1: hasSyncCommits ? t("DocsViewerBody.message060") : '' }),
       actions: [
-        { label: '开始写作', variant: 'primary', onClick: () => { setActivePanel('writing'); setShowFileTree(false); } },
-        { label: '管理知识库', onClick: () => { setActivePanel('knowledge'); setShowFileTree(true); } },
-        ...(hasSyncCommits ? [{ label: '同步文档', onClick: () => { setActivePanel('sync'); setShowFileTree(false); } }] : []),
+        { label: t("DocsViewerBody.message062"), variant: 'primary', onClick: () => { setActivePanel('writing'); setShowFileTree(false); } },
+        { label: t("DocsViewerBody.message063"), onClick: () => { setActivePanel('knowledge'); setShowFileTree(true); } },
+        ...(hasSyncCommits ? [{ label: t("DocsViewerBody.message064"), onClick: () => { setActivePanel('sync'); setShowFileTree(false); } }] : []),
       ],
     });
     // No requirement selected yet: select an existing directory or create one.
     return h(EmptyState, {
-      title: '请选择需求目录',
-      description: '选择已有需求目录后开始写作、管理知识库或同步文档，也可以新建需求目录。',
+      title: t("DocsViewerBody.message065"),
+      description: t("DocsViewerBody.message066"),
       actions: [
-        { label: '选择需求目录', variant: 'primary', onClick: () => setShowReqDirModal(true) },
-        { label: '新建需求', onClick: () => { setActivePanel('create'); setShowFileTree(false); } },
+        { label: t("DocsViewerBody.message067"), variant: 'primary', onClick: () => setShowReqDirModal(true) },
+        { label: t("DocsViewerBody.message068"), onClick: () => { setActivePanel('create'); setShowFileTree(false); } },
       ],
     });
   };
 
   const rightHeaderTitle = activePanel
-    ? (activePanel === 'create' ? '创建需求目录'
-      : activePanel === 'knowledge' ? '知识库'
-      : activePanel === 'search' ? '搜索'
-      : activePanel === 'writing' ? '写作'
-      : activePanel === 'sync' ? '同步文档'
-      : activePanel === 'log' ? '操作日志'
-      : activePanel === 'settings' ? '设置'
+    ? (activePanel === 'create' ? t("DocsViewerBody.message069")
+      : activePanel === 'knowledge' ? t("DocsViewerBody.message054")
+      : activePanel === 'search' ? t("DocsViewerBody.message055")
+      : activePanel === 'writing' ? t("DocsViewerBody.message056")
+      : activePanel === 'sync' ? t("DocsViewerBody.message064")
+      : activePanel === 'log' ? t("DocsViewerBody.message070")
+      : activePanel === 'settings' ? t("DocsViewerBody.message058")
       : '')
     : '';
 
   // Build breadcrumb items for file preview (shown in header instead of FilePreview)
   const filePreviewBreadcrumb = selectedFile && !activePanel ? [
-    { label: selectedFile.workspaceTitle || '工作区', onClick: () => setSelectedFile(null) },
-    ...((selectedFile.requirement || selectedReq) ? [{ label: (selectedFile.requirement || selectedReq).title || '需求' }] : []),
+    { label: selectedFile.workspaceTitle || t("DocsViewerBody.message071"), onClick: () => setSelectedFile(null) },
+    ...((selectedFile.requirement || selectedReq) ? [{ label: (selectedFile.requirement || selectedReq).title || t("DocsViewerBody.message072") }] : []),
     { label: selectedFile.name },
   ] : null;
 
@@ -786,25 +790,24 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
 
         // ── Right: Trace / Operations / File Preview ──
         h('div', {
-          className: 'rh-right-panel',
-          style: { flex: 1 }
+          className: ('rh-right-panel') + ' ' + css.content
         },
           h('div', { className: 'rh-right-header' },
             h('div', { className: 'rh-header-back-slot', ref: setHeaderBackTarget }),
             h('div', { className: 'rh-right-header-main' },
               filePreviewBreadcrumb
                 ? h(Breadcrumb, { items: filePreviewBreadcrumb })
-                : h('span', { className: 'rh-right-header-title' }, rightHeaderTitle || '需求文档'),
+                : h('span', { className: 'rh-right-header-title' }, rightHeaderTitle || t("DocsViewerBody.message073")),
               filePreviewBreadcrumb && h('div', { className: 'rh-preview-actions', ref: setPreviewToolbarTarget }),
-              activePanel === 'knowledge' && h('button', { className: 'rh-btn rh-btn-primary',
+              activePanel === 'knowledge' && h(Button, { className: 'rh-btn rh-btn-primary',
                 disabled: !knowledge.selected.length || knowledge.running,
                 onClick: () => knowledge.start(),
-              }, knowledge.running ? '分析中…' : `分析（${knowledge.selected.length}）`)
+              }, knowledge.running ? t("DocsViewerBody.message074") : t("DocsViewerBody.message075", { value0: knowledge.selected.length }))
             ),
-            (activePanel || selectedFile) && h('button', { type: 'button', className: 'rh-btn rh-btn-ghost rh-btn-sm rh-right-close', onClick: handlePanelClose, 'aria-label': '关闭面板' }, '关闭')
+            (activePanel || selectedFile) && h(Button, { type: 'button', className: 'rh-btn rh-btn-ghost rh-btn-sm rh-right-close', onClick: handlePanelClose, 'aria-label': t("DocsViewerBody.message076") }, t("common.close"))
           ),
           // Skip rh-right-body wrapper for file preview to avoid extra layer
-          h('div', { key: 'knowledge-search', style: { display: activePanel === 'search' ? 'flex' : 'none', flex: 1, minHeight: 0 } },
+          h('div', { key: 'knowledge-search', className: css.size, style: { "--rh-display-0": cssValue(activePanel === 'search' ? 'flex' : 'none') } },
             h(SearchPanel, { active: activePanel === 'search',
               onOpenKnowledge: () => { setActivePanel('knowledge'); setShowFileTree(true); },
               onOpenSource: source => {
@@ -815,7 +818,7 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
                 setSelectedFile({ path: source.relativePath, name: parts.at(-1), workspaceId: source.workspaceId, workspaceTitle: source.workspaceTitle, requirement, returnPanel: 'search' });
                 setActivePanel(null); setShowFileTree(local);
               } })),
-          writingMounted.current && h('div', { key: `writing:${workspace.id}`, style: { display: activePanel === 'writing' ? 'flex' : 'none', flex: 1, minHeight: 0 } }, h(WritingPanel, { workspaceId: workspace.id })),
+          writingMounted.current && h('div', { key: `writing:${workspace.id}`, className: css.size, style: { "--rh-display-0": cssValue(activePanel === 'writing' ? 'flex' : 'none') } }, h(WritingPanel, { workspaceId: workspace.id })),
           activePanel !== 'writing' && activePanel !== 'search' && (selectedFile && !activePanel
             ? renderRightContent()
             : h('div', { className: 'rh-right-body' }, renderRightContent()))
@@ -824,11 +827,11 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
 
       // ── Status bar (4.24) ──
       h('div', { className: 'rh-statusbar' },
-        h('span', null, 'ReqHub v1.0'),
+        h('span', null, t("common.versionLabel")),
         h(SyncStatusBar, { monitor: syncMonitor, onOpen: task => { selectionRevision.current++; pendingSyncNavigation.current = task; setFocusedSync(task); } }),
         h('span', null,
-          `docsDir: ${docsDir} · `,
-          h('span', { style: { fontWeight: 600 } }, `${totalReqs} requirements`)
+          t("shell.docsPath", { value0: docsDir }),
+          h('span', { className: css.heading }, t("shell.requirementCount", { value0: totalReqs }))
         )
       ),
 
@@ -866,8 +869,8 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
       // ─ Create requirement confirm modal (使用全局 showConfirm) ──
       // 注意：showCreateConfirm 状态仍保留用于兼容，新流程直接调用 showConfirm()
       showCreateConfirm && pendingCreateReq && h(ConfirmModal, {
-        title: '创建需求目录',
-        message: `需求目录不存在: ${pendingCreateReq.developer}/${pendingCreateReq.requirementId}\n\n是否创建该目录？`,
+        title: t("DocsViewerBody.message069"),
+        message: t("DocsViewerBody.message077", { value0: pendingCreateReq.developer, value1: pendingCreateReq.requirementId }),
         onConfirm: () => {
           setShowCreateConfirm(false);
           const { workspace: ws, developer, date, title, requirementId } = pendingCreateReq;
@@ -881,7 +884,7 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
       }),
 
       // ── Global Toast and Confirm containers ──
-      h(ToastContainer, null),
+
       h(ConfirmDialogContainer, null)
     )
   );

@@ -16,7 +16,7 @@ import { getScopedSkills } from '../prompts.js';
 import { analyzeRequirement } from '../analyze-engine.js';
 
 /** @type {Object|null} Current analysis task state */
-let currentAnalysisTask = null;
+
 
 /**
  * Create AI analysis routes.
@@ -30,7 +30,9 @@ let currentAnalysisTask = null;
  * @returns {Array<Object>} Array of route definitions
  */
 export function createAnalyzeRoutes(registry, llm, sessions, agents, agentPresets, sessionQuery, ctx) {
-  return [
+  let currentAnalysisTask = null, closed = false;
+  const pending = new Set();
+  const routes = [
     // GET /analyze-preview - 获取分析预览文件列表
     {
       kind: 'exact',
@@ -64,7 +66,7 @@ export function createAnalyzeRoutes(registry, llm, sessions, agents, agentPreset
           const tree = await buildTree(docsRoot);
 
           const files = [];
-          
+
           if (requirementId) {
             // Single requirement mode
             for (const dev of tree.developers) {
@@ -149,6 +151,9 @@ export function createAnalyzeRoutes(registry, llm, sessions, agents, agentPreset
           return;
         }
 
+        if (closed) return json(res, { error: 'analysis service closed' }, 503);
+        if (currentAnalysisTask && !currentAnalysisTask.completed) return json(res, { error: 'analysis already running' }, 409);
+
         // Set up SSE
         res.writeHead(200, {
           'Content-Type': 'text/event-stream',
@@ -166,7 +171,11 @@ export function createAnalyzeRoutes(registry, llm, sessions, agents, agentPreset
         const mode = requirementId ? 'single' : 'all';
 
         // Initialize task state
-        currentAnalysisTask = {
+        let finish;
+        const settled = new Promise(resolve => { finish = resolve; });
+        pending.add(settled);
+        const task = currentAnalysisTask = {
+          controller: new AbortController(),
           mode,
           requirementId,
           workspaceId,
@@ -190,7 +199,7 @@ export function createAnalyzeRoutes(registry, llm, sessions, agents, agentPreset
             for (const dev of tree.developers) {
               for (const req of dev.requirements) {
                 if (req.id === requirementId) {
-                  currentAnalysisTask.files.push({
+                  task.files.push({
                     id: req.id,
                     developer: dev.name,
                     path: req.path,
@@ -202,7 +211,7 @@ export function createAnalyzeRoutes(registry, llm, sessions, agents, agentPreset
           } else {
             for (const dev of tree.developers) {
               for (const req of dev.requirements) {
-                currentAnalysisTask.files.push({
+                task.files.push({
                   id: req.id,
                   developer: dev.name,
                   path: req.path,
@@ -235,7 +244,7 @@ export function createAnalyzeRoutes(registry, llm, sessions, agents, agentPreset
                   const reqId = req.id;
                   const reqStartTime = Date.now();
 
-                  currentAnalysisTask.status[reqId] = { status: 'analyzing' };
+                  task.status[reqId] = { status: 'analyzing' };
                   try { sendEvent({ type: 'start', id: reqId, developer: dev.name, path: req.path }); } catch { break; }
 
                   try {
@@ -245,7 +254,7 @@ export function createAnalyzeRoutes(registry, llm, sessions, agents, agentPreset
                     if (!docsContent) {
                       log.analysis.warn(`跳过: ${req.id} (无支持的文档文件)`);
                       failed++;
-                      currentAnalysisTask.status[reqId] = { status: 'failed', error: '无支持的文档文件' };
+                      task.status[reqId] = { status: 'failed', error: '无支持的文档文件' };
                       try { sendEvent({ type: 'failed', id: reqId, error: '无支持的文档文件' }); } catch { break; }
                       continue;
                     }
@@ -262,20 +271,21 @@ export function createAnalyzeRoutes(registry, llm, sessions, agents, agentPreset
                       requirementId: req.id,
                       cwd: workspace.path,
                       scopedSkills,
+                      signal: task.controller.signal,
                     });
 
                     if (result.success) {
                       success++;
-                      currentAnalysisTask.status[reqId] = { status: 'completed', elapsed: result.elapsed };
+                      task.status[reqId] = { status: 'completed', elapsed: result.elapsed };
                       try { sendEvent({ type: 'completed', id: reqId, elapsed: result.elapsed }); } catch { break; }
                     } else {
                       failed++;
-                      currentAnalysisTask.status[reqId] = { status: 'failed', error: result.error };
+                      task.status[reqId] = { status: 'failed', error: result.error };
                       try { sendEvent({ type: 'failed', id: reqId, error: result.error }); } catch { break; }
                     }
                   } catch (e) {
                     failed++;
-                    currentAnalysisTask.status[reqId] = { status: 'failed', error: e.message };
+                    task.status[reqId] = { status: 'failed', error: e.message };
                     try { sendEvent({ type: 'failed', id: reqId, error: e.message }); } catch { break; }
                     log.analysis.error(`分析失败: ${req.id} - ${e.message}`);
                   }
@@ -286,7 +296,7 @@ export function createAnalyzeRoutes(registry, llm, sessions, agents, agentPreset
             // All requirements mode
             for (const dev of tree.developers) {
               for (const req of dev.requirements) {
-                if (currentAnalysisTask.cancelled) {
+                if (task.cancelled) {
                   log.analysis.warn('分析已取消');
                   break;
                 }
@@ -295,7 +305,7 @@ export function createAnalyzeRoutes(registry, llm, sessions, agents, agentPreset
                 const reqId = req.id;
                 const reqStartTime = Date.now();
 
-                currentAnalysisTask.status[reqId] = { status: 'analyzing' };
+                task.status[reqId] = { status: 'analyzing' };
                 try { sendEvent({ type: 'start', id: reqId, developer: dev.name, path: req.path }); } catch { break; }
 
                 try {
@@ -313,35 +323,36 @@ export function createAnalyzeRoutes(registry, llm, sessions, agents, agentPreset
                     requirementId: req.id,
                     cwd: workspace.path,
                     scopedSkills,
+                    signal: task.controller.signal,
                   });
 
                   if (result.success) {
                     success++;
-                    currentAnalysisTask.status[reqId] = { status: 'completed', elapsed: result.elapsed };
+                    task.status[reqId] = { status: 'completed', elapsed: result.elapsed };
                     try { sendEvent({ type: 'completed', id: reqId, elapsed: result.elapsed }); } catch { break; }
                   } else {
                     failed++;
-                    currentAnalysisTask.status[reqId] = { status: 'failed', error: result.error };
+                    task.status[reqId] = { status: 'failed', error: result.error };
                     try { sendEvent({ type: 'failed', id: reqId, error: result.error }); } catch { break; }
                   }
                 } catch (e) {
                   failed++;
-                  currentAnalysisTask.status[reqId] = { status: 'failed', error: e.message };
+                  task.status[reqId] = { status: 'failed', error: e.message };
                   try { sendEvent({ type: 'failed', id: reqId, error: e.message }); } catch { break; }
                   log.analysis.error(`分析失败: ${req.id} - ${e.message}`);
                 }
               }
-              if (currentAnalysisTask.cancelled) break;
+              if (task.cancelled) break;
             }
           }
 
           const totalElapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-          currentAnalysisTask.completed = true;
-          currentAnalysisTask.endTime = Date.now();
-          currentAnalysisTask.successCount = success;
-          currentAnalysisTask.totalCount = total;
+          task.completed = true;
+          task.endTime = Date.now();
+          task.successCount = success;
+          task.totalCount = total;
 
-          if (currentAnalysisTask.cancelled) {
+          if (task.cancelled) {
             try { sendEvent({ type: 'cancelled', total, success, failed, elapsed: totalElapsed }); } catch { /* ignore */ }
           } else {
             try { sendEvent({ type: 'done', total, success, failed, elapsed: totalElapsed }); } catch { /* ignore */ }
@@ -349,16 +360,16 @@ export function createAnalyzeRoutes(registry, llm, sessions, agents, agentPreset
           try { res.end(); } catch { /* client already disconnected */ }
         } catch (e) {
           // Mark task as completed even on error
-          if (currentAnalysisTask) {
-            currentAnalysisTask.completed = true;
-            currentAnalysisTask.endTime = Date.now();
-            currentAnalysisTask.error = e.message;
+          if (task) {
+            task.completed = true;
+            task.endTime = Date.now();
+            task.error = e.message;
           }
           try {
             sendEvent({ type: 'error', error: e.message });
             res.end();
           } catch { /* client already disconnected */ }
-        }
+        } finally { task.completed = true; finish(); pending.delete(settled); }
       }
     },
 
@@ -372,7 +383,7 @@ export function createAnalyzeRoutes(registry, llm, sessions, agents, agentPreset
           res.end();
           return;
         }
-        
+
         if (!currentAnalysisTask || currentAnalysisTask.completed) {
           json(res, { active: false });
           return;
@@ -401,17 +412,17 @@ export function createAnalyzeRoutes(registry, llm, sessions, agents, agentPreset
           res.end();
           return;
         }
-        
+
         if (!currentAnalysisTask || currentAnalysisTask.completed) {
           json(res, { success: false, message: '没有正在进行的分析任务' });
           return;
         }
 
         currentAnalysisTask.cancelled = true;
-        currentAnalysisTask.completed = true;
-        
+        currentAnalysisTask.controller.abort(new Error('用户取消分析'));
+
         log.analysis.warn('用户取消了分析任务');
-        json(res, { success: true, message: '分析任务已取消' });
+        json(res, { success: true, message: '正在取消分析任务' });
       }
     },
 
@@ -488,4 +499,10 @@ export function createAnalyzeRoutes(registry, llm, sessions, agents, agentPreset
       }
     }
   ];
+  routes.dispose = async () => {
+    closed = true;
+    if (currentAnalysisTask && !currentAnalysisTask.completed) { currentAnalysisTask.cancelled = true; currentAnalysisTask.controller.abort(new Error('插件卸载')); }
+    await Promise.allSettled([...pending]);
+  };
+  return routes;
 }

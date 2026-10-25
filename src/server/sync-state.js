@@ -14,6 +14,7 @@ import { readSyncSnapshot } from './sync-snapshots.js';
 import { readDocumentVersion } from './sync-document-validator.js';
 import { hashBytes } from './sync-artifacts.js';
 import taskModel from '../shared/sync-task.cjs';
+import { removeRetiredTaskConversations } from './conversations/retired-storage.js';
 
 /** @type {Map<string, SyncState>} In-memory state cache: requirementKey -> state */
 const stateCache = new Map();
@@ -107,6 +108,10 @@ export async function loadState(workspaceId, requirementId, requirementPath) {
       if (state.schemaVersion !== 2) throw new Error('不支持旧版同步状态');
       state.history = (state.history || []).filter(item => item.schemaVersion === 2);
       state.history ||= [];
+      let retiredSessionsRemoved = false;
+      for (const task of [...state.history, ...(state.activeSync ? [state.activeSync] : [])]) {
+        retiredSessionsRemoved = await removeRetiredTaskConversations(requirementPath, task) || retiredSessionsRemoved;
+      }
       const needsHistoryRepair = state.history.some(taskModel.needsSyncRepair);
       state.history.forEach(taskModel.repairSyncTask);
       const needsRecovery = !!state.activeSync;
@@ -137,7 +142,7 @@ export async function loadState(workspaceId, requirementId, requirementPath) {
       }
       state.timeline = buildSyncTimeline(state.history || []);
       stateCache.set(key, state);
-      if (needsRecovery || needsHistoryRepair) await saveState(key);
+      if (needsRecovery || needsHistoryRepair || retiredSessionsRemoved) await saveState(key);
       log.state.info(`Loaded sync state for ${key}: ${state.history.length} history items`);
     } else {
       // Initialize empty state

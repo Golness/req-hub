@@ -1,4 +1,6 @@
 'use strict';
+const { t } = require('../../locale.js');
+const { Button } = require('./Button.js');
 const React = require('react');
 const h = React.createElement;
 
@@ -26,11 +28,11 @@ function Breadcrumb({ items, onNavigate }) {
     }
     // 链接或当前项
     if (i < items.length - 1) {
-      elements.push(h('button', {
+      elements.push(h(Button, {
         key: `link-${i}`,
         className: 'rh-btn rh-btn-ghost rh-btn-sm rh-breadcrumb-link',
         onClick: () => onNavigate ? onNavigate(item) : (item.onClick && item.onClick()),
-        'aria-label': `导航到 ${item.label}`,
+        'aria-label': t("Breadcrumb.message001", { value0: item.label }),
       }, item.label));
     } else {
       elements.push(h('span', {
@@ -43,7 +45,7 @@ function Breadcrumb({ items, onNavigate }) {
 
   return h('nav', {
     className: 'rh-breadcrumb',
-    'aria-label': '路径导航',
+    'aria-label': t("Breadcrumb.message002"),
   }, ...elements);
 }
 

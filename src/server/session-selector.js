@@ -96,8 +96,9 @@ export async function listRelatedSessions(sessions, workspacePath, options = {})
       
       log.session.info(`找到 ${sessionsWithDetails.length} 个相关会话（使用 sessionQuery）`);
       return Promise.all(sessionsWithDetails.filter(session => !query || session.title.toLowerCase().includes(query.toLowerCase())).slice(0, limit)
-        .map(async session => ({ ...session, ...await syncDetails(sessionQuery, session.id, sessions) })));
+        .map(async session => ({ ...session, ...(options.metadataOnly ? {} : await syncDetails(sessionQuery, session.id, sessions)) })));
     } catch (e) {
+      if (options.strict) throw e;
       log.session.error(`sessionQuery 列出会话失败: ${e.message}`);
       // 继续使用 sessions 服务作为后备
     }
@@ -134,7 +135,7 @@ export async function listRelatedSessions(sessions, workspacePath, options = {})
       id: s.header.id,
       title: '(活跃会话)',
       createdAt: s.header.createdAt,
-      ...await syncDetails(null, s.header.id, sessions),
+      ...(options.metadataOnly ? {} : await syncDetails(null, s.header.id, sessions)),
       cwd: s.header.cwd || '',
       parentSession: s.header.parentSession || null,
       isLive: true,
@@ -147,6 +148,7 @@ export async function listRelatedSessions(sessions, workspacePath, options = {})
     log.session.info(`找到 ${sessionsWithDetails.length} 个相关活跃会话（使用 sessions 服务）`);
     return sessionsWithDetails.filter(session => !query || session.title.toLowerCase().includes(query.toLowerCase())).slice(0, limit);
   } catch (e) {
+    if (options.strict) throw e;
     log.session.error(`列出会话失败: ${e.message}`);
     return [];
   }

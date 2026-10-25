@@ -1,4 +1,7 @@
 'use strict';
+const { t } = require('../locale.js');
+const css = require('./AnalyzePanel.module.css').default;
+const { Button } = require('./shared/Button.js');
 
 const React = require('react');
 const h = React.createElement;
@@ -84,7 +87,7 @@ function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
         const data = await res.json();
         setMetaData(data);
       } else {
-        setMetaData({ error: '加载失败' });
+        setMetaData({ error: t("AnalyzePanel.message001") });
       }
     } catch (e) {
       setMetaData({ error: e.message });
@@ -97,15 +100,15 @@ function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
 
     if (!metaData) {
       return h('div', { className: 'rh-op-panel' },
-        h('div', { style: { textAlign: 'center', padding: 20 } }, '加载中...'),
-        h(HeaderBack, { onBack: () => setShowMeta(false), label: '返回' })
+        h('div', { className: css.centered }, t("common.loading")),
+        h(HeaderBack, { onBack: () => setShowMeta(false), label: t("common.back") })
       );
     }
 
     if (metaData.error) {
       return h('div', { className: 'rh-op-panel' },
-        h('div', { style: { color: 'var(--dsw-alias-state-error-primary)', padding: 20, display: 'flex', alignItems: 'center', gap: 8 } }, metaData.error),
-        h(HeaderBack, { onBack: () => setShowMeta(false), label: '返回' })
+        h('div', { className: css.row }, metaData.error),
+        h(HeaderBack, { onBack: () => setShowMeta(false), label: t("common.back") })
       );
     }
 
@@ -114,43 +117,43 @@ function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
       const meta = metaData.meta;
       return h('div', { className: 'rh-op-panel' },
         h('div', { className: 'rh-op-header' },
-          h('span', null, 'Meta 详情')
+          h('span', null, t("AnalyzePanel.message004"))
         ),
-        metaData.updatedAt && h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', marginBottom: 12 } },
-          '更新时间：', new Date(metaData.updatedAt).toLocaleString()
+        metaData.updatedAt && h('div', { className: css.mutedText },
+          t("AnalyzePanel.message005"), new Date(metaData.updatedAt).toLocaleString()
         ),
         h('div', { className: 'rh-op-info' },
-          h('div', null, '类型：', h('span', { style: { fontWeight: 600 } }, meta.type || 'unknown')),
-          meta.summary && h('div', { style: { marginTop: 8 } }, '摘要：', meta.summary)
+          h('div', null, t("AnalyzePanel.message006"), h('span', { className: css.heading }, meta.type || 'unknown')),
+          meta.summary && h('div', { className: css.spacing }, t("AnalyzePanel.message007"), meta.summary)
         ),
-        meta.features && meta.features.length > 0 && h('div', { style: { marginTop: 12 } },
-          h('div', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, marginBottom: 6 } }, '功能点'),
-          h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } },
+        meta.features && meta.features.length > 0 && h('div', { className: css.spacing2 },
+          h('div', { className: css.heading2 }, t("AnalyzePanel.message008")),
+          h('div', { className: css.row2 },
             meta.features.map((f, i) => h('span', { key: i, className: 'rh-badge' }, f))
           )
         ),
-        meta.fields && meta.fields.length > 0 && h('div', { style: { marginTop: 12 } },
-          h('div', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, marginBottom: 6 } }, '字段'),
-          h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } },
-            meta.fields.map((f, i) => h('code', { key: i, style: { padding: '2px 8px', fontSize: 'var(--rh-font-size-sm)', background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 4 } }, f))
+        meta.fields && meta.fields.length > 0 && h('div', { className: css.spacing2 },
+          h('div', { className: css.heading2 }, t("AnalyzePanel.message009")),
+          h('div', { className: css.row2 },
+            meta.fields.map((f, i) => h('code', { key: i, className: css.section }, f))
           )
         ),
-        meta.tags && meta.tags.length > 0 && h('div', { style: { marginTop: 12 } },
-          h('div', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, marginBottom: 6 } }, '标签'),
-          h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } },
+        meta.tags && meta.tags.length > 0 && h('div', { className: css.spacing2 },
+          h('div', { className: css.heading2 }, t("AnalyzePanel.message010")),
+          h('div', { className: css.row2 },
             meta.tags.map((t, i) => h('span', { key: i, className: 'rh-badge rh-badge-success' }, t))
           )
         ),
-        meta.timeline && meta.timeline.length > 0 && h('div', { style: { marginTop: 12 } },
-          h('div', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, marginBottom: 6 } }, '时间线'),
-          h('div', { style: { fontSize: 'var(--rh-font-size-sm)' } },
-            meta.timeline.map((t, i) => h('div', { key: i, style: { marginBottom: 8, paddingLeft: 12, borderLeft: '2px solid var(--dsw-alias-border-l1)' } },
-              h('div', { style: { fontWeight: 600 } }, t.date, ' - ', t.title),
-              t.description && h('div', { style: { color: 'var(--dsw-alias-label-secondary)', marginTop: 2 } }, t.description)
+        meta.timeline && meta.timeline.length > 0 && h('div', { className: css.spacing2 },
+          h('div', { className: css.heading2 }, t("AnalyzePanel.message011")),
+          h('div', { className: css.content },
+            meta.timeline.map((t, i) => h('div', { key: i, className: css.spacing3 },
+              h('div', { className: css.heading }, t.date, ' - ', t.title),
+              t.description && h('div', { className: css.mutedText2 }, t.description)
             ))
           )
         ),
-        h(HeaderBack, { onBack: () => setShowMeta(false), label: '返回' })
+        h(HeaderBack, { onBack: () => setShowMeta(false), label: t("common.back") })
       );
     }
 
@@ -158,25 +161,25 @@ function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
     if (metaScope === 'all' && metaData.items) {
       return h('div', { className: 'rh-op-panel' },
         h('div', { className: 'rh-op-header' },
-          h('span', null, '全量 Meta（', metaData.items.length, ' 个需求）')
+          h('span', null, t("AnalyzePanel.message012"), metaData.items.length, t("AnalyzePanel.message013"))
         ),
-        h('div', { style: { maxHeight: 500, overflow: 'auto' } },
-          metaData.items.map((item, idx) => h('div', { key: idx, style: { marginBottom: 16, padding: 12, background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 6 } },
-            h('div', { style: { fontSize: 'var(--rh-font-size)', fontWeight: 600, marginBottom: 6 } },
+        h('div', { className: css.pane },
+          metaData.items.map((item, idx) => h('div', { key: idx, className: css.section2 },
+            h('div', { className: css.heading2 },
               item.id, ' - ', item.title
             ),
-            h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', marginBottom: 6 } },
+            h('div', { className: css.mutedText3 },
               item.developer, ' | ', item.date
             ),
-            item.meta.summary && h('div', { style: { fontSize: 'var(--rh-font-size-sm)', marginBottom: 6 } }, item.meta.summary),
-            h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 'var(--rh-font-size-sm)' } },
+            item.meta.summary && h('div', { className: css.spacing4 }, item.meta.summary),
+            h('div', { className: css.row3 },
               item.meta.type && h('span', { className: 'rh-badge' }, item.meta.type),
               item.meta.features && item.meta.features.slice(0, 3).map((f, i) => h('span', { key: i, className: 'rh-badge' }, f)),
-              item.meta.features && item.meta.features.length > 3 && h('span', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)' } }, `+${item.meta.features.length - 3}`)
+              item.meta.features && item.meta.features.length > 3 && h('span', { className: css.mutedText4 }, `+${item.meta.features.length - 3}`)
             )
           ))
         ),
-        h(HeaderBack, { onBack: () => setShowMeta(false), label: '返回' })
+        h(HeaderBack, { onBack: () => setShowMeta(false), label: t("common.back") })
       );
     }
 
@@ -191,88 +194,88 @@ function AnalyzePanel({ workspaceId, selectedReq, onClose }) {
     // 4.14: Current requirement info
     selectedReq && h('div', { className: 'rh-req-card' },
       h('div', { className: 'rh-req-card-title' }, selectedReq.title),
-      h('div', { className: 'rh-req-card-row' }, '开发者：', selectedReq.developer),
-      h('div', { className: 'rh-req-card-row' }, '日期：', selectedReq.date),
-      h('div', { className: 'rh-req-card-row' }, '文档数：', selectedReq.fileCount),
-      h('div', { className: 'rh-req-card-row' }, '状态：',
+      h('div', { className: 'rh-req-card-row' }, t("AnalyzePanel.message014"), selectedReq.developer),
+      h('div', { className: 'rh-req-card-row' }, t("AnalyzePanel.message015"), selectedReq.date),
+      h('div', { className: 'rh-req-card-row' }, t("AnalyzePanel.message016"), selectedReq.fileCount),
+      h('div', { className: 'rh-req-card-row' }, t("AnalyzePanel.message017"),
         selectedReq.hasMeta
-          ? h('span', { className: 'rh-badge rh-badge-success' }, '已分析')
-          : h('span', { className: 'rh-badge rh-badge-warn' }, '未分析')
+          ? h('span', { className: 'rh-badge rh-badge-success' }, t("AnalyzePanel.message018"))
+          : h('span', { className: 'rh-badge rh-badge-warn' }, t("AnalyzePanel.message019"))
       ),
       // 4.15: Analysis timestamp
-      selectedReq.metaUpdatedAt && h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', marginTop: 4 } },
-        '最后分析：', new Date(selectedReq.metaUpdatedAt).toLocaleString())
+      selectedReq.metaUpdatedAt && h('div', { className: css.mutedText5 },
+        t("AnalyzePanel.message020"), new Date(selectedReq.metaUpdatedAt).toLocaleString())
     ),
 
     // 4.16: AI config display
     aiConfig && h('div', { className: 'rh-op-info' },
-      h('div', { style: { display: 'flex', alignItems: 'center', gap: 6 } }, ' Provider：', h('code', null, aiConfig.provider)),
-      h('div', { style: { display: 'flex', alignItems: 'center', gap: 6 } }, ' Model：', h('code', null, aiConfig.model))
+      h('div', { className: css.row4 }, t("common.providerLabel"), h('code', null, aiConfig.provider)),
+      h('div', { className: css.row4 }, t("common.modelLabel"), h('code', null, aiConfig.model))
     ),
 
-    h('div', { className: 'rh-btn-stack', style: { marginBottom: 12 } },
-      h('button', {
+    h('div', { className: ('rh-btn-stack') + ' ' + css.spacing5 },
+      h(Button, {
         className: `rh-btn${selectedReq ? ' rh-btn-primary' : ''}`,
         onClick: handleAnalyzeSingle,
         disabled: analyzing || !selectedReq
-      }, analyzing && analysisMode === 'single' ? '分析中...' : ' 分析当前需求'),
-      h('button', {
+      }, analyzing && analysisMode === 'single' ? t("AnalyzePanel.message021") : t("AnalyzePanel.message022")),
+      h(Button, {
         className: 'rh-btn',
         onClick: handleAnalyzeAll,
         disabled: analyzing
-      }, analyzing && analysisMode === 'all' ? '分析中...' : ' 项目全量分析'),
-      analyzing && h('button', {
+      }, analyzing && analysisMode === 'all' ? t("AnalyzePanel.message021") : t("AnalyzePanel.message023")),
+      analyzing && h(Button, {
         className: 'rh-btn rh-btn-danger-outline',
         onClick: cancelAnalysis,
-      }, ' 终止分析'),
-      h('button', { className: 'rh-btn', onClick: onClose }, '关闭')
+      }, t("AnalyzePanel.message024")),
+      h(Button, { className: 'rh-btn', onClick: onClose }, t("common.close"))
     ),
 
     // Meta viewing buttons
-    h('div', { className: 'rh-btn-stack', style: { marginBottom: 12 } },
-      h('button', {
+    h('div', { className: ('rh-btn-stack') + ' ' + css.spacing5 },
+      h(Button, {
         className: 'rh-btn',
         onClick: () => handleViewMeta('single'),
         disabled: !selectedReq?.hasMeta
-      }, ' 查看当前 Meta'),
-      h('button', {
+      }, t("AnalyzePanel.message026")),
+      h(Button, {
         className: 'rh-btn',
         onClick: () => handleViewMeta('all')
-      }, ' 查看全量 Meta')
+      }, t("AnalyzePanel.message027"))
     ),
 
     // Analysis file list with real-time status
     previewFiles.length > 0 && h('div', { className: 'rh-analysis-list' },
-      h('div', { style: { fontSize: 'var(--rh-font-size-sm)', color: 'var(--dsw-alias-label-secondary)', marginBottom: 8 } },
-        `共 ${previewFiles.length} 个文件待分析`),
+      h('div', { className: css.mutedText6 },
+        t("AnalyzePanel.message028", { value0: previewFiles.length })),
       previewFiles.map(file => {
         const status = analysisStatus[file.id] || { status: 'pending' };
         return h('div', { key: file.id, className: 'rh-analysis-item' },
           h('div', { className: 'rh-analysis-item-header' },
-            h('div', { style: { flex: 1, overflow: 'hidden' } },
+            h('div', { className: css.pane2 },
               h('div', { className: 'rh-analysis-item-name' },
                 file.id,
-                !file.hasDocs && h('span', { style: { color: 'var(--dsw-alias-label-secondary)', marginLeft: 8 } }, '(无文档)')
+                !file.hasDocs && h('span', { className: css.mutedText7 }, t("AnalyzePanel.message029"))
               ),
               h('div', { className: 'rh-analysis-item-path' }, `${file.developer} / ${file.path}`)
             ),
             h('span', { className: `rh-status-tag ${status.status}` },
-              status.status === 'pending' && ' 等待分析',
-              status.status === 'analyzing' && ' 正在分析',
-              status.status === 'completed' && h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, ` 完成${status.elapsed ? ` (${status.elapsed}s)` : ''}`),
-              status.status === 'failed' && ' 失败',
-              status.status === 'cancelled' && ' 已取消'
+              status.status === 'pending' && t("AnalyzePanel.message030"),
+              status.status === 'analyzing' && t("AnalyzePanel.message031"),
+              status.status === 'completed' && h('span', { className: css.row5 }, t("AnalyzePanel.message032", { value0: status.elapsed ? ` (${status.elapsed}s)` : '' })),
+              status.status === 'failed' && t("AnalyzePanel.message033"),
+              status.status === 'cancelled' && t("AnalyzePanel.message034")
             )
           ),
           status.status === 'failed' && status.error && h('div', { className: 'rh-analysis-item-error' },
-            `错误: ${status.error}`
+            t("AnalyzePanel.message035", { value0: status.error })
           )
         );
       })
     ),
 
-    error && h('div', { style: { color: 'var(--dsw-alias-state-error-primary)', fontSize: 'var(--rh-font-size)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 } }, error),
-    success && h('div', { style: { color: 'var(--dsw-alias-state-success-primary)', fontSize: 'var(--rh-font-size)', marginBottom: 8 } }, success)
+    error && h('div', { className: css.row6 }, error),
+    success && h('div', { className: css.spacing6 }, success)
   );
 }
 

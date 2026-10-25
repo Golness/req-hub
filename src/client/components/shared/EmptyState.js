@@ -1,4 +1,5 @@
 'use strict';
+const { Button } = require('./Button.js');
 const React = require('react');
 const h = React.createElement;
 
@@ -23,7 +24,7 @@ function EmptyState({ title, description, actions }) {
     description && h('p', { className: 'rh-empty-state-desc' }, description),
     actions && actions.length > 0 && h('div', { className: 'rh-empty-state-actions' },
       actions.map((action, i) =>
-        h('button', {
+        h(Button, {
           key: i,
           className: `rh-btn ${action.variant === 'primary' ? 'rh-btn-primary' : 'rh-btn-ghost'}`,
           onClick: action.onClick,

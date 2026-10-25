@@ -12,6 +12,18 @@ const { act } = React;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let root;
 
+it('keeps HTML preview scripts in an opaque origin and blocks Host API connections', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ text: '<h1>Preview</h1><script>parent.document.body.textContent="attack"</script>' }) })));
+  const container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+  await act(async () => root.render(React.createElement(FilePreview, { workspaceId: 'ws', relPath: 'preview.html', name: 'preview.html' })));
+  await act(async () => vi.waitFor(() => expect(container.querySelector('iframe')?.srcdoc).toContain('<h1>Preview</h1>')));
+  const iframe = container.querySelector('iframe');
+  expect(iframe.getAttribute('sandbox')).toBe('allow-scripts');
+  expect(iframe.getAttribute('referrerpolicy')).toBe('no-referrer');
+  expect(iframe.srcdoc).toContain('connect-src &apos;none&apos;');
+  expect(iframe.srcdoc).toContain('form-action &apos;none&apos;');
+});
+
 afterEach(async () => {
   if (root) await act(async () => root.unmount());
   document.body.innerHTML = '';
@@ -68,7 +80,7 @@ it('opens Markdown as editable preview, preserves drafts across views, and saves
   expect(saves).toHaveLength(2);
   const saveCall = saves[1];
   expect(JSON.parse(saveCall[1].body)).toEqual({ workspaceId: 'ws', path: 'design.md', content: '# Source edited\n' });
-  expect(container.querySelector('.rh-toast-success')?.textContent).toContain('文件已保存');
+  expect(document.querySelector('[data-rh-toast]')?.textContent).toContain('文件已保存');
 });
 
 it('tracks editable Markdown scroll and navigates using the preview container coordinates', async () => {
@@ -96,7 +108,8 @@ it('tracks editable Markdown scroll and navigates using the preview container co
     body.dispatchEvent(new Event('scroll'));
   });
   body.scrollTo = scrollTo;
-  expect(container.querySelector('.rh-milkdown-editor').style.overflow).toBe('visible');
+  expect(container.querySelector('.rh-milkdown-editor').style.overflow).toBe('');
+
   await act(async () => {
     body.scrollTop = 400;
     body.dispatchEvent(new Event('scroll'));

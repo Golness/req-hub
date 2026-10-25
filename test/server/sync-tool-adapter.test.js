@@ -1,3 +1,4 @@
+import {bindOwnedSession} from '../../src/server/delegation-context.js';
 import {describe,it,expect} from 'vitest';
 import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';import {tmpdir}from'node:os';import{join}from'node:path';
 import {SyncArtifacts,hashBytes}from'../../src/server/sync-artifacts.js';
@@ -5,7 +6,7 @@ import {installSyncTools,assertSyncCapabilities,OUTPUT_LIMIT}from'../../src/serv
 import {indexDocument}from'../../src/server/sync-document-validator.js';
 import{createSyncHarness}from'./sync-v2-harness.js';
 async function fixture(action){const root=await mkdtemp(join(tmpdir(),'req-hub-tool-scope-'));try{const h=createSyncHarness(),store=await new SyncArtifacts(join(root,'input')).init(),installation=installSyncTools(h.ctx);await action({root,h,store,installation});}finally{await rm(root,{recursive:true,force:true});}}
-async function bind(h,runtime,extra=''){for(const hook of h.hooks.get('llm/stream')) for await(const _ of hook({sessionId:runtime.id,messages:[{role:'user',content:[{type:'text',text:'REQHUB_SYNC_V2='+runtime.id+extra}]}],tools:[{name:'req_hub_sync_read'}]},async function*(){})) {}}
+async function bind(h,runtime,extra=''){bindOwnedSession(runtime,runtime.id);for(const hook of h.hooks.get('llm/stream')) for await(const _ of hook({sessionId:runtime.id,messages:[{role:'user',content:[{type:'text',text:'REQHUB_SYNC_V2='+runtime.id+extra}]}],tools:[{name:'req_hub_sync_read'}]},async function*(){})) {}}
 const call=(h,runtime,name,args)=>h.definitions.get(name).execute(args,{name,agent:{session:{id:runtime.id}},signal:new AbortController().signal});
 describe('sync v2 controlled evidence access',()=>{
  it('keeps a bounded 12KB output contract',()=>expect(OUTPUT_LIMIT).toBe(12000));

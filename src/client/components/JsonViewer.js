@@ -1,4 +1,7 @@
 'use strict';
+const { t } = require('../locale.js');
+const css = require('./JsonViewer.module.css').default;
+const { cssValue } = require('./shared/presentation.js');
 
 const React = require('react');
 const h = React.createElement;
@@ -57,11 +60,11 @@ function JsonViewer({ data, initialExpandLevel = 2 }) {
       return h('div', null,
         h('button', {
           type: 'button', className: 'rh-json-toggle',
-          'aria-label': expanded ? '收起节点' : '展开节点', 'aria-expanded': expanded,
+          'aria-label': expanded ? t("JsonViewer.message001") : t("JsonViewer.message002"), 'aria-expanded': expanded,
           onClick: () => togglePath(path)
-        }, h(IconChevronRight, { size: 12, style: { transform: expanded ? 'rotate(90deg)' : 'none' } })),
+        }, h(IconChevronRight, { size: 12, className: css.indicator, style: { "--rh-transform-0": cssValue(expanded ? 'rotate(90deg)' : 'none') } })),
         h('span', { className: 'rh-json-punctuation' }, ` Array(${value.length}) [`),
-        expanded && h('div', { style: { marginLeft: indent * 20 } },
+        expanded && h('div', { className: css.spacing, style: { "--rh-margin-left-0": cssValue(indent * 20) } },
           value.map((item, index) =>
             h('div', { key: `${path}-${index}` },
               h('span', { className: 'rh-json-muted' }, ' '.repeat(indent * 2)),
@@ -85,11 +88,11 @@ function JsonViewer({ data, initialExpandLevel = 2 }) {
       return h('div', null,
         h('button', {
           type: 'button', className: 'rh-json-toggle',
-          'aria-label': expanded ? '收起节点' : '展开节点', 'aria-expanded': expanded,
+          'aria-label': expanded ? t("JsonViewer.message001") : t("JsonViewer.message002"), 'aria-expanded': expanded,
           onClick: () => togglePath(path)
-        }, h(IconChevronRight, { size: 12, style: { transform: expanded ? 'rotate(90deg)' : 'none' } })),
+        }, h(IconChevronRight, { size: 12, className: css.indicator, style: { "--rh-transform-0": cssValue(expanded ? 'rotate(90deg)' : 'none') } })),
         h('span', { className: 'rh-json-punctuation' }, ` Object {`),
-        expanded && h('div', { style: { marginLeft: indent * 20 } },
+        expanded && h('div', { className: css.spacing, style: { "--rh-margin-left-0": cssValue(indent * 20) } },
           keys.map((key, index) =>
             h('div', { key: `${path}-${key}` },
               h('span', { className: 'rh-json-muted' }, ' '.repeat(indent * 2)),
@@ -109,15 +112,7 @@ function JsonViewer({ data, initialExpandLevel = 2 }) {
   };
 
   return h('div', {
-    className: 'rh-json-viewer',
-    style: {
-      fontFamily: 'var(--rh-font-code)',
-      fontSize: 'var(--rh-font-size)',
-      lineHeight: 1.6,
-      padding: 8,
-      overflow: 'auto',
-      whiteSpace: 'pre',
-    }
+    className: ('rh-json-viewer') + ' ' + css.pane
   }, renderValue(data, 'root', 0));
 }
 
