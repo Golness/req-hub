@@ -20,3 +20,6 @@ docs/
 
 # pnpm store
 .pnpm-store/
+
+# AI agent guidelines (local only)
+AGENTS.md
