@@ -7,6 +7,7 @@ import { ConversationService } from '../../src/server/conversations/service.js';
 import { clearRetiredWorkspaceConversations, removeRetiredCodexStore } from '../../src/server/conversations/retired-storage.js';
 import { createConversationRoutes } from '../../src/server/routes/conversation-routes.js';
 import { createOperations } from '../../src/server/operations.js';
+import { Readable } from 'node:stream';
 
 let root, store, library;
 const snap = (sessionId, text = 'final') => {
@@ -31,6 +32,25 @@ it('stores both sources identically, deduplicates refreshes, and restores missin
   expect(await readFile(file, 'utf8')).toContain('source: "dsh"');
   await rm(file); expect((await library.snapshot('ws', 'one', dsh)).version).toBe(a.snapshotVersion);
   expect(await readFile(file, 'utf8')).toContain('用户输入');
+});
+
+it('streams DSH acquisition progress through the shared refresh route and stores the same library snapshot', async () => {
+  const adapter = provider();
+  const route = createConversationRoutes({ list: () => [{ id: 'project' }] }, library, [adapter]).find(route => route.path.endsWith('-refresh'));
+  const input = body => Object.assign(Readable.from([JSON.stringify(body)]), { method: 'POST' });
+  const events = [], res = { writeHead(status, headers) { this.status = status; this.headers = headers; }, write(line) { events.push(JSON.parse(line)); }, end() {} };
+  await route.handler(input({ workspaceId: 'project', source: 'dsh', stream: true }), res);
+  expect(res.headers['Content-Type']).toContain('application/x-ndjson');
+  expect(events.filter(event => event.type === 'progress').map(event => event.phase)).toEqual(['queued', 'inventory', 'importing', 'importing', 'saving']);
+  const entry = events.at(-1).result.sessions[0];
+  expect(entry.id).toBe('one');
+  expect((await library.list('project', adapter)).sessions[0].snapshotVersion).toBe(entry.snapshotVersion);
+  expect(await readFile(join(root, 'library', entry.markdownFile), 'utf8')).toContain('助手最终回复');
+  events.length = 0;
+  adapter.inventory = async () => { throw Error('SOURCE_UNAVAILABLE'); };
+  await route.handler(input({ workspaceId: 'project', source: 'dsh', stream: true }), res);
+  expect(events.at(-1)).toEqual({ type: 'error', error: 'SOURCE_UNAVAILABLE' });
+  expect(events.some(event => event.type === 'result')).toBe(false);
 });
 
 it('isolates native IDs across source instances, profiles and workspace bindings', async () => {

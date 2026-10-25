@@ -7,6 +7,8 @@ const React = require('react');
 const h = React.createElement;
 const { ROUTE } = require('../constants.js');
 const { SessionList } = require('./shared/SessionList.js');
+const { readConversationResponse } = require('../utils/readConversationResponse.js');
+const { ConversationRefreshProgress } = require('./ConversationRefreshProgress.js');
 
 const EMPTY = { ids: [], versions: {} };
 function ImportWarnings({ warnings = [] }) {
@@ -35,7 +37,7 @@ function WorkspacePicker({ workspaces, loading, error, warnings, onSelect, onClo
   );
 }
 
-function CodexSessionsSection({ workspaceId, selection, onSelectionChange, onView, disabled }) {
+function CodexSessionsSection({ workspaceId, selection = EMPTY, onSelectionChange = () => {}, onView, disabled, acquireOnly, onChanged, onRefreshStart, onBusyChange }) {
   const [data, setData] = React.useState({ workspace: null, sessions: [] });
   const [loading, setLoading] = React.useState(true);
   const [progress, setProgress] = React.useState(null);
@@ -43,61 +45,44 @@ function CodexSessionsSection({ workspaceId, selection, onSelectionChange, onVie
   const [warnings, setWarnings] = React.useState([]);
   const [search, setSearch] = React.useState('');
   const [picker, setPicker] = React.useState(null);
-  const requestId = React.useRef(0), mounted = React.useRef(true);
-  React.useEffect(() => { mounted.current = true; return () => { mounted.current = false; requestId.current++; }; }, []);
-  const request = async (action, body, onProgress) => {
+  const requestId = React.useRef(0), mounted = React.useRef(true), controller = React.useRef(null), pickerController = React.useRef(null);
+  const callbacks = React.useRef({}); callbacks.current = { onChanged, onRefreshStart, onBusyChange };
+  React.useEffect(() => { mounted.current = true; return () => { mounted.current = false; requestId.current++; controller.current?.abort(); pickerController.current?.abort(); }; }, []);
+  const request = async (action, body, onProgress, signal) => {
     const response = await fetch(`${ROUTE}/codex/${action}${body ? '' : '?' + new URLSearchParams({ workspaceId })}`, body ? {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ workspaceId, ...body }),
-    } : undefined);
-    if (response.ok && response.headers?.get('content-type')?.includes('application/x-ndjson')) {
-      const reader = response.body.getReader(), decoder = new TextDecoder();
-      let pending = '', result;
-      const consume = line => {
-        if (!line.trim()) return;
-        const event = JSON.parse(line);
-        if (event.type === 'error') throw Error(event.error);
-        if (event.type === 'progress') onProgress?.(event);
-        if (event.type === 'result') result = event.result;
-      };
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          pending += decoder.decode(value, { stream: !done });
-          const lines = pending.split('\n'); pending = lines.pop();
-          lines.forEach(consume);
-          if (done) { consume(pending); break; }
-        }
-      } finally { reader.releaseLock(); }
-      if (!result) throw Error(t("CodexSessionsSection.message009"));
-      return result;
-    }
-    const result = await response.json();
-    if (!response.ok || result.error) throw Error(result.error || t("CodexSessionsSection.message010"));
-    return result;
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ workspaceId, ...body }), signal,
+    } : { signal });
+    return readConversationResponse(response, onProgress);
   };
   const load = async (action, body) => {
     const id = ++requestId.current;
+    controller.current?.abort(); const abort = controller.current = new AbortController();
+    callbacks.current.onBusyChange?.(true);
+    if (action === 'refresh') callbacks.current.onRefreshStart?.();
     setLoading(true); setError(null);
     setProgress(action === 'refresh' ? { phase: 'queued', completed: 0, total: null } : null);
     try {
       const result = await request(action, body, value => {
         if (mounted.current && id === requestId.current) setProgress(value);
-      });
-      if (!mounted.current || id !== requestId.current) return;
+      }, abort.signal);
+      if (!mounted.current || abort.signal.aborted || id !== requestId.current) return;
       const sessions = result.workspace ? result.sessions || [] : [];
       setData({ ...result, sessions }); setWarnings(result.warnings || []);
+      callbacks.current.onChanged?.();
       const ids = action === 'refresh' ? [] : selection.ids.filter(selected => sessions.some(session => session.id === selected && session.snapshotVersion === selection.versions[selected] && session.syncTurnCount));
       if (ids.length !== selection.ids.length) onSelectionChange({ ids, versions: Object.fromEntries(ids.map(selected => [selected, selection.versions[selected]])) });
-    } catch (error) { if (mounted.current && id === requestId.current) { setError(error.message); setData(previous => action === 'refresh' ? { ...previous, sessions: [] } : { workspace: null, sessions: [] }); onSelectionChange(EMPTY); } }
-    finally { if (mounted.current && id === requestId.current) { setLoading(false); setProgress(null); } }
+    } catch (error) { if (!abort.signal.aborted && mounted.current && id === requestId.current) { setError(error.message); setData(previous => action === 'refresh' ? { ...previous, sessions: [] } : { workspace: null, sessions: [] }); onSelectionChange(EMPTY); } }
+    finally { if (mounted.current && id === requestId.current) { setLoading(false); setProgress(null); callbacks.current.onBusyChange?.(false); } }
   };
-  React.useEffect(() => { setData({ workspace: null, sessions: [] }); setSearch(''); load('sessions'); return () => { requestId.current++; }; }, [workspaceId]);
+  React.useEffect(() => { setData({ workspace: null, sessions: [] }); setSearch(''); setPicker(null); load('sessions'); return () => { requestId.current++; controller.current?.abort(); pickerController.current?.abort(); }; }, [workspaceId]);
   const openPicker = async () => {
+    pickerController.current?.abort(); const abort = pickerController.current = new AbortController();
+    const generation = requestId.current;
     setPicker({ loading: true, workspaces: [] });
     try {
-      const result = await request('workspaces');
-      if (mounted.current) setPicker(previous => previous && ({ loading: false, workspaces: result.workspaces || [], warnings: result.warnings || [] }));
-    } catch (error) { if (mounted.current) setPicker(previous => previous && ({ loading: false, workspaces: [], error: error.message })); }
+      const result = await request('workspaces', null, null, abort.signal);
+      if (mounted.current && !abort.signal.aborted && generation === requestId.current) setPicker(previous => previous && ({ loading: false, workspaces: result.workspaces || [], warnings: result.warnings || [] }));
+    } catch (error) { if (mounted.current && !abort.signal.aborted && generation === requestId.current) setPicker(previous => previous && ({ loading: false, workspaces: [], error: error.message })); }
   };
   const refresh = projectId => {
     onSelectionChange(EMPTY); setSearch(''); setPicker(null);
@@ -115,18 +100,16 @@ function CodexSessionsSection({ workspaceId, selection, onSelectionChange, onVie
       h('h3', { className: 'rh-sync-section-title' }, t("CodexSessionsSection.message012")),
       h(Button, { type: 'button', className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: loading || disabled, onClick: openPicker }, t("CodexSessionsSection.message002")),
       h(Button, { type: 'button', className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: loading || disabled || !data.workspace, onClick: () => refresh() }, t("CodexSessionsSection.message013"))),
-    h('p', { className: 'rh-sync-hint' }, t("CodexSessionsSection.message014")),
+    h('p', { className: 'rh-sync-hint' }, t(acquireOnly ? 'conversationSources.codexHint' : 'CodexSessionsSection.message014')),
     data.workspace && h('p', { className: 'rh-sync-hint', title: data.workspace.path }, t("CodexSessionsSection.message015", { value0: data.workspace.title, value1: data.workspace.path })),
     error && h('p', { role: 'alert', className: 'rh-error' }, error),
-    loading && progress && h('div', { className: 'rh-codex-progress', role: 'status', 'aria-live': 'polite' },
-      h('span', null, progress.phase === 'queued' ? t("CodexSessionsSection.message016") : progress.phase === 'inventory' ? t("CodexSessionsSection.message017") : progress.phase === 'saving' ? t("CodexSessionsSection.message018", { value0: progress.completed, value1: progress.total }) : t("CodexSessionsSection.message019", { value0: progress.completed, value1: progress.total })),
-      h('progress', { 'aria-label': t("CodexSessionsSection.message020"), max: progress.total || 1, value: progress.total === null ? undefined : progress.completed })),
+    loading && h(ConversationRefreshProgress, { progress, source: 'Codex' }),
     h(ImportWarnings, { warnings }),
-    data.workspace && h(Input, { className: 'rh-search-input', type: 'search', value: search, 'aria-label': t("CodexSessionsSection.message021"), placeholder: t("CodexSessionsSection.message022"), onChange: event => setSearch(event.target.value) }),
-    h(SessionList, { sessions: visible, selectedIds: selection.ids, onToggle: toggle, onView, loading, disabled, source: ' Codex ',
+    !acquireOnly && data.workspace && h(Input, { className: 'rh-search-input', type: 'search', value: search, 'aria-label': t("CodexSessionsSection.message021"), placeholder: t("CodexSessionsSection.message022"), onChange: event => setSearch(event.target.value) }),
+    !acquireOnly && h(SessionList, { sessions: visible, selectedIds: selection.ids, onToggle: toggle, onView, loading, disabled, source: ' Codex ',
       emptyText: data.workspace ? (search.trim() ? t("CodexSessionsSection.message023") : t("CodexSessionsSection.message024")) : t("CodexSessionsSection.message025") }),
     data.workspace && !loading && !error && h('p', { className: 'rh-sync-hint', role: 'status' }, t("CodexSessionsSection.message026", { value0: data.sessions.filter(session => session.snapshotVersion).length, value1: data.refreshedAt ? ' · ' + new Date(data.refreshedAt).toLocaleString() : '' })),
-    selection.ids.length > 0 && h('p', { className: 'rh-sync-hint' }, t("CodexSessionsSection.message027", { value0: selection.ids.length })),
+    !acquireOnly && selection.ids.length > 0 && h('p', { className: 'rh-sync-hint' }, t("CodexSessionsSection.message027", { value0: selection.ids.length })),
     picker && h(WorkspacePicker, { ...picker, onSelect: project => refresh(project.id), onClose: () => setPicker(null) })
   );
 }

@@ -6,6 +6,8 @@ export function createConversationRoutes(registry, library, adapters) {
     kind: 'exact', path: '/req-hub/conversations-' + action,
     async handler(req, res) {
       if (req.method !== (['list', 'detail', 'jobs'].includes(action) ? 'GET' : 'POST')) return json(res, { error: 'METHOD_NOT_ALLOWED' }, 405);
+      let streaming = false;
+      const send = event => { if (!res.destroyed && !res.writableEnded) res.write(JSON.stringify(event) + '\n'); };
       try {
         const input = req.method === 'GET' ? Object.fromEntries(new URL(req.url, 'http://localhost').searchParams) : JSON.parse(await readBody(req));
         if (!registry.list().some(workspace => workspace.id === input.workspaceId)) throw conversationError('WORKSPACE_MISSING', 404);
@@ -13,6 +15,12 @@ export function createConversationRoutes(registry, library, adapters) {
         if (action === 'refresh') {
           const adapter = adapters.find(item => item.source === input.source);
           if (!adapter) throw conversationError('SESSION_SOURCE_INVALID', 400);
+          if (input.stream === true) {
+            res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no' });
+            streaming = true; res.flushHeaders?.();
+            const result = await library.refresh(input.workspaceId, input.source === 'dsh' ? input.workspaceId : input.projectId, adapter, progress => send({ type: 'progress', ...progress }));
+            send({ type: 'result', result }); return res.end();
+          }
           return json(res, await library.refresh(input.workspaceId, input.source === 'dsh' ? input.workspaceId : input.projectId, adapter));
         }
         const rows = await library.accessible(input.workspaceId, adapters);
@@ -35,7 +43,10 @@ export function createConversationRoutes(registry, library, adapters) {
           return { id: row.task, version: row.version, requirementId: Array.isArray(identity) ? identity[1] : row.task };
         });
         return json(res, { entry, versions, snapshot, references });
-      } catch (error) { json(res, { error: error.message }, error.statusCode || error.status || 500); }
+      } catch (error) {
+        if (streaming) { send({ type: 'error', error: error.message }); res.end(); }
+        else json(res, { error: error.message }, error.statusCode || error.status || 500);
+      }
     },
   }));
 }

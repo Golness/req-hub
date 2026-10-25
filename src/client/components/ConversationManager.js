@@ -67,6 +67,6 @@ function ConversationManager({ workspaceId, onClose, onChanged }) {
       jobs.slice(0, 3).map(job => h('div', { key: job.id, className: css.job, role: 'status' }, `${job.source === 'dsh' ? 'DSH' : 'Codex'} · ${jobStatus(job.status)} · ${job.total == null ? t('conversations.pendingTotal') : `${job.completed}/${job.total}`}`, ['running', 'queued', 'cancelling'].includes(job.status) && h(Button, { disabled: busy, onClick: async () => { try { await request('cancel', {}); await load(); } catch (error) { setError(error.message); } } }, t('common.cancel')))),
       h('div', { className: 'rh-modal-actions' }, h(Button, { onClick: onClose }, t('common.close')))),
     deleting && h(ConfirmDialog, { title: t('conversations.delete'), message: t('conversations.confirmDelete'), variant: 'danger', onConfirm: remove, onCancel: () => setDeleting(null) }),
-    importingKnowledge && h(ConversationKnowledgeImport, { onClose: () => setImportingKnowledge(false) }));
+    importingKnowledge && h(ConversationKnowledgeImport, { initialSourceWorkspace: workspaceId, onClose: () => setImportingKnowledge(false) }));
 }
 module.exports = { ConversationManager };

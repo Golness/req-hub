@@ -19,8 +19,7 @@ const { ROUTE } = require('../constants.js');
 const { DocsViewerContext } = require('../context.js');
 const { FilePreview } = require('./FilePreview.js');
 const { showToast } = require('./shared/ToastContainer.js');
-const { SessionList } = require('./shared/SessionList.js');
-const { CodexSessionsSection } = require('./CodexSessionsSection.js');
+const { ConversationSources } = require('./ConversationSources.js');
 const { ConversationManager } = require('./ConversationManager.js');
 const { createIconComponents } = require('../icons.js');
 
@@ -850,11 +849,9 @@ function SyncDetailView({ sync, onBack, workspaceId, requirementPath }) {
  */
 function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing, onClose, refreshTree }) {
   const { syncActivity } = React.useContext(DocsViewerContext);
-  const [sessions, setSessions] = useState([]);
   const [selectedSessions, setSelectedSessions] = useState([]);
   const [codexSelection, setCodexSelection] = useState({ ids: [], versions: {} });
   const selectedSessionIds = [...selectedSessions, ...codexSelection.ids];
-  const [sessionSearch, setSessionSearch] = useState('');
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [error, setError] = useState(null);
   const [viewingSession, setViewingSession] = useState(null);
@@ -922,7 +919,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
   const commitsReady = !!commitState.data && commitState.key === comparisonKey && !commitState.loading;
   const availableCommits = commitsReady ? commitState.data.commits : [];
   const visibleCommits = availableCommits.filter(commit => `${commit.hash} ${commit.subject} ${commit.author}`.toLowerCase().includes(commitSearch.toLowerCase().trim()));
-  const canSync = !syncActivity && !!branchInfo.targetBranch && !!baseBranch.trim() && commitsReady && (selectedCommits.length > 0 || selectedSessionIds.length > 0 || includeWorkingChanges && commitState.data.hasUncommitted);
+  const canSync = !loadingSessions && !syncActivity && !!branchInfo.targetBranch && !!baseBranch.trim() && commitsReady && (selectedCommits.length > 0 || selectedSessionIds.length > 0 || includeWorkingChanges && commitState.data.hasUncommitted);
 
   useEffect(() => {
     setSelectedCommits([]);
@@ -942,45 +939,6 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [comparisonKey]);
-
-  // Load sessions
-  useEffect(() => {
-    loadSessions();
-  }, [workspaceId, sessionSearch]);
-
-  const loadSessions = async (refresh = false) => {
-    setLoadingSessions(true);
-    try {
-      if (refresh === true) {
-        const response = await fetch(`${ROUTE}/conversations-refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ workspaceId, source: 'dsh' }) });
-        const result = await response.json(); if (!response.ok || result.error) throw Error(result.error || t('common.loadFailed'));
-      }
-      const params = new URLSearchParams({ workspaceId, limit: '30' });
-      if (sessionSearch.trim()) params.set('query', sessionSearch.trim());
-      const res = await fetch(`${ROUTE}/sessions?${params}`);
-      if (res.ok) {
-        const data = await res.json();
-        setSessions(data.sessions || []);
-      }
-    } catch (e) {
-      console.error('Failed to load sessions:', e);
-      showToast({ tone: 'error', text: t("SyncPanel.message056"), holdMs: 3000 });
-    } finally {
-      setLoadingSessions(false);
-    }
-  };
-
-  const toggleSession = (sessionId) => {
-    const session = sessions.find(item => item.id === sessionId);
-    if (!selectedSessions.includes(sessionId) && (!session?.snapshotVersion || !session.syncTurnCount)) return;
-    if (selectedSessions.includes(sessionId)) delete selectedSessionVersions.current[sessionId];
-    else selectedSessionVersions.current[sessionId] = session.snapshotVersion;
-    setSelectedSessions(prev =>
-      prev.includes(sessionId)
-        ? prev.filter(id => id !== sessionId)
-        : [...prev, sessionId]
-    );
-  };
 
   const connectToSyncSSE = syncId => {
     clearInterval(pollRef.current);
@@ -1161,11 +1119,10 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
 
   // Secondary page: viewing session turns
   if (viewingSession) {
-    const session = sessions.find(s => s.id === viewingSession.id);
     return h(SessionTurnsView, {
       workspaceId,
       sessionId: viewingSession.id,
-      sessionTitle: session?.title || viewingSession.title || t("SyncPanel.message007"),
+      sessionTitle: viewingSession.title || t("SyncPanel.message007"),
       snapshotVersion: sessionVersions()[viewingSession.id] || viewingSession.snapshotVersion,
       onBack: () => setViewingSession(null),
     });
@@ -1290,29 +1247,13 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
           availableCommits.length > 0 && !visibleCommits.length && h('p', { className: 'rh-sync-hint' }, t("SyncPanel.message084")),
           commitState.data.hasUncommitted && h('div', { className: 'rh-sync-working-option' }, h(Checkbox, { checked: includeWorkingChanges, disabled: syncing, onChange: checked => setIncludeWorkingChanges(checked), label: t("SyncPanel.message085") })))),
 
-    // Session selector
-    h('section', { className: 'rh-sync-source-section rh-sync-sessions', 'aria-label': t("SyncPanel.message086") },
-      h('div', { className: 'rh-sync-section-heading' },
-        h('h3', { className: 'rh-sync-section-title' }, t("SyncPanel.message087")),
-        h(Button, { type: 'button', className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: loadingSessions || syncing,
-          onClick: () => { setSelectedSessions([]); selectedSessionVersions.current = {}; loadSessions(true); } }, t("SyncPanel.message088")),
-        h(Button, { className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: syncing, onClick: () => setManagingConversations(true) }, t('conversations.manage'))),
-      h('p', { className: 'rh-sync-hint' }, t("SyncPanel.message089")),
-      h(Input, {
-        className: ('rh-search-input') + ' ' + css.spacing7,
-        type: 'text',
-        placeholder: t("SyncPanel.message090"),
-        value: sessionSearch,
-        onChange: (e) => setSessionSearch(e.target.value),
-      }),
-      h(SessionList, { sessions, selectedIds: selectedSessions, onToggle: toggleSession, onView: setViewingSession, loading: loadingSessions, disabled: syncing }),
-      selectedSessions.length > 0 && h('div', { className: css.mutedText14 },
-        t("SyncPanel.message091", { value0: selectedSessions.length })
-      )
-    ),
-
-    h(CodexSessionsSection, { key: `${workspaceId}:${conversationRevision}`, workspaceId, selection: codexSelection, onSelectionChange: setCodexSelection, onView: setViewingSession, disabled: syncing }),
-    managingConversations && h(ConversationManager, { workspaceId, onClose: () => setManagingConversations(false), onChanged: () => { setSelectedSessions([]); selectedSessionVersions.current = {}; setCodexSelection({ ids: [], versions: {} }); setConversationRevision(value => value + 1); loadSessions(); } }),
+    // Both document sync and knowledge import use this acquisition entry.
+    h(ConversationSources, { key: `${workspaceId}:${conversationRevision}`, workspaceId,
+      dshSelection: { ids: selectedSessions, versions: selectedSessionVersions.current }, codexSelection,
+      onDshSelectionChange: value => { setSelectedSessions(value.ids); selectedSessionVersions.current = value.versions; },
+      onCodexSelectionChange: setCodexSelection, onView: setViewingSession, disabled: syncing,
+      onBusyChange: setLoadingSessions, onManage: () => setManagingConversations(true) }),
+    managingConversations && h(ConversationManager, { workspaceId, onClose: () => setManagingConversations(false), onChanged: () => { setSelectedSessions([]); selectedSessionVersions.current = {}; setCodexSelection({ ids: [], versions: {} }); setConversationRevision(value => value + 1); } }),
 
     // Action buttons
     h('div', { className: css.spacing2 },
