@@ -20,6 +20,32 @@ async function run(docType, harnessOptions = {}, input = {}) {
 }
 
 describe('v2 frozen evidence and isolated candidates', () => {
+  it('validates analysis during tool execution so the same child can fix JSON, pending and evidence scope before completion', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'req-hub-analysis-repair-'));
+    let checked = false;
+    const harness = createSyncHarness({ onStart() {
+      if (checked) return;
+      checked = true;
+      const tool = harness.definitions.get('req_hub_sync_write'), execute = tool.execute;
+      tool.execute = async (args, exec) => {
+        if (args.outputId === 'changes' && !tool.repairChecked) {
+          tool.repairChecked = true;
+          await expect(execute({...args,content:'{"changes":[]'},exec)).rejects.toThrow('ANALYSIS_JSON_INVALID');
+          await expect(execute({...args,content:JSON.stringify({changes:[],pending:[{reason:'Uncertain'}]})},exec)).rejects.toThrow('PENDING_SCHEMA');
+          const invalid=JSON.parse(args.content);invalid.changes[0].evidenceRefs=['code.unassigned.diff'];
+          await expect(execute({...args,content:JSON.stringify(invalid)},exec)).rejects.toThrow('CHANGE_EVIDENCE_OR_SCOPE');
+        }
+        return execute(args,exec);
+      };
+    } });
+    try {
+      const engine = new PhasedSyncEngine({...harness,config:{},cwd:dir});
+      const result = await engine.sync({docType:'requirement',currentDoc:source,commits:[],codeDiff:diff,sessionTurns:[],syncDir:dir});
+      expect(result.errors).toEqual([]);expect(result.mergedDoc).toContain('新规则');
+      expect(harness.definitions.get('req_hub_sync_write').repairChecked).toBe(true);
+      expect(harness.requests.filter(request=>JSON.stringify(request.prompt).includes('manifest.code-0'))).toHaveLength(1);
+    } finally { await rm(dir,{recursive:true,force:true}); }
+  });
   it('reports the real child failure instead of a repeated generic sync code', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'req-hub-child-error-'));
     const harness = createSyncHarness();

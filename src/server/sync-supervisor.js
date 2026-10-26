@@ -59,7 +59,7 @@ export class SyncSupervisor {
     if (this.owner === owner) this.owner = null;
   }
   remember(task) {
-    if (task && !task.removed && task.completedAt && !model.isSyncActive(task) && (!this.latest || task.completedAt >= (this.latest.completedAt || 0))) this.latest = structuredClone(task);
+    if (task && !task.removed && task.completedAt && !model.isSyncActive(task) && (!this.latest || task.completedAt >= (this.latest.completedAt || 0))) this.latest = model.snapshotSyncTask(task);
   }
   remove(target) {
     const matches = task => task && task.workspaceId === target.workspaceId && task.requirementId === target.requirementId
@@ -79,7 +79,7 @@ export class SyncSupervisor {
     const owner = this.owner;
     const steps = owner && !owner.task ? model.createSyncSteps() : [];
     if (steps.length) Object.assign(steps[0], { status: 'running', startedAt: owner.startedAt, activity: owner.activity || { stage: 'preparing' } });
-    return { active: owner ? structuredClone(owner.task || { ...owner.fields, notificationId: owner.notificationId, status: 'preparing', startedAt: owner.startedAt, steps }) : null,
+    return { active: owner ? model.snapshotSyncTask(owner.task || { ...owner.fields, notificationId: owner.notificationId, status: 'preparing', startedAt: owner.startedAt, steps }) : null,
       latest: this.latest, lastProgressAt: owner?.lastProgressAt, limits: this.limits };
   }
 }

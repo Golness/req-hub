@@ -37,18 +37,28 @@ export function indexDocument(bytes) {
 export function validateChanges(value, blocks, evidenceIds) {
   if (!value || !Array.isArray(value.changes) || !Array.isArray(value.pending)) throw new Error('ANALYSIS_SCHEMA');
   const ids = new Set();
-  for (const change of value.changes) {
-    if (typeof change.id !== 'string' || !change.id || ids.has(change.id)) throw new Error('CHANGE_ID');
+  for (const [index, change] of value.changes.entries()) {
+    if (!change || typeof change.id !== 'string' || !change.id.trim() || ids.has(change.id)) throw new Error(`CHANGE_ID: changes[${index}].id must be a unique non-empty string`);
     ids.add(change.id);
     if (!['add', 'modify', 'delete'].includes(change.action) || !blocks.some(b => b.id === change.blockId)
       || typeof change.reason !== 'string' || !change.reason.trim() || typeof change.proposal !== 'string'
       || !change.proposal.trim() || !Array.isArray(change.evidenceRefs) || !change.evidenceRefs.length
-      || change.evidenceRefs.some(id => !evidenceIds.includes(id))) throw new Error('CHANGE_EVIDENCE_OR_SCOPE');
+      || change.evidenceRefs.some(id => !evidenceIds.includes(id))) {
+      const invalidRefs = Array.isArray(change.evidenceRefs) ? change.evidenceRefs.filter(id => !evidenceIds.includes(id)) : [];
+      throw new Error(`CHANGE_EVIDENCE_OR_SCOPE: changes[${index}] must use a valid action, exact blockId from document.blocks, non-empty reason/proposal, and non-empty evidenceRefs from this task's allowed evidence IDs. Invalid references: ${JSON.stringify(invalidRefs)}. Use exact .part-N IDs from the manifest for fragments; sourceArtifactId is not a substitute.`);
+    }
   }
-  for (const pending of value.pending) {
-    if (!pending || typeof pending.id !== 'string' || typeof pending.reason !== 'string' || !pending.reason.trim()) throw new Error('PENDING_SCHEMA');
+  for (const [index, pending] of value.pending.entries()) {
+    if (!pending || typeof pending.id !== 'string' || !pending.id.trim() || typeof pending.reason !== 'string' || !pending.reason.trim()) throw new Error(`PENDING_SCHEMA: pending[${index}] requires non-empty string fields id and reason; use {"id":"p1","reason":"specific uncertainty"}, not a string or an object without id`);
   }
   return value;
+}
+
+export function parseAnalysisChanges(raw, blocks, evidenceIds) {
+  let value;
+  try { value = JSON.parse(raw); }
+  catch (error) { throw new Error('ANALYSIS_JSON_INVALID: content must be one valid JSON object without Markdown fences or tool-call markup. ' + error.message); }
+  return validateChanges(value, blocks, evidenceIds);
 }
 
 /** Translate parser positions through prior native edits; never performs a replacement. */

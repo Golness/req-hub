@@ -284,6 +284,11 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* Keep the original edge control inside the workspace when the tree has no width. */
+.rh-file-tree-sidebar.collapsed > .rh-file-tree-toggle {
+  right: -32px;
+}
+
 .rh-prompt-editor-heading .rh-btn {
   margin-left: auto;
 }

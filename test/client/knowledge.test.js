@@ -116,24 +116,26 @@ it('keeps cross-requirement selection and builds without fetching or submitting 
   expect(fetchMock.mock.calls.every(([url]) => !url.includes('/sessions'))).toBe(true);
 });
 
-it('keeps knowledge and search as independent rail entries without a workbench and supports Ctrl+K', async () => {
+it('opens knowledge search as its fourth tab with Ctrl+K and no independent rail entry', async () => {
   vi.stubGlobal('fetch', vi.fn(async url => response(url.includes('/tree?') ? { tree: { developers: [{ name: 'alice', requirements: [req] }] } } : url.includes('/entries') ? { entries: [], candidates: [] } : url.includes('/sessions') ? { sessions: [] } : { ready: false })));
   await render(React.createElement(DocsViewerBody, { workspace: { id: 'ws', title: '工作区' }, docsDir: 'docs', workspaces: [], onSelectWorkspace: vi.fn(), onConfigChange: vi.fn() }));
   const button = text => [...container.querySelectorAll('.rh-rail-btn')].find(b => b.textContent === text);
   expect(button('工作台')).toBeUndefined();
-  expect(button('知识库')).toBeTruthy(); expect(button('搜索')).toBeTruthy();
+  expect(button('知识库')).toBeTruthy(); expect(button('搜索')).toBeUndefined();
   await click(button('知识库'));
   expect(container.querySelector('.rh-file-tree-sidebar')).toBeTruthy();
   expect(button('知识库').className).toContain('active'); expect(button('查看')).toBeUndefined();
-  expect([...container.querySelectorAll('[role="tab"]')].map(tab => tab.textContent)).toEqual(['查看文档', '文档入库', '会话入库']);
+  expect([...container.querySelectorAll('[role="tab"]')].map(tab => tab.textContent)).toEqual(['查看文档', '文档入库', '会话入库', '搜索']);
   expect(container.querySelector('.rh-file-tree-sidebar')).toBeTruthy();
   expect(container.querySelector('.rh-knowledge-selection')).toBeNull();
   await click([...container.querySelectorAll('[role="tab"]')].find(tab => tab.textContent === '文档入库'));
   await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 't', ctrlKey: true, bubbles: true })));
-  expect(container.querySelector('.rh-file-tree-sidebar')).toBeNull();
+  expect(container.querySelector('.rh-file-tree-sidebar').classList.contains('collapsed')).toBe(true);
   await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 't', ctrlKey: true, bubbles: true })));
   expect(container.querySelector('.rh-knowledge-selection')).toBeTruthy();
   await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true })));
-  expect(button('搜索').className).toContain('active');
+  expect(button('知识库').className).toContain('active');
+  expect(container.querySelector('#knowledge-tab-search').getAttribute('aria-selected')).toBe('true');
+  expect(document.activeElement).toBe(container.querySelector('input[type="search"]'));
   expect(container.querySelector('.rh-file-tree-sidebar')).toBeNull();
 });

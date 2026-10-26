@@ -52,7 +52,8 @@ it('uses a single header return for nested sync pages and removes it at the root
 });
 
 it('returns from a source to search detail and results, and hides navigation on other pages', async () => {
-  await open(); await click(rail('搜索')); backCount(0);
+  await open(); await click(rail('知识库'));
+  await click(container.querySelector('#knowledge-tab-search')); backCount(0);
   const input = container.querySelector('[aria-label="搜索整个知识库"]');
   await act(async () => {
     Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, '审核');
@@ -61,10 +62,11 @@ it('returns from a source to search detail and results, and hides navigation on 
   await act(async () => container.querySelector('form[role="search"]').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
   await click(container.querySelector('.rh-knowledge-hit')); backCount(1);
   await click(rail('同步')); backCount(0);
-  await click(rail('搜索')); backCount(1);
+  await click(rail('知识库')); backCount(1);
   await click([...container.querySelectorAll('[aria-label="知识详情"] button')].find(el => el.textContent.includes('rules.txt'))); backCount(1);
   expect(container.querySelector('.rh-file-preview')).toBeTruthy();
   await click(button('返回')); backCount(1);
+  expect(container.querySelector('#knowledge-tab-search').getAttribute('aria-selected')).toBe('true');
   expect(container.querySelector('[aria-label="知识详情"]')).toBeTruthy();
   expect(input.value).toBe('审核');
   await click(button('返回')); backCount(0);

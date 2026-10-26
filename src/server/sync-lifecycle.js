@@ -15,7 +15,7 @@ export class SyncLifecycle {
       if (!model.updateSyncTask(this.task, event)) return;
       await updateSyncProgress(this.task.id, this.task, this.task.workspaceId, this.task.requirementId);
       if (isSyncTaskRemoved(this.task)) return;
-      this.emit({ type: 'state', sync: structuredClone(this.task) });
+      this.emit({ type: 'state', sync: model.snapshotSyncTask(this.task) });
     });
   }
   step(phase, updates) { return this.event({ type: 'step', phase, updates }); }
@@ -45,7 +45,7 @@ export class SyncLifecycle {
       await updateSyncProgress(this.task.id, this.task, this.task.workspaceId, this.task.requirementId);
       await completeSync(this.task.id, this.task.workspaceId, this.task.requirementId, this.task.snapshotDir);
       if (isSyncTaskRemoved(this.task)) return this.task;
-      this.emit({ type: 'state', sync: structuredClone(this.task) });
+      this.emit({ type: 'state', sync: model.snapshotSyncTask(this.task) });
       return this.task;
     });
   }

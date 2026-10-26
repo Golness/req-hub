@@ -8,3 +8,13 @@ it('shows physical usage and refreshes the history after successful collection',
 it('aborts pending requests on unmount and never reports failed cleanup as success',async()=>{
  let signal;vi.stubGlobal('fetch',vi.fn(async(_url,options)=>{signal=options.signal;return new Promise(()=>{});}));const container=document.createElement('div');document.body.appendChild(container);root=createRoot(container);await act(async()=>root.render(React.createElement(SyncStorageUsage,{workspaceId:'ws'})));await act(async()=>root.unmount());root=null;expect(signal.aborted).toBe(true);
 });
+
+it('shows the server failure and retries statistics using GET instead of starting collection',async()=>{
+ const usage={physicalBytes:0,objectBytes:0,artifactBytes:0,reclaimableBytes:0},changed=vi.fn(),fetchMock=vi.fn().mockResolvedValueOnce({ok:false,status:500,json:async()=>({error:'EACCES: permission denied'})}).mockResolvedValueOnce({ok:true,status:200,json:async()=>({success:true,usage})});vi.stubGlobal('fetch',fetchMock);const container=document.createElement('div');document.body.appendChild(container);root=createRoot(container);await act(async()=>root.render(React.createElement(SyncStorageUsage,{workspaceId:'ws',onChanged:changed})));expect(container.querySelector('[role="alert"]').textContent).toContain('EACCES: permission denied');await act(async()=>[...container.querySelectorAll('button')].find(button=>button.textContent==='重试').click());expect(fetchMock.mock.calls.map(([,options])=>options.method)).toEqual(['GET','GET']);expect(changed).not.toHaveBeenCalled();expect(container.querySelector('[role="alert"]')).toBeNull();expect(container.textContent).toContain('工作区占用 0.0 MB');
+});
+it.each([{status:404,json:async()=>{throw Error('HTML response');}},{status:200,json:async()=>({success:true,usage:{}})}])('reports an invalid or unavailable API with status $status',async({status,json})=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>({ok:status===200,status,json})));const container=document.createElement('div');document.body.appendChild(container);root=createRoot(container);await act(async()=>root.render(React.createElement(SyncStorageUsage,{workspaceId:'ws'})));expect(container.querySelector('[role="alert"]').textContent).toContain('HTTP '+status);expect(container.textContent).not.toContain('NaN');
+});
+it('reports a removed workspace distinctly',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>({ok:false,status:404,json:async()=>({error:'SYNC_WORKSPACE_NOT_FOUND'})})));const container=document.createElement('div');document.body.appendChild(container);root=createRoot(container);await act(async()=>root.render(React.createElement(SyncStorageUsage,{workspaceId:'old'})));expect(container.querySelector('[role="alert"]').textContent).toContain('重新选择工作区');
+});

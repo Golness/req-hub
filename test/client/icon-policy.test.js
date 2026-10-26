@@ -32,7 +32,7 @@ it('provides every referenced local icon and prohibits duplicate glyph definitio
 it('assigns a unique semantic glyph to each main navigation destination', () => {
   const source = readFileSync(join(sourceRoot, 'client/components/DocsViewerBody.js'), 'utf8');
   const navigation = [...source.matchAll(/id: '(\w+)', icon: h\(Icon(\w+)/g)];
-  expect(navigation.map(match => match[1])).toEqual(['create', 'sync', 'knowledge', 'search', 'writing', 'log', 'settings']);
+  expect(navigation.map(match => match[1])).toEqual(['create', 'writing', 'knowledge', 'sync', 'log', 'settings']);
   const names = navigation.map(match => match[2][0].toLowerCase() + match[2].slice(1));
   expect(new Set(names).size).toBe(navigation.length);
   for (const name of names) expect(ICON_COMPONENTS[name], name).toBeTruthy();

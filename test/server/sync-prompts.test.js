@@ -12,6 +12,11 @@ describe('v2 prompt contract', () => {
       expect(rendered).toContain('req_hub_sync_read');
       expect(rendered).not.toMatch(/\{(?:codeDiff|currentDoc|sessionContent|commitList)\}/);
       if (key.startsWith('phased-merge-')) expect(rendered).toContain('不手写补丁');
+      else {
+        expect(rendered).toContain('pending 每项必须是对象');
+        expect(rendered).toContain('禁止改用 sourceArtifactId');
+        expect(rendered).toContain('校验失败不会写入');
+      }
     }
   });
   it('does not import old prompt or Skill settings', async () => {

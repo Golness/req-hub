@@ -64,3 +64,7 @@ it('repairs unfamiliar nonterminal task, step and chunk statuses instead of leav
   model.repairSyncTask(task);
   expect(task.status).toBe('failed');expect(task.steps[0].status).toBe('skipped');expect(task.steps[0].chunks[0].status).toBe('failed');
 });
+
+it('snapshots and releases an execution without cloning its legacy host workspace service',()=>{
+ const supervisor=new SyncSupervisor(),workspace={requireTable:()=>{}};workspace.self=workspace;const owner=supervisor.acquire({workspaceId:'ws',requirementId:'req'});const task={id:'attempt',workspaceId:'ws',requirementId:'req',workspace,status:'running',steps:[]};supervisor.attach(owner,task);expect(supervisor.snapshot().active).not.toHaveProperty('workspace');task.status='failed';task.completedAt=Date.now();expect(()=>supervisor.release(owner)).not.toThrow();expect(supervisor.owner).toBeNull();expect(supervisor.snapshot().latest).toMatchObject({id:'attempt',status:'failed'});
+});

@@ -10,7 +10,7 @@ import { ConcurrentChunkProcessor } from './concurrency/ConcurrentChunkProcessor
 import { PROMPT_REGISTRY } from './prompts.js';
 import { SyncArtifacts } from './sync-artifacts.js';
 import { assertSyncCapabilities, installSyncTools, SYNC_TOOLS, OUTPUT_LIMIT, REQUEST_RESERVE } from './sync-controlled-tools.js';
-import { indexDocument, validateChanges, validateCandidate } from './sync-document-validator.js';
+import { indexDocument, parseAnalysisChanges, validateCandidate } from './sync-document-validator.js';
 import { renderSessionDocument, renderSessionTurn } from './session-utils.js';
 
 function countTokens(text) { return estimateTextTokens(text); }
@@ -318,11 +318,29 @@ export class PhasedSyncEngine {
         if (edit) inputCost += estimateArtifactReadTokens('candidate', originalBytes.toString('utf8'));
         if (inputCost >= plan.budget.limit) throw new Error('SYNC_STAGE_INPUT_TOO_LARGE: ' + stage.id);
         const reportPath = this.file(syncDir, stage.id + '.md'), changesPath = this.file(syncDir, stage.id + '.json');
+        const evidenceIds = mergeInputs
+          ? [...new Set(mergeInputs.flatMap(input => input.index.changes.flatMap(change => change.evidenceRefs)))]
+          : stage.allowed.filter(id => /^(code\.|session\.)/.test(id));
+        const checkChanges = async (raw, runtime) => {
+          const parsed = parseAnalysisChanges(raw, blocks, evidenceIds);
+          if (!mergeInputs) for (const change of parsed.changes) for (const id of change.evidenceRefs) {
+            if ((runtime.coverage.get(id) ?? -1) < (await store.read(id)).length) throw new Error('EVIDENCE_REFERENCE_NOT_READ: ' + id);
+          }
+          if (mergeInputs) {
+            const covered = new Set([...parsed.changes, ...parsed.pending].flatMap(change => [change.id, ...(change.sourceIds || [])]));
+            const missing = mergeInputs.flatMap(input => [...input.index.changes, ...input.index.pending]).filter(change => !covered.has(change.id));
+            if (missing.length) throw new Error('MERGE_CHANGE_DROPPED: preserve every input id in results or pending, directly or via sourceIds. Missing: ' + JSON.stringify(missing.map(change => change.id)));
+          }
+          return parsed;
+        };
         this.assertActive?.();
         const runtime = installSyncTools(this.ctx).create({ store, allowed: stage.allowed, required: stage.required, signal: this.signal, onActivity: this.onActivity, assertActive: this.assertActive,
           maxCompletionReminders: this.config.sync?.maxCompletionReminders ?? 3,
           nativeEditor: this.nativeEditor, parentAgent: this.parentAgent, budget: plan.budget,
           outputs: edit ? {} : { report: reportPath, changes: changesPath }, ...edit });
+        runtime.validateOutput = async (outputId, content) => {
+          if (outputId === 'changes') await checkChanges(content, runtime);
+        };
         try {
           const variables = { runtimeId: runtime.id, manifestId: stage.manifestId, reportId: 'report', changesId: 'changes' };
           const preparedPromptData = await this.preparePrompt(key, variables);
@@ -331,22 +349,17 @@ export class PhasedSyncEngine {
           result.stats.totalLLMCalls++;
           if (edit) return runtime.journal;
           const missingOutputs = ['report', 'changes'].filter(id => !runtime.outputWritten.has(id));
-          if (missingOutputs.length) throw new Error('OUTPUT_NOT_WRITTEN: ' + missingOutputs.join(', '));
+          if (missingOutputs.length) {
+            const validationErrors = missingOutputs.map(id => runtime.outputErrors.get(id)).filter(Boolean);
+            throw new Error('OUTPUT_NOT_WRITTEN: ' + missingOutputs.join(', ') + (validationErrors.length ? '; ' + validationErrors.join('; ') : ''));
+          }
           const report = await readFile(reportPath, 'utf8'), raw = await readFile(changesPath, 'utf8');
           if (!report.trim() || Buffer.byteLength(raw) > OUTPUT_LIMIT || Buffer.byteLength(report) > OUTPUT_LIMIT) throw new Error('OUTPUT_SIZE');
-          let parsed = validateChanges(JSON.parse(raw), blocks, mergeInputs ? [...new Set(mergeInputs.flatMap(input => input.index.changes.flatMap(change => change.evidenceRefs)))] : stage.allowed.filter(id => /^(code\.|session\.)/.test(id)));
+          let parsed = await checkChanges(raw, runtime);
           if (!mergeInputs) {
             parsed = { ...parsed, changes: parsed.changes.map(change => ({ ...change, id: stage.id + ':' + change.id })), pending: parsed.pending.map((change, i) => ({ ...change, id: stage.id + ':pending:' + i })) };
             if (Buffer.byteLength(JSON.stringify(parsed)) > OUTPUT_LIMIT) throw new Error('OUTPUT_SIZE');
             await writeFile(changesPath, JSON.stringify(parsed), 'utf8');
-          }
-          if (!mergeInputs) for (const change of parsed.changes) for (const id of change.evidenceRefs) {
-            if ((runtime.coverage.get(id) ?? -1) < (await store.read(id)).length) throw new Error('EVIDENCE_REFERENCE_NOT_READ');
-          }
-          if (mergeInputs) {
-            const covered = new Set([...parsed.changes, ...parsed.pending].flatMap(change => [change.id, ...(change.sourceIds || [])]));
-            const previous = mergeInputs.flatMap(input => [...input.index.changes, ...input.index.pending]);
-            if (previous.some(change => !covered.has(change.id))) throw new Error('MERGE_CHANGE_DROPPED');
           }
           await emitFile(which, stage.id + '.md'); await emitFile(which, stage.id + '.json');
           const reportId = stage.id + '.report', changesId = stage.id + '.changes';

@@ -3,12 +3,29 @@ import {describe,it,expect} from 'vitest';
 import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';import {tmpdir}from'node:os';import{join}from'node:path';
 import {SyncArtifacts,hashBytes}from'../../src/server/sync-artifacts.js';
 import {installSyncTools,assertSyncCapabilities,OUTPUT_LIMIT}from'../../src/server/sync-controlled-tools.js';
-import {indexDocument}from'../../src/server/sync-document-validator.js';
+import {indexDocument,parseAnalysisChanges}from'../../src/server/sync-document-validator.js';
 import{createSyncHarness}from'./sync-v2-harness.js';
 async function fixture(action){const root=await mkdtemp(join(tmpdir(),'req-hub-tool-scope-'));try{const h=createSyncHarness(),store=await new SyncArtifacts(join(root,'input')).init(),installation=installSyncTools(h.ctx);await action({root,h,store,installation});}finally{await rm(root,{recursive:true,force:true});}}
 async function bind(h,runtime,extra=''){bindOwnedSession(runtime,runtime.id);for(const hook of h.hooks.get('llm/stream')) for await(const _ of hook({sessionId:runtime.id,messages:[{role:'user',content:[{type:'text',text:'REQHUB_SYNC_V2='+runtime.id+extra}]}],tools:[{name:'req_hub_sync_read'}]},async function*(){})) {}}
 const call=(h,runtime,name,args)=>h.definitions.get(name).execute(args,{name,agent:{session:{id:runtime.id}},signal:new AbortController().signal});
 describe('sync v2 controlled evidence access',()=>{
+ it('rejects malformed analysis before acknowledging it and permits correction in the same owned runtime',async()=>fixture(async({root,h,store,installation})=>{
+  const artifactId='code.0.diff.part-1',blocks=indexDocument(Buffer.alloc(0)),path=join(root,'changes.json');
+  await store.put(artifactId,'frozen fragment');
+  const runtime=installation.create({store,allowed:[artifactId],required:[artifactId],outputs:{changes:path},validateOutput:(_id,content)=>parseAnalysisChanges(content,blocks,[artifactId])});
+  await bind(h,runtime);await call(h,runtime,'req_hub_sync_read',{artifactId});
+  const write=content=>call(h,runtime,'req_hub_sync_write',{outputId:'changes',content});
+  await expect(write('{"changes":[],"pending":[')).rejects.toThrow('ANALYSIS_JSON_INVALID');
+  await expect(write(JSON.stringify({changes:[],pending:[{reason:'Needs user confirmation'}]}))).rejects.toThrow('pending[0]');
+  const messages=[];for(const hook of h.hooks.get('agent/turn-stopping'))await hook({agent:{session:{id:runtime.id},steer:message=>messages.push(message)},signal:new AbortController().signal});
+  expect(messages[0].content[0].text).toContain('PENDING_SCHEMA');
+  const change={id:'c1',action:'add',blockId:blocks[0].id,reason:'Frozen evidence',proposal:'New rule',evidenceRefs:['code.0.diff']};
+  await expect(write(JSON.stringify({changes:[change],pending:[]}))).rejects.toThrow('.part-N');
+  expect(runtime.outputWritten.has('changes')).toBe(false);await expect(readFile(path)).rejects.toMatchObject({code:'ENOENT'});
+  const valid=JSON.stringify({changes:[{...change,evidenceRefs:[artifactId]}],pending:[{id:'p1',reason:'Needs user confirmation'}]});
+  expect(await write(valid)).toMatchObject({written:true});expect(await readFile(path,'utf8')).toBe(valid);expect((await runtime.diagnostics()).outputErrors).toEqual({});
+  runtime.close();
+ }));
  it('returns an exact required-read cursor and refuses premature writes without creating a file', async()=>fixture(async({root,h,store,installation})=>{
   await store.put('first','abcdef'); await store.put('second','');
   const report=join(root,'report.md');

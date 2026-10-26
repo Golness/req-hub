@@ -1,4 +1,5 @@
 /* Component presentation; runtime geometry uses local CSS variables. */
+.content > .inactive { display: none; }
 .content { flex: 1; }
 .size { display: var(--rh-display-0); flex: 1; min-height: 0; }
 .heading { font-weight: 500; }

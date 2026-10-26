@@ -189,8 +189,8 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
         const input = req.method === 'POST' ? JSON.parse(await readBody(req)) : Object.fromEntries(new URL(req.url, 'http://localhost').searchParams);
         const workspace = registry.list().find(item => item.id === input.workspaceId);
         if (!workspace) return json(res, { error: 'SYNC_WORKSPACE_NOT_FOUND' }, 404);
-        const config = await loadConfig(), docsRoot = resolve(workspace.path, config.docsDir || 'docs');
-        const scope = storage.bind(workspace, '', docsRoot, docsRoot);
+        const config = await loadConfig();
+        const scope = storage.bindWorkspace(workspace);
         let collected;
         if (req.method === 'POST') {
           const removed = storage.prune(scope.workspaceKey, config.sync);
@@ -988,7 +988,9 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
           }
 
           await syncSupervisor.check(); await reconcileOrphans();
-          const activeSync = await getActiveSync(workspaceId, requirementId);
+          const overview = syncSupervisor.snapshot().active;
+          const activeSync = await getActiveSync(workspaceId, requirementId)
+            || (overview?.workspaceId === workspaceId && overview.requirementId === requirementId ? overview : null);
           json(res, { active: !!activeSync, sync: activeSync });
         } catch (e) {
           log.sync.error(`获取活动同步失败: ${e.message}`);
@@ -1032,7 +1034,10 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
           }
 
           const history = await getSyncHistory(workspaceId, requirementId);
-          json(res, { history, timeline: buildSyncTimeline(history) });
+          const overview = syncSupervisor.snapshot().active;
+          const activeSync = await getActiveSync(workspaceId, requirementId)
+            || (overview?.workspaceId === workspaceId && overview.requirementId === requirementId ? overview : null);
+          json(res, { history, activeSync, timeline: buildSyncTimeline(history) });
         } catch (e) {
           log.sync.error(`获取同步历史失败: ${e.message}`);
           json(res, { error: e.message }, e.statusCode || 500);
@@ -1198,7 +1203,10 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
       if (closed) return json(res, { error: 'SESSION_SERVICE_CLOSED' }, 503);
       const pending = (async () => {
         try { await retire(); if (closed) return json(res, { error: 'SESSION_SERVICE_CLOSED' }, 503); return await handler(req, res); }
-        catch (error) { json(res, { error: error.message }, error.statusCode || error.status || 500); }
+        catch (error) {
+          if (route.path === '/req-hub/sync-storage') log.sync.error('SYNC_STORAGE_REQUEST_FAILED: ' + error.message);
+          json(res, { error: error.message }, error.statusCode || error.status || 500);
+        }
       })();
       pendingRequests.add(pending);
       return pending.finally(() => pendingRequests.delete(pending));

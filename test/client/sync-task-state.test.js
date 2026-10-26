@@ -96,3 +96,15 @@ it('filters the whole sync history by document type, including failed tasks', as
   expect(container.textContent).toContain('REQ_ONLY');
   expect(container.textContent).not.toContain('DESIGN_ONLY');
 });
+
+it('offers a return entry after reopening the panel and follows the running task to failure',async()=>{
+ const original=fetch.getMockImplementation();detail=task();fetch.mockImplementation(async(url,...args)=>url.includes('/sync-active?')?json({active:true,sync:detail}):original(url,...args));
+ await act(async()=>root.render(React.createElement(DocsViewerContext.Provider,{value:{}},React.createElement(SyncPanel,{workspaceId:'ws',selectedReq:req,onClose:vi.fn()}))));expect(button('查看当前同步进度')).toBeDefined();await act(async()=>button('查看当前同步进度').click());expect(container.textContent).toContain('同步进行中');detail=task('failed');await act(async()=>new Promise(resolve=>setTimeout(resolve,1100)));expect(container.textContent).toContain('同步失败');expect(container.textContent).toContain('fixture failure');
+});
+it('opens preparation again and follows its handoff to a persistent execution',async()=>{
+ const original=fetch.getMockImplementation(),preparing={...task(),id:undefined,status:'preparing',notificationId:'notice',startedAt:123,steps:[{phase:'init',label:'同步检查',status:'running',activity:{stage:'sources',current:2,total:5}}]};let active=preparing;
+ fetch.mockImplementation(async(url,...args)=>url.includes('/sync-active?')?json({active:true,sync:active}):url.includes('/sync-overview')?json({active}):original(url,...args));await act(async()=>root.render(React.createElement(DocsViewerContext.Provider,{value:{syncActivity:preparing}},React.createElement(SyncPanel,{workspaceId:'ws',selectedReq:req,onClose:vi.fn()}))));await act(async()=>button('查看当前同步进度').click());expect(container.textContent).toContain('正在冻结代码文件');expect(button('终止同步任务')).toBeUndefined();active={...task(),notificationId:'notice',startedAt:123};detail=task('failed');await act(async()=>new Promise(resolve=>setTimeout(resolve,1200)));await act(async()=>new Promise(resolve=>setTimeout(resolve,100)));expect(container.textContent).toContain('同步失败');expect(fetch.mock.calls.some(([url])=>url.includes('/sync-detail?id=real-task'))).toBe(true);
+});
+it('makes an active design execution accessible from history even with no completed records',async()=>{
+ const original=fetch.getMockImplementation(),active={...task(),docType:'design',docTypeName:'技术方案'};detail=active;fetch.mockImplementation(async(url,...args)=>url.includes('/sync-history?')?json({history:[],activeSync:active}):original(url,...args));await act(async()=>root.render(React.createElement(DocsViewerContext.Provider,{value:{}},React.createElement(SyncPanel,{workspaceId:'ws',selectedReq:req,onClose:vi.fn()}))));await act(async()=>button('同步历史').click());expect(button('查看进行中的同步：技术方案')).toBeDefined();await act(async()=>button('查看进行中的同步：技术方案').click());expect(container.textContent).toContain('同步进行中');expect(container.textContent).toContain('代码差异分析');
+});

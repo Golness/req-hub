@@ -43,10 +43,10 @@ async function open() {
   await act(async () => root.render(React.createElement(DocsViewerBody, { workspace: { id: 'ws', title: 'Workspace' }, docsDir: 'docs', workspaces: [], initialReqId: req.id, onConfigChange() {}, onSelectWorkspace() {} })));
   await click([...container.querySelectorAll('.rh-rail-btn')].find(node => node.textContent === '知识库'));
 }
-it('replaces the view rail entry with three keyboard-accessible knowledge tabs and inline conversation ingestion', async () => {
+it('keeps document viewing, ingestion and search in four keyboard-accessible knowledge tabs', async () => {
   api(); await open();
   expect([...container.querySelectorAll('.rh-rail-btn')].some(node => node.textContent === '查看')).toBe(false);
-  expect([...container.querySelectorAll('[role="tab"]')].map(node => node.textContent)).toEqual(['查看文档', '文档入库', '会话入库']);
+  expect([...container.querySelectorAll('[role="tab"]')].map(node => node.textContent)).toEqual(['查看文档', '文档入库', '会话入库', '搜索']);
   const tabs = container.querySelector('[role="tablist"]');
   expect(tabs.closest('.rh-right-panel')).toBeNull();
   expect(tabs.compareDocumentPosition(container.querySelector('.rh-file-tree-sidebar')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -62,6 +62,12 @@ it('replaces the view rail entry with three keyboard-accessible knowledge tabs a
   expect(container.querySelector('.rh-file-tree-sidebar')).toBeNull();
   expect(document.querySelector('[role="dialog"]')).toBeNull();
   expect(button('刷新会话')).toBeTruthy(); expect(button('选择 Codex 工作区')).toBeTruthy(); expect(button('导入所选轮次')).toBeTruthy();
+  await act(async () => tab('会话入库').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })));
+  expect(tab('搜索').getAttribute('aria-selected')).toBe('true');
+  expect(container.querySelector('.rh-file-tree-sidebar')).toBeNull();
+  expect(container.querySelector('[role="tabpanel"]').getAttribute('aria-labelledby')).toBe('knowledge-tab-search');
+  await click(tab('查看文档'));
+  expect(container.querySelector('.rh-file-tree-sidebar')).not.toBeNull();
 });
 it('ingests an unindexed viewed document next to its breadcrumb and hides the action once indexed', async () => {
   const fetch = api(); await open(); await click(container.querySelector('.rh-tree-file'));
@@ -73,6 +79,27 @@ it('ingests an unindexed viewed document next to its breadcrumb and hides the ac
   expect(JSON.parse(call[1].body)).toMatchObject({ workspaceId: 'ws', files: [{ relativePath: file }] });
   expect(button('入库')).toBeUndefined();
   expect(container.querySelector('.rh-right-header').textContent).toContain('已入库');
+});
+it('always exposes the file tree switch in both document tabs and shares it with Ctrl+T', async () => {
+  api(); await open();
+  for (const name of ['查看文档', '文档入库']) {
+    await click(tab(name));
+    const toggle = () => container.querySelector('button[aria-controls="knowledge-file-tree"]');
+    expect(toggle().getAttribute('aria-expanded')).toBe('true');
+    await click(toggle());
+    expect(toggle().getAttribute('aria-label')).toBe('展开文件树');
+    expect(toggle().classList.contains('rh-file-tree-toggle')).toBe(true);
+    expect(toggle().querySelector('svg')).toBeTruthy();
+    expect(container.querySelector('#knowledge-file-tree').classList.contains('collapsed')).toBe(true);
+    await click(toggle());
+    expect(container.querySelector('.rh-tree-file')).toBeTruthy();
+    await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 't', ctrlKey: true, bubbles: true })));
+    expect(toggle().getAttribute('aria-expanded')).toBe('false');
+    await click(toggle());
+    expect(toggle().getAttribute('aria-expanded')).toBe('true');
+  }
+  await click(tab('搜索'));
+  expect(container.querySelector('button[aria-controls="knowledge-file-tree"]')).toBeNull();
 });
 it('preserves a source-edit draft across tabs, prevents ingesting unsaved text, and retains batch selections', async () => {
   const fetch = api(); await open(); await click(tab('文档入库'));

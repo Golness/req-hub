@@ -133,7 +133,7 @@ function TreeNode({ node, depth, expandedDirs, toggleDir, activeFilePath, onFile
  * @param {Function} props.onSelectFile - Callback invoked when a file is selected
  * @returns {JSX.Element} A resizable sidebar with a hierarchical file tree
  */
-function FileTreeSidebar({ workspaceId, selectedReq, onSelectFile, multiSelect = false, selectedPaths = [], onSelectionChange }) {
+function FileTreeSidebar({ workspaceId, selectedReq, onSelectFile, multiSelect = false, selectedPaths = [], onSelectionChange, expanded: controlledExpanded, onExpandedChange, id }) {
   const [tree, setTree] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -144,7 +144,9 @@ function FileTreeSidebar({ workspaceId, selectedReq, onSelectFile, multiSelect =
   const [filterType, setFilterType] = useState('all'); // all, requirement, design, cr, other
   const [sortBy, setSortBy] = useState('none'); // none, mtime-asc, mtime-desc
   const [showFilters, setShowFilters] = useState(false);
-  const [expanded, setExpanded] = useState(true);
+  const [localExpanded, setLocalExpanded] = useState(true);
+  const expanded = controlledExpanded ?? localExpanded;
+  const setExpanded = onExpandedChange || setLocalExpanded;
   const [expandedDirs, setExpandedDirs] = useState(new Set());
   const sidebarRef = useRef(null);
   const startXRef = useRef(0);
@@ -319,6 +321,7 @@ function FileTreeSidebar({ workspaceId, selectedReq, onSelectFile, multiSelect =
   };
 
   return h('div', {
+    id,
     ref: sidebarRef,
     className: (`rh-file-tree-sidebar${!expanded ? ' collapsed' : ''}${isResizing ? ' resizing' : ''}`) + ' ' + css.size,
     style: { "--rh-width-0": cssValue(`${width}px`), "--rh-min-width-1": cssValue(`${width}px`) },
@@ -332,8 +335,11 @@ function FileTreeSidebar({ workspaceId, selectedReq, onSelectFile, multiSelect =
 
     // Toggle button
     h('button', {
+      type: 'button',
       className: 'rh-file-tree-toggle',
       onClick: () => setExpanded(!expanded),
+      'aria-expanded': expanded,
+      'aria-controls': id,
       'aria-label': expanded ? t("FileTreeSidebar.message006") : t("FileTreeSidebar.message007"),
       title: expanded ? t("FileTreeSidebar.message008") : t("FileTreeSidebar.message009"),
     }, h(IconChevronRight, { size: 16, className: css.indicator, style: { "--rh-transform-0": cssValue(expanded ? 'rotate(180deg)' : undefined) } })),

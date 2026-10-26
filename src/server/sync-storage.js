@@ -58,12 +58,17 @@ export class SyncStorage {
     if (normalize(realpathSync(this.root)) !== normalize(this.root)) throw fail('SYNC_STORAGE_LINK');
     return full;
   }
+  bindWorkspace(workspace) {
+    const root = realpathSync(workspace.path);
+    const workspaceKey = hash(JSON.stringify([workspace.id, normalize(root)]));
+    this.db.prepare('INSERT INTO workspaces VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET title=excluded.title').run(workspaceKey, workspace.id, root, workspace.title || workspace.id);
+    return { workspaceKey, root };
+  }
   bind(workspace, requirementId, requirementPath, docsRoot = requirementPath) {
     const root = realpathSync(workspace.path), path = realpathSync(requirementPath), docs = realpathSync(docsRoot);
     if (!inside(root, docs) || !inside(docs, path)) throw fail('SYNC_SCOPE_PATH');
-    const workspaceKey = hash(JSON.stringify([workspace.id, normalize(root)]));
+    const { workspaceKey } = this.bindWorkspace(workspace);
     const key = hash(JSON.stringify([workspaceKey, requirementId, normalize(docs), normalize(path)]));
-    this.db.prepare('INSERT INTO workspaces VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET title=excluded.title').run(workspaceKey, workspace.id, root, workspace.title || workspace.id);
     this.db.prepare('INSERT OR IGNORE INTO scopes(key,workspace,requirement,path,docs_root) VALUES(?,?,?,?,?)').run(key, workspaceKey, requirementId, path, docs);
     return { key, workspaceKey, workspaceId: workspace.id, requirementId, path, docsRoot: docs, store: this };
   }

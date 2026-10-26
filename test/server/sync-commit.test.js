@@ -150,3 +150,9 @@ it.each(['requirement', 'design'])('filters non-code inputs from all %s sync lay
   expect(result.uncommittedChanges.unstaged).toBe('');
   expect(result.uncommittedChanges.untracked).toEqual(['fresh.ts']);
 });
+
+it('keeps a host workspace entity with services and functions out of cloneable task state',async()=>{
+ const reqDir=join(repo,'docs',requirementId);await mkdir(reqDir,{recursive:true});const workspaceId=randomUUID();
+ class HostWorkspace {get id(){return workspaceId;}get path(){return repo;}get title(){return 'Host workspace';} constructor(){this.requireTable=()=>this.requireTable();this.self=this;}}
+ const result=await beginCommitSync(repo,reqDir,{workspaceId,requirementId,docType:'requirement',workspace:new HostWorkspace(),docsRoot:join(repo,'docs')});expect(result.sync.workspace).toBeUndefined();expect(result.sync.docsRoot).toBeUndefined();expect(()=>structuredClone(result.sync)).not.toThrow();await updateSyncProgress(result.sync.id,{status:'failed'});await completeSync(result.sync.id);expect((await getSyncHistory(workspaceId,requirementId))[0].workspace).toBeUndefined();
+});

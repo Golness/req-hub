@@ -98,7 +98,7 @@ export function installSyncTools(ctx) {
     runtime.completionReminders = (runtime.completionReminders || 0) + 1;
     runtime.onActivity?.();
     const text = 'ReqHub tool receipts show that this task is NOT complete. Continue in this same turn; do not claim success or repeat completed reads. '
-      + JSON.stringify({ readState: diagnostic.readState, missingOutputs })
+      + JSON.stringify({ readState: diagnostic.readState, missingOutputs, outputErrors: diagnostic.outputErrors })
       + '. Read readState.next.artifactId at readState.next.offset, follow subsequent readState.next until remaining=0; then write every missing output with req_hub_sync_write. Only written=true acknowledges a successful write.';
     agent.steer(Object.freeze({ id: randomUUID(), role: 'user', source: Object.freeze({ kind: 'req-hub-sync', form: 'notice', summary: 'Incomplete sync evidence or outputs' }),
       content: Object.freeze([Object.freeze({ type: 'text', text })]) }));
@@ -155,7 +155,7 @@ class SyncRuntime {
     Object.assign(this, options);
     this.ctx = ctx; this.id = randomUUID(); this.coverage = new Map(); this.contextCost = 0;
     this.readRanges = new Map();
-    this.exposedSinceRequest = 0; this.journal = []; this.outputWritten = new Set();
+    this.exposedSinceRequest = 0; this.journal = []; this.outputWritten = new Set(); this.outputErrors = new Map();
     this.inputLimit = options.budget?.limit ?? MAX_SYNC_INPUT_TOKENS;
     this.optionalContextCost = 0;
     this.nativeEditor = options.nativeEditor || resolveSyncEditor(ctx, options.parentAgent);
@@ -186,6 +186,7 @@ class SyncRuntime {
   async diagnostics() {
     const sizes = await this.requiredSizes();
     return { schemaVersion: 1, sessionId: this.sessionId, outputsWritten: [...this.outputWritten],
+      outputErrors: Object.fromEntries(this.outputErrors),
       required: [...sizes].map(([artifactId, totalChars]) => ({ artifactId, totalChars, nextOffset: Math.max(0, this.coverage.get(artifactId) ?? 0), complete: (this.coverage.get(artifactId) ?? -1) >= totalChars })),
       readState: this.readState(sizes), evidenceCompacted: !!this.evidenceCompacted };
   }
@@ -231,10 +232,15 @@ class SyncRuntime {
   async write({ outputId, content }) {
     if (!this.outputs[outputId] || typeof content !== 'string' || Buffer.byteLength(content) > OUTPUT_LIMIT || !content.trim()) throw new Error('OUTPUT_SCOPE_OR_SIZE');
     await this.assertCoverage();
+    // Reject invalid analysis while the child is still able to correct it.
+    // A successful receipt certifies both the output contract and persistence.
+    try { await this.validateOutput?.(outputId, content, this); }
+    catch (error) { this.outputErrors.set(outputId, error.message); throw error; }
     const response = this.charge({ outputId, written: true, bytes: Buffer.byteLength(content), sha256: hashBytes(Buffer.from(content)) });
     this.signal?.throwIfAborted(); this.assertActive?.();
     await writeFile(this.outputs[outputId], content, { encoding: 'utf8', flag: this.outputWritten.has(outputId) ? 'w' : 'wx' });
     this.outputWritten.add(outputId);
+    this.outputErrors.delete(outputId);
     return response;
   }
   async edit({ blockId, expectedHash, oldText, newText }, exec) {

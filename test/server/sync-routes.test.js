@@ -348,3 +348,15 @@ describe('v2 sync route integration',()=>{
   expect(getAbortController(workspaceId,requirementId)).toBeUndefined();
  });
 });
+
+it('publishes with a real-shaped workspace entity and exposes preparation and running progress through history',async()=>{
+ await routes.dispose();
+ class HostWorkspace {get id(){return workspaceId;}get path(){return repo;}get title(){return 'ReqHub';}constructor(){this.requireTable=()=>{};this.self=this;}}
+ routes=createSyncRoutes({list:()=>[new HostWorkspace()]},{},{},{get:()=>harness.parentAgent},harness.ctx);
+ let release,started;const ready=new Promise(resolve=>{started=resolve;}),original=harness.ctx.subagents.start;harness.ctx.subagents.start=async(...args)=>{harness.ctx.subagents.start=original;started();await new Promise(resolve=>{release=resolve;});return original(...args);};
+ const running=dispatch();await ready;try{const active=(await getRoute('/req-hub/sync-active?'+new URLSearchParams({workspaceId,requirementId}))).data;expect(active.active).toBe(true);expect(active.sync.workspace).toBeUndefined();const history=(await getRoute('/req-hub/sync-history?'+new URLSearchParams({workspaceId,requirementId}))).data;expect(history.activeSync.id).toBe(active.sync.id);expect(history.history).toEqual([]);}finally{harness.ctx.subagents.start=original;release();}expect((await running).body).toContain('"type":"done"');expect((await getSyncHistory(workspaceId,requirementId))[0].status).toBe('completed');
+});
+
+it('exposes preparation through both the activity and history entrances before an attempt exists',async()=>{
+ const lease=syncSupervisor.acquire({workspaceId,requirementId,docType:'requirement'});try{syncSupervisor.preparing(lease,{stage:'sources',current:1,total:4});const query=new URLSearchParams({workspaceId,requirementId});expect((await getRoute('/req-hub/sync-active?'+query)).data).toMatchObject({active:true,sync:{notificationId:lease.notificationId,status:'preparing'}});expect((await getRoute('/req-hub/sync-history?'+query)).data).toMatchObject({history:[],activeSync:{notificationId:lease.notificationId,status:'preparing'}});}finally{syncSupervisor.release(lease);}
+});

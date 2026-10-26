@@ -7,7 +7,7 @@ const h = React.createElement;
 function KnowledgeTabs({ tab, onTabChange }) {
   return h('div', { className: css.strip },
     h('div', { className: 'rh-workbench-tabs', role: 'tablist', 'aria-label': t('knowledgeLayout.tabs') },
-        [['documents', t('knowledgeLayout.documents')], ['files', t('knowledgeLayout.files')], ['sessions', t('knowledgeLayout.sessions')]].map(([id, text], index, tabs) => h('button', {
+        [['documents', t('knowledgeLayout.documents')], ['files', t('knowledgeLayout.files')], ['sessions', t('knowledgeLayout.sessions')], ['search', t('DocsViewerBody.message055')]].map(([id, text], index, tabs) => h('button', {
           key: id, id: `knowledge-tab-${id}`, type: 'button', role: 'tab', className: 'rh-workbench-tab', 'aria-selected': tab === id,
           'aria-controls': 'knowledge-content', tabIndex: tab === id ? 0 : -1,
           onClick: () => onTabChange(id), onKeyDown: event => {

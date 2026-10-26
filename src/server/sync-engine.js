@@ -212,7 +212,10 @@ export async function beginCommitSync(cwd, reqDir, fields, { signal, onProgress 
       await getSyncHistory(fields.workspaceId, fields.requirementId), { baseBranch: fields.baseBranch, commitHashes: fields.commitHashes, branchTip: fields.branchTip, baseCommit: fields.baseCommit, includeWorkingChanges: fields.includeWorkingChanges, sessionSnapshots: fields.sessionSnapshots, onProgress }), signal);
     if (prepared.skipped) return prepared;
     const id = `${fields.docType}-${prepared.commitHash}-${hashBytes(Buffer.from(prepared.branchName)).slice(0, 12)}${prepared.selectionKey ? '-' + prepared.selectionKey.slice(0, 16) : ''}`;
-    const sync = { ...fields, schemaVersion: 2, taskId: id, commitHash: prepared.commitHash, branchName: prepared.branchName,
+    // Host workspace entities contain services and functions; they are runtime inputs,
+    // never persisted task state or Client/SSE payloads.
+    const { workspace, docsRoot, ...taskFields } = fields;
+    const sync = { ...taskFields, schemaVersion: 2, taskId: id, commitHash: prepared.commitHash, branchName: prepared.branchName,
       hasUncommitted: prepared.uncommittedChanges.hasChanges,
       selectionMode: prepared.selectionMode, selectionKey: prepared.selectionKey,
       selectedCommitHashes: prepared.selectionMode ? prepared.commits.map(commit => commit.hash) : undefined,

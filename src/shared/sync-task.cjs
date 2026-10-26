@@ -77,6 +77,10 @@ function finishSyncTask(task, { status, error, phase, now = Date.now() } = {}) {
   return task;
 }
 
+function snapshotSyncTask(task) {
+  const { workspace, docsRoot, ...state } = task;
+  return structuredClone(state);
+}
 function isSyncActive(task) { return TASK_ACTIVE.has(task?.status); }
 function hasPublishedDocument(task) { return task?.status === 'completed' || task?.publishState === 'state_committed'; }
 function needsSyncRepair(task) {
@@ -89,4 +93,4 @@ function repairSyncTask(task) {
   const interrupted = !TERMINAL.has(task.status);
   return finishSyncTask(task, { status: interrupted ? 'failed' : task.status, error: interrupted ? task.error || '任务已中断，历史记录缺少结束状态' : task.error, now });
 }
-module.exports = { createSyncSteps, updateSyncTask, finishSyncTask, isSyncActive, hasPublishedDocument, needsSyncRepair, repairSyncTask };
+module.exports = { snapshotSyncTask, createSyncSteps, updateSyncTask, finishSyncTask, isSyncActive, hasPublishedDocument, needsSyncRepair, repairSyncTask };

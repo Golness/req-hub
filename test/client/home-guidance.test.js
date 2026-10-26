@@ -38,7 +38,8 @@ it('keeps sync progress in the shell after navigation and retains a clickable, d
  await render();expect(container.querySelector('.rh-statusbar').textContent).toContain('后台同步中');expect(container.querySelector('.rh-statusbar').textContent).toContain('分块 1/2');
  const rail=text=>[...container.querySelectorAll('.rh-rail-btn')].find(button=>button.textContent===text);
  await click(rail('同步'));
- expect([...container.querySelectorAll('button')].find(button=>button.textContent==='同步技术方案').disabled).toBe(true);
+ expect([...container.querySelectorAll('button')].find(button=>button.textContent==='同步技术方案')).toBeUndefined();
+ expect([...container.querySelectorAll('button')].find(button=>button.textContent==='查看当前同步进度')).toBeDefined();
  await click(rail('知识库'));expect(container.querySelector('.rh-statusbar').textContent).toContain('后台同步中');
  expect(fetchMock.mock.calls.some(([url])=>url.includes('/sync-abort'))).toBe(false);
  overview={active:null,latest:{...task,status:'completed',completedAt:100,steps:task.steps.map(step=>({...step,status:'completed'}))}};
@@ -76,7 +77,7 @@ it('removes a running task from the footer silently and immediately enables star
  });
  await render();await click([...container.querySelectorAll('.rh-rail-btn')].find(button=>button.textContent==='同步'));
  const start=()=>[...container.querySelectorAll('button')].find(button=>button.textContent==='同步需求文档');
- expect(start().disabled).toBe(true);
+ expect(start()).toBeUndefined();
  await click(container.querySelector('.rh-statusbar [aria-label="删除本次执行"]'));
  expect(container.querySelector('.rh-sync-status')).toBeNull();expect(start().disabled).toBe(false);
  expect(confirm).not.toHaveBeenCalled();expect(alert).not.toHaveBeenCalled();expect(container.querySelector('.rh-toast')).toBeNull();

@@ -1,4 +1,9 @@
 /* Component presentation; runtime geometry uses local CSS variables. */
+.activeSummary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 12px; margin-bottom: 12px; border: 0.5px solid var(--dsw-alias-border-l1); border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-bg-layer-2); }
+.activeSummaryText { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
+.activeSummaryTitle { font-size: var(--rh-font-size); line-height: 22px; font-weight: 500; color: var(--dsw-alias-label-primary); }
+.activeSummaryDetail { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; font-size: var(--rh-font-size-sm); line-height: 20px; color: var(--dsw-alias-label-secondary); }
+.homeActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .spacing { color: var(--dsw-alias-state-warning-primary); font-size: var(--rh-font-size); margin-bottom: 12px; }
 .spacing2 { margin-bottom: 12px; }
 .centered { padding: 20px; text-align: center; }

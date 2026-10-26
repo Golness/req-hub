@@ -108,7 +108,7 @@ function TopBar({ docsDir, currentWorkspace, currentReq, onEditDocsDir, onChange
           className: `rh-btn rh-btn-sm rh-topbar-value${currentReq ? ' selected' : ' unselected'}`,
           onClick: onChangeReq,
           title: t("TopBar.message015"),
-        }, currentReq ? `${currentReq.date?.slice(5)} ${currentReq.title}` : t("TopBar.message010")),
+        }, currentReq ? [currentReq.date?.slice(5), currentReq.title || currentReq.id].filter(Boolean).join(' ') : t("TopBar.message010")),
 
       // 在文件资源管理器中打开按钮
       currentReq && h(Button, {

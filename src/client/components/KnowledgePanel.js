@@ -29,7 +29,7 @@ function KnowledgePanel({ workspaceId, knowledge, tab, documentView, selectedFil
     tab === 'files' && h('div', { className: 'rh-knowledge-toolbar' },
       h(Button, { className: 'rh-btn rh-btn-ghost rh-btn-sm', onClick: () => { setRevision(value => value + 1); knowledge.refresh(); }, disabled: knowledge.running }, t('KnowledgePanel.message015'))),
     tab === 'files' && (knowledge.error || error) && h('div', { className: 'rh-knowledge-error', role: 'alert' }, knowledge.error || error),
-    h('div', { className: css.body, id: 'knowledge-content', role: 'tabpanel', 'aria-labelledby': `knowledge-tab-${tab}` },
+    h('div', { className: css.body, id: tab === 'search' ? undefined : 'knowledge-content', role: tab === 'search' ? undefined : 'tabpanel', 'aria-labelledby': tab === 'search' ? undefined : `knowledge-tab-${tab}` },
     h('div', { className: css.documentPane, hidden: tab !== 'documents' }, selectedFile ? documentView : h(EmptyState, { title: t('KnowledgePanel.message016'), description: t('KnowledgePanel.message017') })),
     tab === 'sessions' ? h(ConversationKnowledgeImport, { initialTarget: workspaceId, embedded: true, onImported: () => { setRevision(value => value + 1); knowledge.refresh(); } })
       : tab === 'files' && h('div', { className: 'rh-knowledge-results' },
