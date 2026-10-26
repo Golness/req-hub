@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { ConversationStore, hash } from '../../src/server/conversations/store.js';
 import { ConversationService } from '../../src/server/conversations/service.js';
-import { clearRetiredWorkspaceConversations, removeRetiredCodexStore } from '../../src/server/conversations/retired-storage.js';
+import { removeRetiredCodexStore } from '../../src/server/conversations/retired-storage.js';
 import { createConversationRoutes } from '../../src/server/routes/conversation-routes.js';
 import { createOperations } from '../../src/server/operations.js';
 import { dshSource } from '../../src/server/conversations/dsh-source.js';
@@ -145,19 +145,13 @@ it('deletes the retired Codex store without importing it or touching source and 
   await expect(removeRetiredCodexStore(root)).rejects.toThrow('RETIRED_STORE_SYMLINK');
 });
 
-it('removes only historical conversation files and links, retaining documents and new evidence', async () => {
-  const req = join(root, 'docs/alice/2026-10-25-example'), old = 'v2/old/attempt', current = 'v2/new/attempt';
-  for (const dir of [old, current]) {
-    await mkdir(join(req, 'sync-logs', dir, 'input/sessions'), { recursive: true });
-    await writeFile(join(req, 'sync-logs', dir, 'input/sessions/session-1.md'), 'session');
-  }
-  await writeFile(join(req, 'requirement.md'), 'published');
-  const state = { history: [{ snapshotDir: old, sessionIds: ['s'], generatedFiles: [{ fileName: `sync-logs/${old}/input/sessions/session-1.md` }] }, { snapshotDir: current, sessionIds: ['s'], conversationStorageVersion: 1 }] };
-  await writeFile(join(req, 'sync-logs/v2/.sync-state.json'), JSON.stringify(state));
-  await clearRetiredWorkspaceConversations(root, 'docs');
-  await expect(access(join(req, 'sync-logs', old, 'input/sessions'))).rejects.toMatchObject({ code: 'ENOENT' });
-  expect(await readFile(join(req, 'sync-logs', current, 'input/sessions/session-1.md'), 'utf8')).toBe('session');
-  expect(await readFile(join(req, 'requirement.md'), 'utf8')).toBe('published');
-  const clean = JSON.parse(await readFile(join(req, 'sync-logs/v2/.sync-state.json'), 'utf8'));
-  expect(clean.history[0].sessionIds).toEqual([]); expect(clean.history[0].generatedFiles).toEqual([]);
+it('unpins only retired workspace sync identities, retaining conversation bodies and other owners', async () => {
+ const result=await library.refresh('ws','project',provider()), selected=result.sessions[0];
+ const snapshot={conversationId:selected.conversationId,version:selected.snapshotVersion};
+ await store.pin(JSON.stringify(['ws','req','v2/task/old']),[snapshot]);
+ await store.pin(JSON.stringify(['other','req','v2/task/old']),[snapshot]);
+ await store.pin(JSON.stringify(['ws','req','attempts/new']),[snapshot]);
+ await store.unpinRetiredSync('ws');
+ expect((await store.versions(selected.conversationId))[0].references_count).toBe(2);
+ expect((await library.snapshot('ws','one',provider())).turns).toHaveLength(1);
 });

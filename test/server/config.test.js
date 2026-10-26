@@ -29,6 +29,13 @@ beforeEach(() => {
 });
 
 describe('loadConfig', () => {
+  it.each([{ maxAnalysisReadPages: 0 }, { maxAnalysisReadPages: 129 }, { maxCompletionReminders: 6 }])('rejects invalid sync execution limits %j', async sync => {
+    mockExistsSync.mockReturnValue(true); mockReadFile.mockResolvedValue(JSON.stringify({ sync }));
+    await expect(loadConfig()).rejects.toThrow('INVALID_CONFIG');
+  });
+  it.each([{retainedVersions:0},{versionRetentionDays:0},{missingRetentionDays:-1},{retainedJobs:0},{jobRetentionDays:0},{graceHours:-1}])('rejects invalid conversation cleanup policy %j',async conversations=>{
+    mockExistsSync.mockReturnValue(true);mockReadFile.mockResolvedValue(JSON.stringify({conversations}));await expect(loadConfig()).rejects.toThrow('INVALID_CONFIG');
+  });
   it('should return default config when file does not exist', async () => {
     mockExistsSync.mockReturnValue(false);
     const config = await loadConfig();

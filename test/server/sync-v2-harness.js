@@ -69,5 +69,5 @@ export function createSyncHarness({ noChange = false, skipCoverage = false, over
     skills: { load: async () => '', get: async () => null },
   };
   const parentAgent = { status: 'running', session: { id: 'parent' } };
-  return { ctx, parentAgent, requests, calls, hooks, definitions };
+  return { ctx, parentAgent, requests, calls, hooks, definitions, guards };
 }

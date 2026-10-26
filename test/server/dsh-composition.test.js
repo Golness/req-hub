@@ -74,7 +74,7 @@ it.skipIf(!available)('composes ReqHub with real DSH Cordis, WebServer, Connecti
   } finally { await ctx.fiber.dispose(); vi.unstubAllEnvs(); await rm(root, { recursive: true, force: true }); }
 }, 30000);
 
-it.skipIf(!available)('binds controlled evidence to a real DSH spawn child and leaves its parent unaffected', async () => {
+it.skipIf(!available).each([[false, false], [true, false], [false, true], [false, 'outputs']])('binds controlled evidence to a real DSH spawn child (child-local tool: %s, premature stop: %s)', async (childLocalTool, earlyFinish) => {
   const requireHost = createRequire(join(dsh, 'packages/test-support/agent-loop-testkit/package.json'));
   const requireSpawn = createRequire(join(dsh, 'packages/subagent/subagent-spawn-in-process/package.json'));
   const { Context } = await load(requireHost.resolve('@deepseek-ai/cordis'));
@@ -84,18 +84,36 @@ it.skipIf(!available)('binds controlled evidence to a real DSH spawn child and l
   const { default: Subagents } = await load(requireSpawn.resolve('@deepseek-ai/dsh-subagent'));
   const Spawn = await load(join(dsh, 'packages/subagent/subagent-spawn-in-process/lib/index.js'));
   const requests = [];
+  let localCalls = 0;
   class Adapter extends LlmAdapter {
     async resolveModel(provider, model) { return { provider, id: model, name: model, context: { contextWindow: 256000 } }; }
     async *stream(request) {
       requests.push(request);
-      if (requests.length === 1) {
-        const block = { type: 'tool-call', id: 'read-evidence', name: 'req_hub_sync_read', arguments: JSON.stringify({ artifactId: 'evidence' }) };
+      const writingOutput = earlyFinish === 'outputs' && [4, 5].includes(requests.length);
+      if (requests.length === (earlyFinish ? 2 : 1) || writingOutput) {
+        expect(request.tools.some(tool => tool.name === 'outside_evidence')).toBe(false);
+        if (childLocalTool) {
+          expect(request.tools.some(tool => tool.name === 'child_session_helper')).toBe(true);
+          for (const nested of [false, true]) {
+            const denied = await ctx.tools.execute({ name: 'child_session_helper', arguments: {}, callId: `denied-${nested}`,
+              agent: ctx.agents.get(request.sessionId), signal: new AbortController().signal,
+              ...(nested ? { parent: Symbol('run_code') } : {}) });
+            expect(JSON.stringify(denied.content)).toContain('禁止旁路工具');
+          }
+          expect(localCalls).toBe(0);
+        }
+        const outputId = requests.length === 4 ? 'report' : 'changes';
+        const block = writingOutput
+          ? { type: 'tool-call', id: `write-${outputId}`, name: 'req_hub_sync_write', arguments: JSON.stringify({ outputId, content: outputId === 'report' ? 'verified report' : '{"changes":[],"pending":[]}' }) }
+          : { type: 'tool-call', id: 'read-evidence', name: 'req_hub_sync_read', arguments: JSON.stringify({ artifactId: 'evidence' }) };
         yield { type: 'block-start', index: 0, blockType: 'tool-call' };
         yield { type: 'tool-call-delta', index: 0, id: block.id, name: block.name, argumentsDelta: block.arguments };
         yield { type: 'block-end', index: 0, block };
         yield { type: 'finish', reason: { kind: 'tool-calls' } };
       } else {
-        const text = requests.length === 2 ? 'child complete' : 'ordinary parent response';
+        const text = earlyFinish && requests.length === 1 ? 'Premature completion claim'
+          : earlyFinish === 'outputs' && requests.length === 3 ? 'I already wrote the files'
+          : requests.length === (earlyFinish === 'outputs' ? 6 : earlyFinish ? 3 : 2) ? 'child complete' : 'ordinary parent response';
         yield { type: 'block-start', index: 0, blockType: 'text' };
         yield { type: 'text-delta', index: 0, text };
         yield { type: 'block-end', index: 0, block: { type: 'text', text } };
@@ -103,28 +121,49 @@ it.skipIf(!available)('binds controlled evidence to a real DSH spawn child and l
       }
     }
   }
-  const ctx = new Context(); let installation;
+  const ctx = new Context(); let installation, outputRoot;
   try {
     await mountAgentLoopTestDependencies(ctx);
     await ctx.plugin(AgentLoop, { agents: [] }); await ctx.plugin(Subagents); await ctx.plugin(Spawn, { providerName: 'spawn' });
     ctx.llm.registerAdapter(['mock'], new Adapter());
+    ctx.tools.register({ name: 'outside_evidence', description: 'Unrelated inherited capability', parameters: { type: 'object', properties: {} },
+      output: { schema: { type: 'string' }, render: (_args, text) => [{ type: 'text', text }] },
+      execute: async () => 'outside evidence' });
     const parent = await ctx.agentLoop.create('review-parent', { provider: 'mock', model: 'mock' }, { cwd: process.cwd() });
+    if (childLocalTool) ctx.on('agent/created', ({ agent }) => {
+      if (agent.session.header.parentSession !== parent.session.id) return;
+      agent.ctx.tools.register({ name: 'child_session_helper', description: 'Scope-local framework fixture', parameters: { type: 'object', properties: {} },
+        output: { schema: { type: 'string' }, render: (_args, text) => [{ type: 'text', text }] },
+        execute: async () => { localCalls++; return 'must not run'; } });
+    }, { global: true });
     installation = installSyncTools(ctx);
     const budget = await resolveSyncBudget({ ctx, llm: ctx.llm, parentAgent: parent, agentOptions: { maxTokens: 8000 } });
     expect(budget.contextWindow).toBe(256000); expect(budget.source).toBe('model');
-    const runtime = installation.create({ store: { read: async () => 'complete frozen evidence' }, allowed: ['evidence'], required: ['evidence'], outputs: {}, budget });
+    outputRoot = await mkdtemp(join(tmpdir(), 'rh-real-sync-outputs-'));
+    const outputs = earlyFinish === 'outputs' ? { report: join(outputRoot, 'report.md'), changes: join(outputRoot, 'changes.json') } : {};
+    const runtime = installation.create({ store: { read: async () => 'complete frozen evidence' }, allowed: ['evidence'], required: ['evidence'], outputs, budget });
     const result = await executeTask(ctx, ctx.llm, {}, {
       parentAgent: parent, promptKey: 'analyze', variables: { requirementId: 'review', docsContent: 'frozen evidence' }, runtime, syncV2: true, liveness: { enabled: false },
       toolFilter: { allow: SYNC_TOOLS }, preparedPromptData: { fullPrompt: 'Read evidence and finish. REQHUB_SYNC_V2=' + runtime.id, skillUsed: null },
     });
     expect(result.isError, result.diagnostic).toBe(false);
     expect(result.output).toContain('child complete'); await runtime.assertCoverage();
+    if (earlyFinish) {
+      expect(runtime.completionReminders).toBe(earlyFinish === 'outputs' ? 2 : 1);
+      expect(JSON.stringify(requests[1].messages)).toContain('NOT complete');
+      if (earlyFinish === 'outputs') {
+        expect(await readFile(outputs.report, 'utf8')).toBe('verified report');
+        expect(JSON.parse(await readFile(outputs.changes, 'utf8'))).toEqual({ changes: [], pending: [] });
+        expect(JSON.stringify(requests[3].messages)).toContain('missingOutputs');
+      }
+    }
     expect(runtime.inputLimit).toBe(budget.limit); expect(runtime.maxRequestCost).toBeGreaterThan(0);
     expect(runtime.sessionId).toBe(result.sessionId); expect(ctx.agents.get(result.sessionId)).toBeUndefined();
     runtime.close();
     parent.followup(createUserMessage({ content: [{ type: 'text', text: 'Explain stale REQHUB_SYNC_V2=' + runtime.id }], source: { kind: 'user' } }));
     await parent.whenIdle();
-    expect(requests).toHaveLength(3);
+    expect(requests).toHaveLength(earlyFinish === 'outputs' ? 7 : earlyFinish ? 4 : 3);
+    expect(requests.at(-1).tools.some(tool => tool.name === 'outside_evidence')).toBe(true);
     expect(parent.session.snapshotEvents().some(event => event.type === 'assistant/message')).toBe(true);
     const libraryRoot = await mkdtemp(join(tmpdir(), 'rh-real-dsh-conversations-'));
     const store = new ConversationStore(join(libraryRoot, 'conversations.sqlite'));
@@ -165,5 +204,5 @@ it.skipIf(!available)('binds controlled evidence to a real DSH spawn child and l
         expect(hit.sources[0].conversation.sourceWorkspaceId).toBe(workspace.id);
       } finally { await knowledge.close(); }
     } finally { await library.close(); await store.close(); await rm(libraryRoot, { recursive: true, force: true }); }
-  } finally { installation?.dispose(); await ctx.fiber.dispose(); }
+  } finally { installation?.dispose(); await ctx.fiber.dispose(); if (outputRoot) await rm(outputRoot, { recursive: true, force: true }); }
 }, 30000);

@@ -9,6 +9,70 @@ async function fixture(action){const root=await mkdtemp(join(tmpdir(),'req-hub-t
 async function bind(h,runtime,extra=''){bindOwnedSession(runtime,runtime.id);for(const hook of h.hooks.get('llm/stream')) for await(const _ of hook({sessionId:runtime.id,messages:[{role:'user',content:[{type:'text',text:'REQHUB_SYNC_V2='+runtime.id+extra}]}],tools:[{name:'req_hub_sync_read'}]},async function*(){})) {}}
 const call=(h,runtime,name,args)=>h.definitions.get(name).execute(args,{name,agent:{session:{id:runtime.id}},signal:new AbortController().signal});
 describe('sync v2 controlled evidence access',()=>{
+ it('returns an exact required-read cursor and refuses premature writes without creating a file', async()=>fixture(async({root,h,store,installation})=>{
+  await store.put('first','abcdef'); await store.put('second','');
+  const report=join(root,'report.md');
+  const runtime=installation.create({store,allowed:['first','second'],required:['first','second'],outputs:{report}});await bind(h,runtime);
+  const page=await call(h,runtime,'req_hub_sync_read',{artifactId:'first',limit:2});
+  expect(page.readState).toEqual({remaining:2,next:{artifactId:'first',offset:2}});
+  await expect(call(h,runtime,'req_hub_sync_write',{outputId:'report',content:'report'})).rejects.toThrow('nextOffset=2');
+  await expect(readFile(report)).rejects.toMatchObject({code:'ENOENT'});
+  const end=await call(h,runtime,'req_hub_sync_read',{artifactId:'first',offset:2});
+  expect(end.eof).toBe(true);expect(end.readState).toEqual({remaining:1,next:{artifactId:'second',offset:0}});
+  const empty=await call(h,runtime,'req_hub_sync_read',{artifactId:'second'});
+  expect(empty.readState).toEqual({remaining:0,next:null});
+  expect(await call(h,runtime,'req_hub_sync_write',{outputId:'report',content:'report'})).toMatchObject({written:true});
+  expect(await readFile(report,'utf8')).toBe('report');
+  expect((await runtime.diagnostics()).required.every(item=>item.complete)).toBe(true);
+  await writeFile(join(root,'input',store.entries.get('first').file),'tampered');
+  await expect(runtime.assertCoverage()).rejects.toThrow('HASH_MISMATCH');
+  runtime.close();
+ }));
+ it('does not create an output if its acknowledgement would exceed the request budget',async()=>fixture(async({root,h,store,installation})=>{
+  const report=join(root,'report.md'),runtime=installation.create({store,allowed:[],required:[],outputs:{report}});await bind(h,runtime);
+  runtime.contextCost=runtime.inputLimit;
+  await expect(call(h,runtime,'req_hub_sync_write',{outputId:'report',content:'report'})).rejects.toThrow('BUDGET');
+  await expect(readFile(report)).rejects.toMatchObject({code:'ENOENT'});expect(runtime.outputWritten.size).toBe(0);runtime.close();
+ }));
+ it('steers only the owned incomplete child at the stop boundary with a finite reminder budget', async()=>fixture(async({root,h,store,installation})=>{
+  await store.put('evidence','body');
+  const runtime=installation.create({store,allowed:['evidence'],required:['evidence'],outputs:{report:join(root,'report.md')},maxCompletionReminders:2});await bind(h,runtime);
+  const messages=[],agent={session:{id:runtime.id},steer:message=>messages.push(message)}, signal=new AbortController().signal;
+  const hooks=h.hooks.get('agent/turn-stopping');
+  for(const hook of hooks) await hook({agent:{session:{id:'foreign'},steer:()=>{throw Error('foreign steering');}},signal});
+  for(const hook of hooks) await hook({agent,signal});
+  expect(messages).toHaveLength(1);expect(messages[0].content[0].text).toContain('"offset":0');
+  await call(h,runtime,'req_hub_sync_read',{artifactId:'evidence'});
+  for(const hook of hooks) await hook({agent,signal});
+  expect(messages).toHaveLength(2);expect(messages[1].content[0].text).toContain('"missingOutputs":["report"]');
+  for(const hook of hooks) await hook({agent,signal});expect(messages).toHaveLength(2);
+  await call(h,runtime,'req_hub_sync_write',{outputId:'report',content:'report'});
+  for(const hook of hooks) await hook({agent,signal});expect(messages).toHaveLength(2);
+  runtime.close();for(const hook of hooks)await hook({agent,signal});expect(messages).toHaveLength(2);
+ }));
+ it('admits child-local declarations but still denies direct and nested execution of them', async()=>fixture(async({h,store,installation})=>{
+  const runtime=installation.create({store,allowed:[],required:[],outputs:{}});
+  bindOwnedSession(runtime,runtime.id);
+  let forwarded=false;
+  for(const hook of h.hooks.get('llm/stream')) for await(const _ of hook({sessionId:runtime.id,messages:[],tools:[{name:'child_session_helper'}]},async function*(){forwarded=true;})) {}
+  expect(forwarded).toBe(true);
+  for(const parent of [undefined,Symbol('run_code')]) {
+   const exec={name:'child_session_helper',parent,agent:{session:{id:runtime.id}}};
+   expect(h.guards.some(guard=>guard(exec))).toBe(true);
+  }
+  runtime.close();
+ }));
+ it('captures terminal failures only for its owned child and stops recording after close', async()=>fixture(async({h,store,installation})=>{
+  const runtime=installation.create({store,allowed:[],required:[],outputs:{}});await bind(h,runtime);
+  const event=message=>({type:'turn/end',data:{reason:{kind:'error',error:{code:'PROVIDER_ERROR',message}}}});
+  for(const listener of h.hooks.get('session/event'))listener({id:'unrelated'},event('foreign'));
+  expect(runtime.failure).toBeUndefined();
+  for(const listener of h.hooks.get('session/event'))listener({id:runtime.id},event('actual provider failure'));
+  expect(runtime.failure).toEqual({code:'PROVIDER_ERROR',message:'actual provider failure'});
+  runtime.close();
+  for(const listener of h.hooks.get('session/event'))listener({id:runtime.id},event('late'));
+  expect(runtime.failure.message).toBe('actual provider failure');
+ }));
  it('keeps a bounded 12KB output contract',()=>expect(OUTPUT_LIMIT).toBe(12000));
  it('denies a normal agent access to the sync artifact tools',async()=>fixture(async({h})=>{
   await expect(h.definitions.get('req_hub_sync_read').execute({artifactId:'secret'},{agent:{session:{id:'other'}}})).rejects.toThrow('DENIED');

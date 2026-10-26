@@ -15,6 +15,14 @@ it('shares one execution lease across document types and workspaces',()=>{
   expect(supervisor.acquire({docType:'design',workspaceId:'two'})).toBeNull();
   supervisor.release(owner);expect(supervisor.acquire({docType:'design'})).not.toBeNull();
 });
+it('exposes preparation counts before a durable task exists and fences stale producers', () => {
+  const { supervisor, owner, advance } = setup();
+  advance(5); supervisor.preparing(owner, { stage: 'sources', current: 12, total: 40 });
+  expect(supervisor.snapshot().active).toMatchObject({ status: 'preparing', steps: [{ phase: 'init', status: 'running', activity: { stage: 'sources', current: 12, total: 40 } }, {}, {}, {}, {}] });
+  expect(supervisor.snapshot().lastProgressAt).toBe(5);
+  supervisor.release(owner); supervisor.acquire({ workspaceId: 'two' });
+  expect(() => supervisor.preparing(owner, { stage: 'checking' })).toThrow('LEASE_EXPIRED');
+});
 it('removes execution ownership even when the termination method fails and never restores its notice',()=>{
  const {supervisor,owner,task,recover}=setup();supervisor.attach(owner,task,recover);
  owner.controller.abort=()=>{throw Error('host stop failed');};owner.revoke=vi.fn();

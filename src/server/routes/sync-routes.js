@@ -2,6 +2,7 @@ import { safeDocumentPath } from '../safe-path.js';
 import taskModel from '../../shared/sync-task.cjs';
 import { SyncLifecycle } from '../sync-lifecycle.js';
 import { syncSupervisor } from '../sync-supervisor.js';
+import { retainSyncStorage } from '../sync-storage.js';
 import { planSyncTaskCleanup } from '../sync-task-cleanup.js';
 import { installSyncTools } from '../sync-controlled-tools.js';
 import { readDocumentVersion, publishDocument, atomicWrite } from '../sync-document-validator.js';
@@ -13,7 +14,7 @@ import { readDocumentVersion, publishDocument, atomicWrite } from '../sync-docum
  */
 
 import { resolve, relative } from 'node:path';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { loadConfig } from '../config.js';
 import { findRequirementDir } from '../doc-reader.js';
@@ -30,12 +31,13 @@ import { ConversationService } from '../conversations/service.js';
 import { dshSource } from '../conversations/dsh-source.js';
 import { createConversationRoutes } from './conversation-routes.js';
 import { createConversationKnowledgeRoutes } from './conversation-knowledge-routes.js';
-import { clearRetiredWorkspaceConversations, removeRetiredCodexStore } from '../conversations/retired-storage.js';
+import { removeRetiredCodexStore } from '../conversations/retired-storage.js';
 import { homedir } from 'node:os';
 import { json, readBody } from '../utils.js';
 import { log } from '../logger.js';
 import {
-  loadState,
+  loadState as loadSyncState,
+  getSyncScope,
   getActiveSync,
   getSyncHistory,
   getSyncById,
@@ -61,10 +63,29 @@ import { charsToTokens, formatTokens } from '../token-utils.js';
  * @returns {Array<Object>} Array of route definitions
  */
 export function createSyncRoutes(registry, llm, sessions, agents, ctx, options = {}) {
+  const storageLease = retainSyncStorage(options.syncStorageRoot), storage = storageLease.store;
+  const releaseDeleted = async workspaceKey => {
+    for (const task of storage.deleted(workspaceKey)) {
+      await library.store.unpin(JSON.stringify([task.workspaceId, task.requirementId, task.snapshotDir]), await library.policy());
+      storage.cleanup(task);
+    }
+  };
+  const loadState = async (workspaceId, requirementId, reqDir) => {
+    const workspace = registry.list().find(item => item.id === workspaceId);
+    if (!workspace) throw new Error('SYNC_WORKSPACE_NOT_FOUND');
+    const config = await loadConfig();
+    await library.store.unpinRetiredSync(workspaceId);
+    const state = await loadSyncState(workspaceId, requirementId, reqDir, { workspace, docsRoot: resolve(workspace.path, config.docsDir || 'docs'), store: storage });
+    const scope = getSyncScope(workspaceId, requirementId);
+    for (const removed of storage.prune(scope.workspaceKey, config.sync)) await library.store.unpin(JSON.stringify([removed.workspaceId, removed.requirementId, removed.snapshotDir]), await library.policy());
+    await releaseDeleted(scope.workspaceKey);
+    storage.collect(scope.workspaceKey);
+    return state;
+  };
   // 从 ctx 获取 sessionQuery 服务
   const sessionQuery = ctx?.sessionQuery;
   const profile = ctx?.get?.('profileContext');
-  const library = new ConversationService({ store: new ConversationStore(options.conversationDatabasePath || conversationDatabasePath(profile?.home)), owner: profile?.dir || process.env.DSH_PROFILE_DIR || process.env.DSH_PROFILE || 'default' });
+  const library = new ConversationService({ store: new ConversationStore(options.conversationDatabasePath || conversationDatabasePath(profile?.home)), owner: profile?.dir || process.env.DSH_PROFILE_DIR || process.env.DSH_PROFILE || 'default', policy: async () => (await loadConfig()).conversations || {} });
   const dsh = dshSource({ registry, sessionQuery, sessions, instance: library.owner });
   const codex = options.codexService || new CodexSessionService({ ...options.codex, library });
   const adapters = [dsh, codex.adapter].filter(Boolean);
@@ -72,8 +93,21 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
   const retire = () => retirement ||= (async () => {
     await removeRetiredCodexStore(profile?.home || process.env.DSH_HOME || join(homedir(), '.dsh'));
     const config = await loadConfig();
-    for (const workspace of registry.list()) await clearRetiredWorkspaceConversations(workspace.path, config.docsDir);
-  })();
+    for (const workspace of registry.list()) {
+      const docs = resolve(workspace.path, config.docsDir || 'docs');
+      await safeDocumentPath(workspace.path, relative(workspace.path, docs), { allowMissing: true });
+      const visit = async directory => {
+        let entries;
+        try { entries = await readdir(directory, { withFileTypes: true }); } catch (error) { if (error.code === 'ENOENT') return; throw error; }
+        if (entries.some(entry => entry.name === 'sync-logs')) {
+          storage.retire(storage.bind(workspace, relative(docs, directory).replaceAll('\\', '/'), directory, docs));
+        }
+        for (const entry of entries) if (entry.name !== 'sync-logs' && entry.isDirectory() && !entry.isSymbolicLink()) await visit(join(directory, entry.name));
+      };
+      await visit(docs);
+      await library.store.unpinRetiredSync(workspace.id);
+    }
+  })().catch(error => { retirement = undefined; throw error; });
   const dshSnapshot = async (workspaceId, id) => {
     if (!(await library.list(workspaceId, dsh)).workspace) await library.refresh(workspaceId, workspaceId, dsh);
     return library.snapshot(workspaceId, id, dsh);
@@ -91,7 +125,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
       syncSupervisor.remember(task);
     }
   };
-  const watchdog = setInterval(() => { void syncSupervisor.check().catch(error => log.sync.error('任务监管恢复失败：' + error.message)); }, 15000);
+  const watchdog = setInterval(() => { storage.heartbeat(); void syncSupervisor.check().catch(error => log.sync.error('任务监管恢复失败：' + error.message)); }, 15000);
   watchdog.unref?.();
   const routes = [
     ...createCodexSessionRoutes(registry, codex),
@@ -127,23 +161,17 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
             return json(res, { success: true });
           }
           if (input.snapshotDir !== task.snapshotDir) return json(res, { error: '同步任务已切换，请刷新状态' }, 409);
-          let cleanup = async () => {};
-          try { cleanup = await planSyncTaskCleanup(reqDir, task, () => getCachedActiveSyncs().filter(item => !item.removed).map(item => item.snapshotDir)); }
-          catch (error) { log.sync.warn('任务目录无法安全定位，仅移除任务记录：' + error.message); }
-          if (syncSupervisor.owner?.task && syncSupervisor.owner.task.snapshotDir === task.snapshotDir && syncSupervisor.owner.task.id === task.id) syncSupervisor.owner.cleanup = cleanup;
-          syncSupervisor.remove(task);
-          await removeSyncTask(task);
-          await library.store.unpin(JSON.stringify([task.workspaceId, task.requirementId, task.snapshotDir]));
-          const clean = async () => {
-            try { await cleanup(); }
-            catch (error) {
-              log.sync.warn('删除任务文件暂未完成，将后台重试：' + error.message);
-              const retry = setTimeout(clean, 2000); retry.unref?.();
-            }
-          };
-          await clean();
+          const deleted = await removeSyncTask(task, { wholeTask: input.scope === 'task' });
+          for (const execution of deleted) {
+            const cleanup = await planSyncTaskCleanup(reqDir, execution);
+            const owner = syncSupervisor.owner;
+            if (owner?.task?.id === execution.id) owner.cleanup = cleanup;
+            syncSupervisor.remove(execution);
+            await library.store.unpin(JSON.stringify([execution.workspaceId, execution.requirementId, execution.snapshotDir]), await library.policy());
+            await cleanup();
+          }
           json(res, { success: true });
-        } catch (error) { log.sync.error('删除同步任务失败：' + error.message); json(res, { error: error.message }, 500); }
+        } catch (error) { log.sync.error('删除同步任务失败：' + error.message); json(res, { error: error.message }, error.statusCode || 500); }
       },
     },
     {
@@ -152,6 +180,25 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
         if (req.method !== 'GET') return json(res, { error: 'method not allowed' }, 405);
         try { await syncSupervisor.check(); await reconcileOrphans(); json(res, syncSupervisor.snapshot()); }
         catch (error) { json(res, { error: error.message }, 500); }
+      },
+    },
+    {
+      kind: 'exact', path: '/req-hub/sync-storage',
+      async handler(req, res) {
+        if (!['GET', 'POST'].includes(req.method)) return json(res, { error: 'METHOD_NOT_ALLOWED' }, 405);
+        const input = req.method === 'POST' ? JSON.parse(await readBody(req)) : Object.fromEntries(new URL(req.url, 'http://localhost').searchParams);
+        const workspace = registry.list().find(item => item.id === input.workspaceId);
+        if (!workspace) return json(res, { error: 'SYNC_WORKSPACE_NOT_FOUND' }, 404);
+        const config = await loadConfig(), docsRoot = resolve(workspace.path, config.docsDir || 'docs');
+        const scope = storage.bind(workspace, '', docsRoot, docsRoot);
+        let collected;
+        if (req.method === 'POST') {
+          const removed = storage.prune(scope.workspaceKey, config.sync);
+          for (const task of removed) await library.store.unpin(JSON.stringify([task.workspaceId, task.requirementId, task.snapshotDir]), await library.policy());
+          await releaseDeleted(scope.workspaceKey);
+          collected = storage.collect(scope.workspaceKey);
+        }
+        return json(res, { success: true, usage: storage.usage(scope.workspaceKey), collected });
       },
     },
     // GET /git-branch - 获取 Git 分支信息
@@ -588,6 +635,8 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
             };
             abortController = lease.controller;
             lease.revoke = () => installSyncTools(ctx)?.revoke(abortController.signal);
+            const onPreparation = activity => syncSupervisor.preparing(lease, activity);
+            onPreparation({ stage: 'preparing' });
 
             const config = await loadConfig();
             const docsRoot = resolve(workspace.path, config.docsDir || 'docs');
@@ -597,6 +646,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
             if (!Array.isArray(sessionIds) || sessionIds.some(id => typeof id !== 'string') || new Set(sessionIds).size !== sessionIds.length) {
               return json(res, { error: 'SESSION_SELECTION_INVALID: 会话选择无效' }, 400);
             }
+            onPreparation({ stage: 'sessions' });
             const codexSnapshots = new Map((await codex.snapshots(sessionIds.filter(id => id.startsWith('codex:')), workspaceId)).map(snapshot => [snapshot.sessionId, snapshot]));
             const dshIds = sessionIds.filter(id => !id.startsWith('codex:'));
             if (dshIds.length && !(await library.list(workspaceId, dsh)).workspace) await library.refresh(workspaceId, workspaceId, dsh);
@@ -614,19 +664,22 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
             const hasSessions = sessionIds.length > 0;
             const fields = {
               workspaceId,
+              workspace,
+              docsRoot,
               requirementId,
               docType,
               docTypeName,
               requirementPath: relative(docsRoot, reqDir).replaceAll('\\', '/'),
               sessionIds,
               conversationStorageVersion: 1,
+              ownerProfile: library.owner,
               sessionSnapshots: sessionInput.snapshots.map(({ sessionId, conversationId, version, syncTurnCount }) => ({ sessionId, conversationId, version, syncTurnCount })),
               baseBranch: input.baseBranch?.trim() || await defaultSyncBaseBranch(workspace.path),
               commitHashes: input.commitHashes,
               branchTip: input.branchTip,
               baseCommit: input.baseCommit,
               includeWorkingChanges: input.includeWorkingChanges !== false,
-              startedAt: Date.now(),
+              startedAt: lease.startedAt,
               status: 'running', // running | completed | failed
               steps: taskModel.createSyncSteps({ sessionIds }),
               generatedFiles: [],
@@ -642,11 +695,11 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
               staleController.controller.abort();
               deleteAbortController(workspaceId, requirementId, staleController.syncId, staleController.controller);
             }
-            let prepared = await beginCommitSync(workspace.path, reqDir, fields, { signal: abortController.signal });
+            let prepared = await beginCommitSync(workspace.path, reqDir, fields, { signal: abortController.signal, onProgress: onPreparation });
             syncSupervisor.assert(lease);
             if (prepared.active) {
               await recoverSyncTask(prepared.sync, 'SYNC_OWNER_MISSING: 原同步任务已无执行者，已回收残留状态');
-              prepared = await beginCommitSync(workspace.path, reqDir, fields, { signal: abortController.signal });
+              prepared = await beginCommitSync(workspace.path, reqDir, fields, { signal: abortController.signal, onProgress: onPreparation });
             }
             if (prepared.active || prepared.skipped) { json(res, prepared); return; }
             syncTask = prepared.sync;
@@ -674,7 +727,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
             };
             lifecycle = new SyncLifecycle(syncTask, sendEvent);
             const updateStep = (phase, updates) => lifecycle.step(phase, updates);
-            const addFile = (phase, fileName) => lifecycle.file(phase, fileName);
+            const addFile = (phase, fileName, logicalId) => lifecycle.file(phase, storage.artifact(syncTask, fileName, { logicalId }));
 
             sendEvent({ type: 'sync_started', syncId, commitHash: syncTask.commitHash });
             await updateStep('init', { status: 'running', text: '读取已冻结的需求分支提交...' });
@@ -722,14 +775,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
 
             // ─── Step 3-5: Run phased sync engine ────────────────
             // 创建同步目录（提前创建，用于保存中间结果）
-            const syncDirName = syncTask.snapshotDir;
-            const syncBaseDir = join(reqDir, 'sync-logs');
-            const syncDir = join(syncBaseDir, syncDirName);
-            const { mkdir } = await import('node:fs/promises');
-            await mkdir(syncBaseDir, { recursive: true });
-            await mkdir(syncDir, { recursive: true });
-            await writeFile(join(syncDir, 'input-code.diff'), codeDiff, 'utf8');
-            await addFile('init', `sync-logs/${syncDirName}/input-code.diff`);
+            const syncDir = storage.attemptRoot(syncTask, true);
 
             // 获取父 Agent（用于 subagent 委托）
             const parentAgent = agents?.get(sessionId);
@@ -744,8 +790,9 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
               ctx,
               parentAgent,
               signal: abortController.signal,
+              storage, task: syncTask,
               onActivity: () => syncSupervisor.touch(lease),
-              assertActive: () => syncSupervisor.assert(lease),
+              assertActive: () => { syncSupervisor.assert(lease); storage.assert(syncTask); },
             });
 
             await updateStep('init', { status: 'running', text: '根据子代理模型容量检查文档与必读证据，计算分块预算...' });
@@ -753,8 +800,11 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
               docType, currentDoc, originalVersion, commits, codeDiff, sourceSnapshots, sessionTurns,
               syncContext: { taskId: syncId, branchName, targetSha: syncTask.commitHash, baseSha: syncTask.baselineCommit, attempt: syncTask.snapshotDir },
               hasUncommitted: uncommittedChanges.hasChanges, syncDir,
+              onPreparation: activity => updateStep('init', { activity }),
             });
-            for (const file of preparedChunks.sessionFiles) await addFile('init', `sync-logs/${syncDirName}/${file}`);
+            await addFile('init', 'input-code.diff', 'code.input');
+            await addFile('init', 'manifest.json');
+            for (const entry of preparedChunks.store.entries.values()) if (entry.file.startsWith('sessions/')) await addFile('init', entry.file.replaceAll('/', '-'), entry.id);
             await updateStep('code_analysis', {
               chunks: preparedChunks.code.map(c => ({ index: c.index, tokens: c.tokens, files: c.details.map(d => ({ file: d.file, tokens: d.tokens })) })),
             });
@@ -781,7 +831,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
               reqDir,
               syncDir,
               onProgress: async progress => {
-                if (progress.status === 'output_file') return addFile(progress.phase, `sync-logs/${syncDirName}/${progress.fileName}`);
+                if (progress.status === 'output_file') return addFile(progress.phase, progress.fileName);
                 await lifecycle.progress(progress);
               }
             });
@@ -791,24 +841,24 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
               const failure = new Error(result.errors?.map(item => item.error).join('；') || '未生成有效文档快照');
               failure.phase = result.errors?.[0]?.phase; throw failure;
             }
-            if (result.patchFile) await addFile('merge', `sync-logs/${syncDirName}/${result.patchFile}`);
-            if (result.appliedDiffFile) await addFile('merge', `sync-logs/${syncDirName}/${result.appliedDiffFile}`);
+            if (result.patchFile) await addFile('merge', result.patchFile);
+            if (result.appliedDiffFile) await addFile('merge', result.appliedDiffFile);
             if (result.schemaVersion !== 2 || !result.validation || !Buffer.isBuffer(result.candidateBytes)) throw new Error('SYNC_V2_RESULT_REQUIRED');
             await lifecycle.metadata({ originalHash: result.validation.originalHash, candidateHash: result.validation.candidateHash, publishState: 'prepared' });
             await updateStep('publish', { status: 'running', text: '检查文档版本并发布...' });
             syncSupervisor.assert(lease);
-            await publishDocument({ docPath, syncDir, fileName: docFileName, original: originalVersion,
-              candidateBytes: result.candidateBytes, validation: result.validation, signal: abortController.signal, assertActive: () => syncSupervisor.assert(lease) });
+            await publishDocument({ docPath, syncDir: join(syncDir, 'outputs'), fileName: docFileName, original: originalVersion,
+              candidateBytes: result.candidateBytes, validation: result.validation, signal: abortController.signal, assertActive: () => { syncSupervisor.assert(lease); storage.assert(syncTask); } });
             await lifecycle.metadata({ publishState: 'document_written' });
             await updateStep('publish', { status: 'completed', text: '正式文档与成功快照一致' });
-            await addFile('merge', `sync-logs/${syncDirName}/${docFileName}`);
+            await addFile('merge', docFileName);
 
             await lifecycle.metadata({ stats: result.stats, publishState: 'state_committed' });
 
             try {
-              const journalPath = join(syncDir, 'publish-journal.json');
+              const journalPath = storage.file(syncTask, 'publish-journal.json');
               const journal = JSON.parse(await readFile(journalPath, 'utf8'));
-              await atomicWrite(journalPath, JSON.stringify({ ...journal, stage: 'state_committed' }, null, 2));
+              await atomicWrite(journalPath, JSON.stringify({ ...journal, stage: 'state_committed' }, null, 2), abortController.signal, () => { syncSupervisor.assert(lease); storage.assert(syncTask); });
             } catch (error) { log.sync.warn('发布日志收尾失败，可在重启时核验: ' + error.message); }
 
             abortController.signal.throwIfAborted();
@@ -985,7 +1035,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
           json(res, { history, timeline: buildSyncTimeline(history) });
         } catch (e) {
           log.sync.error(`获取同步历史失败: ${e.message}`);
-          json(res, { history: [] });
+          json(res, { error: e.message }, e.statusCode || 500);
         }
       }
     },
@@ -1011,6 +1061,12 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
           return;
         }
 
+        const workspace = registry.list().find(item => item.id === workspaceId);
+        if (!workspace) return json(res, { error: 'SYNC_WORKSPACE_NOT_FOUND' }, 404);
+        const config = await loadConfig();
+        const reqDir = await findRequirementDir(resolve(workspace.path, config.docsDir || 'docs'), requirementId);
+        if (!reqDir) return json(res, { error: 'SYNC_REQUIREMENT_NOT_FOUND' }, 404);
+        await loadState(workspaceId, requirementId, reqDir);
         const sync = await getSyncById(syncId, workspaceId, requirementId);
 
         if (!sync) {
@@ -1036,9 +1092,9 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
         const url = new URL(req.url, 'http://localhost');
         const workspaceId = url.searchParams.get('workspaceId');
         const requirementId = url.searchParams.get('requirementId');
-        const fileName = url.searchParams.get('fileName');
+        const artifactId = url.searchParams.get('artifactId'), attemptId = url.searchParams.get('attemptId');
 
-        if (!workspaceId || !requirementId || !fileName) {
+        if (!workspaceId || !requirementId || !artifactId || !attemptId) {
           json(res, { error: 'missing parameters' }, 400);
           return;
         }
@@ -1063,12 +1119,13 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
 
           await safeDocumentPath(workspace.path, relative(workspace.path, docsRoot));
           await safeDocumentPath(docsRoot, relative(docsRoot, reqDir));
-          const filePath = await safeDocumentPath(reqDir, fileName);
-          const content = await readFile(filePath, 'utf8');
-          json(res, { content, fileName });
+          await loadState(workspaceId, requirementId, reqDir);
+          const task = await getSyncById(attemptId, workspaceId, requirementId);
+          if (!task) return json(res, { error: 'SYNC_ATTEMPT_NOT_FOUND' }, 404);
+          json(res, storage.readArtifact(task, artifactId));
         } catch (e) {
           log.sync.error(`Failed to read sync file: ${e.message}`);
-          json(res, { error: e.message }, e.status || 500);
+          json(res, { error: e.message }, e.statusCode || e.status || 500);
         }
       }
     },
@@ -1121,7 +1178,8 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
       }
     }
   ];
-  routes.dispose = async () => {
+  let disposal;
+  routes.dispose = () => disposal ||= (async () => {
     closed = true;
     clearInterval(watchdog);
     const owner = syncSupervisor.owner?.scope === ownerScope ? syncSupervisor.owner : null;
@@ -1132,8 +1190,8 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
     }
     const grace = setTimeout(() => { if (owner) void syncSupervisor.expire(owner, 'SYNC_SHUTDOWN_TIMEOUT: 插件退出时同步未能正常收尾，已回收').catch(error => log.sync.error(error.message)); }, syncSupervisor.limits.cancelling);
     const stoppingLibrary = library.close();
-    try { await Promise.allSettled([...pendingSyncs, ...pendingRequests, stoppingLibrary]); } finally { clearTimeout(grace); if (!options.codexService) await codex.close(); await library.store.close(); }
-  };
+    try { await Promise.allSettled([...pendingSyncs, ...pendingRequests, stoppingLibrary]); } finally { clearTimeout(grace); if (!options.codexService) await codex.close(); await library.store.close(); storageLease.release(); }
+  })();
   for (const route of routes) {
     const handler = route.handler;
     route.handler = (req, res) => {

@@ -35,8 +35,9 @@ function updateSyncTask(task, event, now = Date.now()) {
   if (event.type === 'step') return setUnit(step, event.updates, now);
   if (event.type === 'file') {
     step.files ||= []; task.generatedFiles ||= [];
-    if (!step.files.includes(event.fileName)) step.files.push(event.fileName);
-    if (!task.generatedFiles.some(file => file.phase === event.phase && file.fileName === event.fileName)) task.generatedFiles.push({ phase: event.phase, fileName: event.fileName });
+    const artifact = typeof event.fileName === 'object' ? event.fileName : { fileName: event.fileName };
+    if (!step.files.includes(artifact.fileName)) step.files.push(artifact.fileName);
+    if (!task.generatedFiles.some(file => file.phase === event.phase && file.fileName === artifact.fileName)) task.generatedFiles.push({ phase: event.phase, ...artifact });
     return true;
   }
   if (event.type === 'chunk') {

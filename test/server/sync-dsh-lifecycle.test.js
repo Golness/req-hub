@@ -2,6 +2,30 @@ import { it, expect, vi, afterEach } from 'vitest';
 import { TaskExecutor, TaskExecutorConfig } from '../../src/server/task-executor.js';
 import { createSyncHarness } from './sync-v2-harness.js';
 afterEach(() => vi.useRealTimers());
+it('recovers the owned spawn failure from its final turn and releases the observation', async () => {
+  const h = createSyncHarness();
+  const dispose = vi.fn();
+  h.ctx.sessionQuery = { observeSession: vi.fn(async () => ({
+    events: [{ type: 'turn/end', data: { reason: { kind: 'error', error: { code: 'MODEL_UNAVAILABLE', message: 'Selected model is unavailable' } } } }],
+    [Symbol.dispose]: dispose,
+  })) };
+  const run = { id: 'failed-child', result: Promise.resolve({ stopReason: 'error', output: [] }), dispose: vi.fn(async () => {}) };
+  h.ctx.subagents.start = async () => run;
+  const executor = new TaskExecutor({ ...h, config: {} });
+  const result = await executor.executeViaSubagent({ syncV2: true, liveness: { enabled: false }, preparedPromptData: { fullPrompt: 'bounded prompt' } }, Date.now());
+  expect(result).toMatchObject({ success: false, diagnostic: 'Selected model is unavailable', errorCode: 'MODEL_UNAVAILABLE', sessionId: 'failed-child' });
+  expect(h.ctx.sessionQuery.observeSession.mock.calls[0][0]).toBe('failed-child');
+  expect(dispose).toHaveBeenCalledTimes(2); expect(run.dispose).toHaveBeenCalledOnce();
+});
+it('does not attribute an earlier failed turn to a later non-error end', async () => {
+  const h = createSyncHarness();
+  h.ctx.sessionQuery = { observeSession: async () => ({ events: [
+    { type: 'turn/end', data: { reason: { kind: 'error', error: { message: 'old failure' } } } },
+    { type: 'turn/end', data: { reason: { kind: 'blocked' } } },
+  ] }) };
+  const executor = new TaskExecutor({ ...h, config: {} });
+  expect(await executor.readSubagentFailure('owned-child')).toBeNull();
+});
 it('treats failed asynchronous session-state persistence as failure and still disposes the DSH run', async () => {
   const h = createSyncHarness();
   const run = { id: 'state-write-child', result: Promise.resolve({ stopReason: 'completed', output: [] }), dispose: vi.fn(async () => {}) };

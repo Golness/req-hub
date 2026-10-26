@@ -63,7 +63,7 @@ export class SyncLifecycle {
     }
     if (['started', 'completed', 'failed', 'skipped', 'aborted'].includes(status)) {
       const state = status === 'started' ? 'running' : status;
-      return this.step(phase, { status: state, ...(progress.error ? { error: progress.error } : {}), text: progress.error || progress.reason || ({ running: '执行中…', completed: '已完成', skipped: '无相关变更' }[state] || '执行失败') });
+      return this.step(phase, { status: state, ...(progress.concurrency !== undefined ? { concurrency: progress.concurrency } : {}), ...(progress.codeTokens !== undefined ? { totalTokens: progress.codeTokens } : {}), ...(progress.error ? { error: progress.error } : {}), text: progress.error || progress.reason || ({ running: '执行中…', completed: '已完成', skipped: '无相关变更' }[state] || '执行失败') });
     }
     if (status === 'merging_chunks') return this.step(phase, { text: '汇总分块分析…' });
   }

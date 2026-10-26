@@ -116,15 +116,15 @@ export async function publishDocument({ docPath, syncDir, fileName, original, ca
     if (current.exists !== original.exists || !current.bytes.equals(original.bytes)) throw new Error('同步期间主文档已被修改，请基于最新文档重试');
     const snapshot = join(syncDir, fileName), journal = { schemaVersion: 2, stage: 'prepared', fileName,
       docPath: resolve(docPath), originalExists: original.exists, originalHash: validation.originalHash, candidateHash: validation.candidateHash };
-    await atomicWrite(snapshot, candidateBytes);
-    await atomicWrite(join(syncDir, 'publish-journal.json'), JSON.stringify(journal, null, 2));
+    await atomicWrite(snapshot, candidateBytes, signal, assertActive);
+    await atomicWrite(join(syncDir, 'publish-journal.json'), JSON.stringify(journal, null, 2), signal, assertActive);
     signal?.throwIfAborted();
     // Recheck under the shared lock immediately before replacing the live document.
     const latest = await readDocumentVersion(docPath);
     if (latest.exists !== original.exists || !latest.bytes.equals(original.bytes)) throw new Error('PUBLISH_CONFLICT');
     await atomicWrite(docPath, candidateBytes, signal, assertActive);
     if (!(await readFile(docPath)).equals(candidateBytes)) throw new Error('PUBLISH_CONFLICT');
-    await atomicWrite(join(syncDir, 'publish-journal.json'), JSON.stringify({ ...journal, stage: 'document_written' }, null, 2));
+    await atomicWrite(join(syncDir, 'publish-journal.json'), JSON.stringify({ ...journal, stage: 'document_written' }, null, 2), signal, assertActive);
     return journal;
   });
 }

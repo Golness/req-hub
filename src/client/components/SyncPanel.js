@@ -13,10 +13,13 @@ const { HeaderBack } = require('./shared/HeaderBack.js');
 const { useState, useEffect, useRef } = React;
 const syncTaskModel = require('../../shared/sync-task.cjs');
 const { readSyncEvents } = require('../utils/syncEvents.js');
+const { syncActivityText, syncErrorText } = require('../utils/syncFeedback.js');
+const { SyncTiming } = require('./SyncTiming.js');
 const { SyncVersionCompare } = require('./shared/SyncVersionCompare.js');
 const { DeleteSyncTaskButton } = require('./shared/DeleteSyncTaskButton.js');
 const { ROUTE } = require('../constants.js');
 const { DocsViewerContext } = require('../context.js');
+const { SyncStorageUsage } = require('./SyncStorageUsage.js');
 const { FilePreview } = require('./FilePreview.js');
 const { showToast } = require('./shared/ToastContainer.js');
 const { ConversationSources } = require('./ConversationSources.js');
@@ -376,7 +379,7 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
   if (generatedFiles) {
     for (const f of generatedFiles) {
       if (!filesByPhase[f.phase]) filesByPhase[f.phase] = [];
-      filesByPhase[f.phase].push(f.fileName);
+      filesByPhase[f.phase].push(f);
     }
   }
   // Also include files from step definition
@@ -385,8 +388,8 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
       if (step.files && step.files.length > 0) {
         if (!filesByPhase[step.phase]) filesByPhase[step.phase] = [];
         for (const f of step.files) {
-          if (!filesByPhase[step.phase].includes(f)) {
-            filesByPhase[step.phase].push(f);
+          if (!filesByPhase[step.phase].some(file => file.fileName === f)) {
+            filesByPhase[step.phase].push({ fileName: f });
           }
         }
       }
@@ -429,9 +432,9 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
           h('span', { className: `rh-sync-step-arrow${isStepExpanded ? ' expanded' : ''}` }, '▾')
         ),
         // Step text (always visible)
-        step.text && h('div', {
+        (step.text || step.activity) && h('div', {
           className: css.mutedText7
-        }, step.text),
+        }, step.status === 'running' && step.activity ? syncActivityText(step.activity) : syncErrorText(step.text)),
 
         // Expanded detail section
         isStepExpanded && h('div', { className: 'rh-sync-step-detail' },
@@ -443,8 +446,8 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
                 key: fi,
                 className: 'rh-sync-step-file-link',
                 href: '#',
-                onClick: (e) => { e.preventDefault(); onViewFile && onViewFile(fileName); },
-              }, fileName)
+                onClick: (e) => { e.preventDefault(); onViewFile && fileName.artifactId && onViewFile(fileName); },
+              }, fileName.fileName)
             )
           ),
 
@@ -503,7 +506,7 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
                   // 错误信息
                   chunk.status === 'failed' && chunk.error && h('div', {
                     className: css.spacing6,
-                  }, chunk.error),
+                  }, syncErrorText(chunk.error)),
                   // 文件列表
                   chunk.files && h('div', { className: css.row10},
                     chunk.files.slice(0, 5).map((f, fi) =>
@@ -572,10 +575,6 @@ function SyncProgressView({ sync, onBack, onViewFile, workspaceId, requirementId
   const runningSteps = activeSteps.filter(s => s.status === 'running').length;
   const progress = totalSteps > 0 ? Math.round(((completedSteps + failedSteps) / totalSteps) * 100) : 0;
 
-  // Estimate remaining time (rough: 2 min per remaining step)
-  const remainingSteps = totalSteps - completedSteps - failedSteps;
-  const etaMinutes = Math.ceil(remainingSteps * 2);
-
   const handleAbort = async () => {
     setAborting(true);
     try {
@@ -642,14 +641,12 @@ function SyncProgressView({ sync, onBack, onViewFile, workspaceId, requirementId
             'aria-valuemax': 100,
           })
         ),
-        sync.status === 'running' && remainingSteps > 0 && h('div', { className: 'rh-sync-progress-eta' },
-          t("SyncPanel.message042", { value0: etaMinutes })
-        )
+        h(SyncTiming, { sync })
       )
     ),
     // Steps
     h('div', { className: css.pane},
-      sync.error && h('div', { className: 'rh-knowledge-error', role: 'alert' }, sync.error),
+      sync.error && h('div', { className: 'rh-knowledge-error', role: 'alert' }, syncErrorText(sync.error)),
       ['failed', 'aborted'].includes(sync.status) && sync.publishState === 'state_committed' && h('div', { className: 'rh-op-info' }, t("SyncPanel.message043")),
       h(SyncStepList, {
         steps: sync.steps,
@@ -721,15 +718,17 @@ function SyncHistoryView({ onBack, onSelectSync, workspaceId, requirementId }) {
   const [history, setHistory] = useState([]);
   const [historyDocType, setHistoryDocType] = useState('requirement');
   const visibleHistory = history.filter(sync => sync.docType === historyDocType);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true), [reloadKey, setReloadKey] = useState(0), [historyError, setHistoryError] = useState(null);
 
   useEffect(() => {
-    fetch(`${ROUTE}/sync-history?workspaceId=${workspaceId}&requirementId=${encodeURIComponent(requirementId)}`)
-      .then(res => res.ok ? res.json() : { history: [] })
-      .then(data => setHistory(data.history || []))
-      .catch(() => setHistory([]))
-      .finally(() => setLoading(false));
-  }, [workspaceId, requirementId]);
+    const controller = new AbortController();setLoading(true);setHistoryError(null);
+    fetch(`${ROUTE}/sync-history?workspaceId=${workspaceId}&requirementId=${encodeURIComponent(requirementId)}`, {signal:controller.signal})
+      .then(res => {if (!res.ok) throw new Error('SYNC_HISTORY_FAILED'); return res.json();})
+      .then(data => {if (!controller.signal.aborted) setHistory(data.history || []);})
+      .catch(() => {if (!controller.signal.aborted) setHistoryError(t('common.loadFailed'));})
+      .finally(() => {if (!controller.signal.aborted) setLoading(false);});
+    return () => controller.abort();
+  }, [workspaceId, requirementId, reloadKey]);
 
   return h('div', { className: css.column},
     // Header
@@ -741,6 +740,8 @@ function SyncHistoryView({ onBack, onSelectSync, workspaceId, requirementId }) {
     ),
     // List
     h('div', { className: css.pane},
+      h(SyncStorageUsage, { workspaceId, onChanged: () => setReloadKey(value => value + 1) }),
+      historyError && h('div', {role:'alert'},historyError),
       !loading && history.length > 0 && h(SyncVersionCompare, { history, workspaceId, requirementId, docType: historyDocType, onDocTypeChange: setHistoryDocType }),
       loading
         ? h('div', { className: css.mutedText10}, t("common.loading"))
@@ -764,7 +765,9 @@ function SyncHistoryView({ onBack, onSelectSync, workspaceId, requirementId }) {
                     h('span', { className: css.mutedText12},
                       new Date(sync.startedAt).toLocaleString()
                     ),
-                    h(DeleteSyncTaskButton, { task: { ...sync, workspaceId, requirementId }, onDeleted: task => setHistory(previous => previous.filter(item => item.snapshotDir !== task.snapshotDir || item.id !== task.id)) })
+                    h(React.Fragment, null,
+                      h(DeleteSyncTaskButton, { task: { ...sync, workspaceId, requirementId }, onDeleted: task => setHistory(previous => previous.filter(item => item.id !== task.id)) }),
+                      h(DeleteSyncTaskButton, { scope: 'task', task: { ...sync, workspaceId, requirementId }, onDeleted: task => setHistory(previous => previous.filter(item => item.taskId !== task.taskId)) }))
                   ),
                   h('div', { className: css.row19},
                     h('span', null, (() => {
@@ -803,14 +806,15 @@ function SyncDetailView({ sync, onBack, workspaceId, requirementPath }) {
       h('div', { className: css.section2},
         h('div', { className: css.row16},
           h(HeaderBack, { onBack: () => setViewingFile(null), label: t("common.back") }),
-          h('span', { className: css.row20 }, ' ', viewingFile.split('/').pop())
+          h('span', { className: css.row20 }, ' ', viewingFile.fileName)
         )
       ),
       h('div', { className: css.pane4},
         h(FilePreview, {
           workspaceId,
-          relPath: `${requirementPath}/${viewingFile}`,
-          name: viewingFile.split('/').pop(),
+          readOnly: true,
+          sourceUrl: `${ROUTE}/sync-file?${new URLSearchParams({workspaceId, requirementId: sync.requirementId, attemptId: sync.id, artifactId: viewingFile.artifactId})}`,
+          name: viewingFile.fileName,
           requirement: null,
         })
       )
@@ -970,6 +974,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
     if (setSyncing) setSyncing(true);
 
     const steps = syncTaskModel.createSyncSteps({ sessionIds: selectedSessionIds });
+    Object.assign(steps[0], { status: 'running', startedAt: Date.now(), activity: { stage: 'preparing' } });
 
     const initialSync = {
       id: `sync-${Date.now()}`,
@@ -988,6 +993,23 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
     let latestSync = initialSync, confirmedId = null;
     let terminalReceived = false;
     let taskDeleted = false;
+    let preparing = true, preparationFetching = false;
+    // Commit capture precedes the task's SSE response. Observe the existing
+    // supervisor lease until that response arrives, then let SSE own updates.
+    const preparationTimer = setInterval(async () => {
+      if (!preparing || preparationFetching || !mounted.current) return;
+      preparationFetching = true;
+      try {
+        const response = await fetch(`${ROUTE}/sync-overview`);
+        if (!response.ok) return;
+        const { active } = await response.json();
+        if (preparing && mounted.current && active?.status === 'preparing' && active.workspaceId === workspaceId && active.requirementId === selectedReq.id && active.docType === activeTab) {
+          setCurrentSync({ ...initialSync, ...active, id: initialSync.id, status: 'running' });
+        }
+      } catch { /* The POST remains authoritative for preparation failures. */ }
+      finally { preparationFetching = false; }
+    }, 1000);
+    pollRef.current = preparationTimer;
 
     try {
       // 获取当前会话 ID
@@ -1026,6 +1048,8 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
           sessionVersions: Object.fromEntries(selectedSessionIds.map(id => [id, sessionVersions()[id]])),
         }),
       });
+      preparing = false;
+      clearInterval(preparationTimer);
       if (!mounted.current) {
         if (response.body) await readSyncEvents(response.body, () => {});
         return;
@@ -1086,7 +1110,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
         setCurrentSync({ ...latestSync });
         if (event.type === 'error') {
           terminalReceived = !syncTaskModel.isSyncActive(latestSync);
-          setError(event.error);
+          setError(syncErrorText(event.error));
           if (!terminalReceived) throw new Error(event.error);
         }
         if (event.type === 'done') {
@@ -1101,7 +1125,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
       window.dispatchEvent(new Event('req-hub-sync-change'));
     } catch (error) {
       if (!mounted.current || taskDeleted) return;
-      setError(error.message || t("SyncPanel.message064"));
+      setError(syncErrorText(error.message) || t("SyncPanel.message064"));
       if (confirmedId) {
         try {
           const response = await fetch(`${ROUTE}/sync-detail?id=${confirmedId}&workspaceId=${workspaceId}&requirementId=${encodeURIComponent(selectedReq.id)}`);
@@ -1113,7 +1137,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
       } else {
         setView('select'); setCurrentSync(null); setSyncing(false);
       }
-    }
+    } finally { preparing = false; clearInterval(preparationTimer); }
 
   };
 
@@ -1137,14 +1161,15 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
             setViewingFile(null);
             setView('progress');
           }, label: t("common.back") }),
-          h('span', { className: css.row20 }, ' ', viewingFile.split('/').pop())
+          h('span', { className: css.row20 }, ' ', viewingFile.fileName)
         )
       ),
       h('div', { className: css.pane4},
         h(FilePreview, {
           workspaceId,
-          relPath: `${selectedReq.path}/${viewingFile}`,
-          name: viewingFile.split('/').pop(),
+          readOnly: true,
+          sourceUrl: `${ROUTE}/sync-file?${new URLSearchParams({workspaceId, requirementId: selectedReq.id, attemptId: currentSync.id, artifactId: viewingFile.artifactId})}`,
+          name: viewingFile.fileName,
           requirement: null,
         })
       )

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { prepareCommitSync as prepareRaw, beginCommitSync as beginRaw } from '../../src/server/sync-engine.js';
-import { completeSync, getSyncHistory, updateSyncProgress, abortSync, setAbortController, deleteAbortController } from '../../src/server/sync-state.js';
+import { completeSync, getSyncHistory, updateSyncProgress, abortSync, setAbortController, deleteAbortController, loadState } from '../../src/server/sync-state.js';
 
 const prepareCommitSync=(cwd,id,type,history=[],options={})=>prepareRaw(cwd,id,type,history,{baseBranch:'main',...options});
 const beginCommitSync=(cwd,dir,fields)=>beginRaw(cwd,dir,{baseBranch:'main',...fields});
@@ -97,13 +97,14 @@ describe('commit-based sync', () => {
   });
   it('reserves concurrently, persists commit identity and timeline, and skips after success', async () => {
     const reqDir = join(repo, 'docs', requirementId); await mkdir(reqDir, { recursive: true });
-    const fields = { workspaceId: randomUUID(), requirementId, docType: 'requirement', docTypeName: '需求文档' };
+    const fields = { workspaceId: randomUUID(), requirementId, docType: 'requirement', docTypeName: '需求文档', startedAt: Date.now() - 60000 };
     const results = await Promise.all([beginCommitSync(repo, reqDir, fields), beginCommitSync(repo, reqDir, fields)]);
     expect(results.filter(result => result.active)).toHaveLength(1);
     const task = results.find(result => !result.active).sync;
-    expect(task.id).toContain(`requirement-${second}`);
+    expect(task.startedAt).toBe(fields.startedAt);
+    expect(task.taskId).toContain(`requirement-${second}`);
     await updateSyncProgress(task.id, { status: 'completed' }); await completeSync(task.id);
-    const disk = JSON.parse(await readFile(join(reqDir, 'sync-logs', 'v2', '.sync-state.json'), 'utf8'));
+    const disk = await loadState(fields.workspaceId, requirementId, reqDir, {workspace:{id:fields.workspaceId,path:repo},docsRoot:reqDir});
     expect(disk.history[0].commitHash).toBe(second);
     expect(disk.timeline[0]).toMatchObject({ commitHash: second, status: 'completed', type: 'sync' });
     expect((await beginCommitSync(repo, reqDir, fields)).skipped).toBe(true);
@@ -118,10 +119,10 @@ describe('commit-based sync', () => {
     await completeSync(firstRun.sync.id, fields.workspaceId, requirementId, firstRun.sync.snapshotDir);
     deleteAbortController(fields.workspaceId, requirementId);
     const retry = await beginCommitSync(repo, reqDir, fields);
-    expect(retry.sync.id).toBe(firstRun.sync.id);
+    expect(retry.sync.taskId).toBe(firstRun.sync.taskId); expect(retry.sync.id).not.toBe(firstRun.sync.id);
     expect(retry.sync.snapshotDir).not.toBe(firstRun.sync.snapshotDir);
     await updateSyncProgress(retry.sync.id, { status: 'completed' }); await completeSync(retry.sync.id);
-    expect(await getSyncHistory(fields.workspaceId, requirementId)).toHaveLength(1);
+    expect(await getSyncHistory(fields.workspaceId, requirementId)).toHaveLength(2);
   });
 });
 

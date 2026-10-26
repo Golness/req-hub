@@ -1,15 +1,12 @@
 import { readFile } from 'node:fs/promises';
-import { resolve, relative, isAbsolute } from 'node:path';
+import { getSyncScope } from './sync-state.js';
 import taskModel from '../shared/sync-task.cjs';
 
 export async function readSyncSnapshot(reqDir, sync) {
   const fileName = sync.docType === 'requirement' ? 'requirement.md' : 'design.md';
-  if (sync.schemaVersion !== 2 || !sync.snapshotDir?.startsWith('v2/')) throw new Error('不支持旧版同步快照');
-  const root = resolve(reqDir, 'sync-logs', 'v2');
-  const path = resolve(reqDir, 'sync-logs', sync.snapshotDir, fileName);
-  const rel = relative(root, path);
-  if (isAbsolute(rel) || rel === '..' || rel.startsWith('../') || rel.startsWith('..\\')) throw new Error('无效的快照路径');
-  return readFile(path, 'utf8');
+  const scope = getSyncScope(sync.workspaceId, sync.requirementId);
+  if (sync.storageVersion !== 1 || !scope || scope.path !== reqDir || scope.key !== sync.scopeKey) throw new Error('SYNC_SNAPSHOT_SCOPE');
+  return readFile(scope.store.file(sync, fileName), 'utf8');
 }
 
 export async function compareSyncSnapshots(reqDir, history, id1, id2) {

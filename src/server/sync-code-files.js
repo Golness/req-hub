@@ -45,10 +45,12 @@ function decodeGitPath(path) {
 }
 
 /** Preserve layer labels and exact patches, accepting only text source-file changes. */
-export function parseSyncCodeDiff(diff) {
+export function parseSyncCodeDiff(diff, { withRanges = false } = {}) {
   const files = [];
   let layer = '';
+  let offset = 0;
   for (const section of (diff || '').split(/(?=^# (?:已提交的变更|已暂存但未提交的变更|未暂存的变更|未跟踪的新文件)$)|(?=^diff --git )/m)) {
+    const start = offset; offset += section.length;
     if (section.startsWith('# ')) { layer = section.split('\n')[0]; continue; }
     if (!section.startsWith('diff --git ') || /^(?:Binary files |GIT binary patch)/m.test(section)) continue;
     const header = section.split(/^@@/m)[0];
@@ -59,7 +61,7 @@ export function parseSyncCodeDiff(diff) {
     if (!rawPath) continue;
     const file = decodeGitPath(rawPath.replace(/\r$/, '')).replace(/^[ab]\//, '');
     if (!isSyncCodeFile(file)) continue;
-    files.push({ file, content: (layer ? layer + '\n' : '') + section.trimEnd() });
+    files.push({ file, content: (layer ? layer + '\n' : '') + section.trimEnd(), ...(withRanges ? { parts: [...(layer ? [layer + '\n'] : []), { sourceId: 'code.input', start, end: start + section.trimEnd().length }] } : {}) });
   }
   return files;
 }

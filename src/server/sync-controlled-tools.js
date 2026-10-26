@@ -62,7 +62,11 @@ export function installSyncTools(ctx) {
       const measured = meter && child?.session ? meter.measure(child.session).totalTokens : 0;
       const cost = Math.max(estimateSubagentInputTokens(JSON.stringify(surface)), measured);
       if (cost + REQUEST_RESERVE >= runtime.inputLimit) throw new Error('SYNC_REQUEST_BUDGET_EXCEEDED');
-      if (request.tools?.some(tool => !SYNC_TOOLS.includes(tool.name) && tool.name !== 'run_code')) throw new Error('SYNC_TOOL_ISOLATION_FAILED');
+      // DSH restrict() filters inherited capabilities, but deliberately retains
+      // child-local registrations. A schema is not execution authority: the
+      // provider's toolFilter and our unconditional guard enforce the boundary,
+      // including nested run_code dispatch. Do not abort a valid child merely
+      // because the Host contributes a scope-local schema.
       runtime.contextCost = cost;
       runtime.exposedSinceRequest = 0;
       runtime.maxRequestCost = Math.max(runtime.maxRequestCost || 0, cost);
@@ -72,6 +76,32 @@ export function installSyncTools(ctx) {
   disposers.push(ctx.on('session/event', (session, event) => {
     const runtime = sessions.get(session.id);
     if (runtime && !runtime.closed && ['compaction/prune', 'compaction/summary'].includes(event.type)) runtime.evidenceCompacted = true;
+    // The spawn provider returns only stopReason. Keep the owned child's actual
+    // terminal failure before the Host disposes it; never inspect other sessions.
+    if (runtime && !runtime.closed && event.type === 'turn/end' && event.data?.reason?.kind === 'error') {
+      const failure = event.data.reason.error;
+      runtime.failure = { code: failure?.code, message: failure?.message };
+    }
+  }, { global: true }));
+  // DSH's stop boundary permits same-turn steering before a one-shot settles.
+  // Repair only our published child, using tool receipts rather than its claims.
+  disposers.push(ctx.on('agent/turn-stopping', async ({ agent, signal }) => {
+    const runtime = sessions.get(agent.session.id);
+    if (!runtime || runtime.closed || runtime.evidenceCompacted || signal?.aborted || runtime.signal?.aborted || typeof agent.steer !== 'function') return;
+    runtime.assertActive?.();
+    const diagnostic = await runtime.diagnostics();
+    const missingOutputs = Object.keys(runtime.outputs).filter(id => !runtime.outputWritten.has(id));
+    if (!diagnostic.readState.remaining && !missingOutputs.length) return;
+    if ((runtime.completionReminders || 0) >= (runtime.maxCompletionReminders ?? 3)) return;
+    signal?.throwIfAborted(); runtime.signal?.throwIfAborted(); runtime.assertActive?.();
+    if (runtime.closed) return;
+    runtime.completionReminders = (runtime.completionReminders || 0) + 1;
+    runtime.onActivity?.();
+    const text = 'ReqHub tool receipts show that this task is NOT complete. Continue in this same turn; do not claim success or repeat completed reads. '
+      + JSON.stringify({ readState: diagnostic.readState, missingOutputs })
+      + '. Read readState.next.artifactId at readState.next.offset, follow subsequent readState.next until remaining=0; then write every missing output with req_hub_sync_write. Only written=true acknowledges a successful write.';
+    agent.steer(Object.freeze({ id: randomUUID(), role: 'user', source: Object.freeze({ kind: 'req-hub-sync', form: 'notice', summary: 'Incomplete sync evidence or outputs' }),
+      content: Object.freeze([Object.freeze({ type: 'text', text })]) }));
   }, { global: true }));
   const installation = {
     revoke(signal) { for (const runtime of [...runtimes.values()]) if (runtime.signal === signal) runtime.close(); },
@@ -137,6 +167,28 @@ class SyncRuntime {
     this.exposedSinceRequest += amount;
     return value;
   }
+  async requiredSizes() {
+    if (!this.requiredSizePromise) this.requiredSizePromise = (async () => {
+      const sizes = new Map();
+      for (const id of this.required) sizes.set(id, (await this.store.read(id)).length);
+      return sizes;
+    })();
+    return this.requiredSizePromise;
+  }
+  readState(sizes, currentId, currentEnd) {
+    const unread = [];
+    for (const [artifactId, totalChars] of sizes) {
+      const offset = artifactId === currentId ? Math.max(this.coverage.get(artifactId) ?? -1, currentEnd) : this.coverage.get(artifactId) ?? -1;
+      if (offset < totalChars) unread.push({ artifactId, offset: Math.max(0, offset), totalChars });
+    }
+    return { remaining: unread.length, next: unread.length ? { artifactId: unread[0].artifactId, offset: unread[0].offset } : null };
+  }
+  async diagnostics() {
+    const sizes = await this.requiredSizes();
+    return { schemaVersion: 1, sessionId: this.sessionId, outputsWritten: [...this.outputWritten],
+      required: [...sizes].map(([artifactId, totalChars]) => ({ artifactId, totalChars, nextOffset: Math.max(0, this.coverage.get(artifactId) ?? 0), complete: (this.coverage.get(artifactId) ?? -1) >= totalChars })),
+      readState: this.readState(sizes), evidenceCompacted: !!this.evidenceCompacted };
+  }
   async read({ artifactId, offset = 0, limit = 8000 }) {
     if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 8000) throw new Error('READ_RANGE');
     let text;
@@ -151,7 +203,9 @@ class SyncRuntime {
     if ((!optional && offset > next) || offset > text.length) throw new Error('READ_GAP');
     const child = this.ctx.agents?.get?.(this.sessionId);
     const threshold = child?.ctx?.get?.('toolResultPruner')?.config?.thresholdChars;
-    const page = syncReadPage(artifactId, text, offset, limit, hashBytes(Buffer.from(text)), threshold);
+    const sizes = await this.requiredSizes();
+    const page = syncReadPage(artifactId, text, offset, limit, hashBytes(Buffer.from(text)), threshold,
+      value => ({ ...value, readState: this.readState(sizes, artifactId, value.nextOffset) }));
     const amount = estimateSubagentInputTokens(JSON.stringify(page)) + 128;
     if (optional && this.budget && this.optionalContextCost + amount > this.budget.optionalContextTokens) throw new Error('SYNC_OPTIONAL_CONTEXT_BUDGET_EXCEEDED');
     const result = this.charge(page);
@@ -168,14 +222,20 @@ class SyncRuntime {
   }
   async assertCoverage() {
     if (this.evidenceCompacted) throw new Error('SYNC_EVIDENCE_COMPACTED');
-    for (const id of this.required) if ((this.coverage.get(id) ?? -1) < (await this.store.read(id)).length) throw new Error('EVIDENCE_NOT_FULLY_READ: ' + id);
+    const sizes = await this.requiredSizes();
+    const state = this.readState(sizes);
+    if (state.next) throw new Error(`EVIDENCE_NOT_FULLY_READ: ${state.next.artifactId}; nextOffset=${state.next.offset}; totalChars=${sizes.get(state.next.artifactId)}; remaining=${state.remaining}. Continue req_hub_sync_read at this exact offset; no output has been written by this call.`);
+    // Coverage metadata never substitutes for checking immutable file hashes.
+    for (const id of this.required) await this.store.read(id);
   }
   async write({ outputId, content }) {
     if (!this.outputs[outputId] || typeof content !== 'string' || Buffer.byteLength(content) > OUTPUT_LIMIT || !content.trim()) throw new Error('OUTPUT_SCOPE_OR_SIZE');
     await this.assertCoverage();
+    const response = this.charge({ outputId, written: true, bytes: Buffer.byteLength(content), sha256: hashBytes(Buffer.from(content)) });
+    this.signal?.throwIfAborted(); this.assertActive?.();
     await writeFile(this.outputs[outputId], content, { encoding: 'utf8', flag: this.outputWritten.has(outputId) ? 'w' : 'wx' });
     this.outputWritten.add(outputId);
-    return this.charge({ outputId, bytes: Buffer.byteLength(content), sha256: hashBytes(Buffer.from(content)) });
+    return response;
   }
   async edit({ blockId, expectedHash, oldText, newText }, exec) {
     await this.assertCoverage();

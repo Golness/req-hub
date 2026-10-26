@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { defaultSyncBaseBranch, listSyncCommits } from '../../src/server/sync-branches.js';
 import { prepareCommitSync, beginCommitSync } from '../../src/server/sync-engine.js';
 import { updateSyncProgress, completeSync, getSyncHistory } from '../../src/server/sync-state.js';
+import { closeSyncStorages } from '../../src/server/sync-storage.js';
 import { createSyncRoutes } from '../../src/server/routes/sync-routes.js';
 let repo, base, first, middle, last;
 const requirementId = '2026-10-23-commit-picker', branch = `feature/dev/${requirementId}`;
@@ -18,11 +19,11 @@ beforeEach(async()=>{
  base=await commit('base.js','BASE','base');git('switch','-c',branch);
  first=await commit('first.js','FIRST_SELECTED','first');middle=await commit('middle.js','MIDDLE_NOT_SELECTED','middle');last=await commit('last.js','LAST_SELECTED','last');
 });
-afterEach(async()=>{vi.unstubAllEnvs();await rm(repo,{recursive:true,force:true});});
+afterEach(async()=>{closeSyncStorages();vi.unstubAllEnvs();await rm(repo,{recursive:true,force:true});});
 async function get(path) {
  const routes=createSyncRoutes({list:()=>[{id:'ws',path:repo}]});
  const req={method:'GET',url:'/req-hub/'+path},res={body:'',status:200,writeHead(status){this.status=status;},end(body){this.body+=body||'';}};
- await routes.find(r=>r.path==='/req-hub/'+path.split('?')[0]).handler(req,res);
+ try { await routes.find(r=>r.path==='/req-hub/'+path.split('?')[0]).handler(req,res); } finally { await routes.dispose(); }
  return {status:res.status,data:JSON.parse(res.body)};
 }
 

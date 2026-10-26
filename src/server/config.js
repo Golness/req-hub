@@ -25,7 +25,7 @@ function validate(value) {
   for (const key of ['workspaceId', 'developerName', 'requirementId']) string(value, key, true);
   string(value, 'docsDir');
   if (typeof value.docsDir === 'string' && (!value.docsDir.trim() || isAbsolute(value.docsDir) || win32.isAbsolute(value.docsDir) || value.docsDir.split(/[\\/]/).includes('..'))) issues.push({ message: 'docsDir must stay inside the workspace', path: ['docsDir'] });
-  for (const key of ['ai', 'sync']) if (value[key] !== undefined && (!value[key] || typeof value[key] !== 'object' || Array.isArray(value[key]))) issues.push({ message: key + ' must be an object', path: [key] });
+  for (const key of ['ai', 'sync', 'conversations']) if (value[key] !== undefined && (!value[key] || typeof value[key] !== 'object' || Array.isArray(value[key]))) issues.push({ message: key + ' must be an object', path: [key] });
   if (value.ai && typeof value.ai === 'object') {
     string(value.ai, 'selectedModel', true);
     if (value.ai.enabled !== undefined && typeof value.ai.enabled !== 'boolean') issues.push({ message: 'ai.enabled must be boolean', path: ['ai', 'enabled'] });
@@ -44,7 +44,8 @@ export const Config = Schema.object({
     syncV2: Schema.object({ prompts: Schema.dict(String).default(undefined) }).default(undefined),
     delegation: Schema.object({ provider: Schema.string(), timeout: Schema.natural().min(1), agentOptions: Schema.dict(Schema.any()).default(undefined), liveness: Schema.dict(Schema.any()).default(undefined) }).default(undefined),
   }).default(undefined),
-  sync: Schema.object({ baseBranch: Schema.string() }).default(undefined),
+  conversations: Schema.object({ retainedVersions: Schema.natural().min(1).default(3), versionRetentionDays: Schema.natural().min(1).default(7), missingRetentionDays: Schema.natural().default(30), jobRetentionDays: Schema.natural().min(1).default(7), retainedJobs: Schema.natural().min(1).default(100), graceHours: Schema.natural().default(1) }).default(undefined),
+  sync: Schema.object({ baseBranch: Schema.string(), maxAnalysisReadPages: Schema.natural().min(8).max(128).default(24), maxCompletionReminders: Schema.natural().max(5).default(3), retentionDays: Schema.natural().default(0), retainedAttempts: Schema.natural().default(0), capacityBytes: Schema.natural().default(0) }).default(undefined),
 });
 function checked(value) {
   const initial = validate(value);

@@ -24,7 +24,7 @@ it('loads the shared workspace library and previews full replies and immutable v
   expect(fetch.mock.calls.every(([url]) => String(url).includes('workspaceId=ws'))).toBe(true);
 });
 it('confirms local deletion and reports referenced-version rejection without changing the selection', async () => {
-  const onChanged = vi.fn(), fetch = vi.fn(async (url, options) => ({ ok: !String(url).endsWith('-delete'), json: async () => options ? { error: 'SESSION_VERSION_IN_USE' } : String(url).includes('-list?') ? { sessions: [entry] } : { jobs: [] } }));
+  const onChanged = vi.fn(), fetch = vi.fn(async (url, options) => ({ ok: !String(url).endsWith('-delete'), json: async () => options?.method === 'POST' ? { error: 'SESSION_VERSION_IN_USE' } : String(url).includes('-list?') ? { sessions: [entry] } : { jobs: [] } }));
   vi.stubGlobal('fetch', fetch); await render(onChanged);
   await act(async () => [...document.querySelectorAll('button')].find(button => button.textContent === '删除本地副本').click());
   expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
@@ -33,4 +33,10 @@ it('confirms local deletion and reports referenced-version rejection without cha
   expect(onChanged).not.toHaveBeenCalled();
   const body = JSON.parse(fetch.mock.calls.find(([url]) => String(url).endsWith('-delete'))[1].body);
   expect(body).toEqual({ workspaceId: 'ws', id: 'one' });
+});
+
+it('shows capacity, cleans through the shared endpoint and refreshes the list',async()=>{
+ const onChanged=vi.fn(),usage={conversations:1,versions:2,objectBytes:1048576,projectionBytes:2097152,pinnedVersions:1};
+ const fetch=vi.fn(async url=>({ok:true,json:async()=>String(url).includes('-list?')?{sessions:[entry]}:String(url).includes('-jobs?')?{jobs:[]}:String(url).includes('-storage?')?{usage}:{success:true}}));vi.stubGlobal('fetch',fetch);await render(onChanged);expect(document.body.textContent).toContain('正文 1.0 MB');
+ await act(async()=>[...document.querySelectorAll('button')].find(button=>button.textContent==='清理过期数据').click());expect(onChanged).toHaveBeenCalledOnce();const request=fetch.mock.calls.find(([url])=>url.endsWith('-cleanup'));expect(JSON.parse(request[1].body)).toEqual({workspaceId:'ws'});expect(fetch.mock.calls.filter(([url])=>url.includes('-list?'))).toHaveLength(2);
 });

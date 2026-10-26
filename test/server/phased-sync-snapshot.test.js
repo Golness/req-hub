@@ -20,6 +20,21 @@ async function run(docType, harnessOptions = {}, input = {}) {
 }
 
 describe('v2 frozen evidence and isolated candidates', () => {
+  it('reports the real child failure instead of a repeated generic sync code', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'req-hub-child-error-'));
+    const harness = createSyncHarness();
+    harness.ctx.subagents.start = async () => ({ id: 'failed-child', result: Promise.resolve({ stopReason: 'error', output: [] }), dispose: async () => {} });
+    harness.ctx.sessionQuery = { observeSession: async () => ({ events: [{ type: 'turn/end', data: { reason: { kind: 'error', error: { code: 'MODEL_UNAVAILABLE', message: 'Selected model is unavailable' } } } }] }) };
+    const engine = new PhasedSyncEngine({ ...harness, config: {}, cwd: dir });
+    try {
+      const result = await engine.sync({ docType: 'requirement', currentDoc: source, codeDiff: diff, syncDir: dir });
+      expect(result.errors).toEqual([{ phase: 'code_analysis', error: 'MODEL_UNAVAILABLE: Selected model is unavailable' }]);
+      expect(result.mergedDoc).toBeNull();
+      const receipt = JSON.parse(await readFile(join(dir, 'code-0.read-state.json'), 'utf8'));
+      expect(receipt.outputsWritten).toEqual([]);
+      expect(receipt.readState.next).toEqual({ artifactId: 'manifest.code-0', offset: 0 });
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
   it('splits required diffs losslessly and leaves full frozen source versions optional', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'req-hub-large-file-'));
     const harness = createSyncHarness({ noChange: true });
@@ -31,6 +46,7 @@ describe('v2 frozen evidence and isolated candidates', () => {
       const plan = await engine.prepareSyncChunks(options);
       expect(plan.code.length).toBeGreaterThan(1);
       expect(plan.code.every(chunk => chunk.tokens < 150000)).toBe(true);
+      expect(plan.code.every(chunk => chunk.readPages <= plan.budget.maxAnalysisReadPages)).toBe(true);
       const ranges = new Map();
       for (const chunk of plan.code) for (const id of chunk.items.flatMap(item => item.required)) {
         const part = JSON.parse(await plan.store.read(id));
@@ -54,6 +70,8 @@ describe('v2 frozen evidence and isolated candidates', () => {
       const result = await engine.sync({ ...options, preparedChunks: plan });
       expect(result.errors).toEqual([]);
       expect(result.mergedDoc).toBe(source);
+      const receipt = JSON.parse(await readFile(join(dir, 'code-0.read-state.json'), 'utf8'));
+      expect(receipt.readState.remaining).toBe(0);expect(receipt.outputsWritten.sort()).toEqual(['changes','report']);
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
   it.each(['requirement', 'design'])('updates only the requested %s text and produces reproducible diff', async docType => {
@@ -69,6 +87,7 @@ describe('v2 frozen evidence and isolated candidates', () => {
       expect(request.toolFilter.allow).toEqual(['req_hub_sync_read', 'req_hub_sync_write', 'req_hub_sync_edit']);
     }
     expect(events.some(event => event.phase === 'validate' && event.status === 'completed')).toBe(true);
+    expect(events.find(event => event.phase === 'code_analysis' && event.status === 'started').concurrency).toBe(3);
   });
   it.each(['requirement', 'design'])('creates an empty %s document with a title and replayable patch', async docType => {
     const { result, files } = await run(docType, {}, { currentDoc: '' });
@@ -80,7 +99,7 @@ describe('v2 frozen evidence and isolated candidates', () => {
   it('merges all code chunks through bounded reference-only summary stages', async () => {
     const codeDiff = [0,1].map(i => 'diff --git a/src/f'+i+'.js b/src/f'+i+'.js\n--- a/src/f'+i+'.js\n+++ b/src/f'+i+'.js\n@@ -1 +1 @@\n-old\n+'+'x'.repeat(210000)).join('\n');
     const {result,harness}=await run('requirement',{}, {codeDiff});
-    expect(result.errors).toEqual([]);expect(result.stats.codeChunks).toBe(2);
+    expect(result.errors).toEqual([]);expect(result.stats.codeChunks).toBeGreaterThanOrEqual(2);
     expect(harness.requests.some(request=>request.label.includes('analysis-merge'))).toBe(true);
     expect(result.mergedDoc).toBe(source.replace('旧规则','新规则'));
   });

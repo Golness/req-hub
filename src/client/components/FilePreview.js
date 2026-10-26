@@ -38,7 +38,7 @@ const { showToast } = require('./shared/ToastContainer.js');
  * @param {HTMLElement|null} [props.toolbarTarget] - Header container following the breadcrumb
  * @returns {JSX.Element} A file preview with header, content area, and optional TOC sidebar
  */
-function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc, onToggleToc, toolbarTarget, onSaved, onDirtyChange, active = true }) {
+function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc, onToggleToc, toolbarTarget, onSaved, onDirtyChange, active = true, sourceUrl, readOnly = false }) {
   const [text, setText] = useState('');
   const [error, setError] = useState(null);
   const [parseWarnings, setParseWarnings] = useState([]);
@@ -55,7 +55,7 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
   const isMd = /\.md$/i.test(name);
   const isJson = /\.json$/i.test(name);
   const isExtracted = /\.(pdf|docx|xlsx)$/i.test(name);
-  const isEditable = /\.(md|txt|text|json)$/i.test(name);
+  const isEditable = !readOnly && /\.(md|txt|text|json)$/i.test(name);
   useEffect(() => { onDirtyChange?.(editContent !== text); }, [editContent, text, workspaceId, relPath]);
 
   const { loaded: mermaidLoaded } = useScript(
@@ -94,7 +94,7 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
 
   // Keyboard shortcut: Ctrl+S to save
   useEffect(() => {
-    if (!active || !isMd && !editMode) return;
+    if (!active || readOnly || !isMd && !editMode) return;
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
@@ -103,7 +103,7 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [active, isMd, editMode, editContent, workspaceId, relPath]);
+  }, [active, isMd, editMode, editContent, workspaceId, relPath, readOnly]);
 
   useEffect(() => {
     let cancelled = false;
@@ -114,7 +114,7 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
     setLastSaved(null);
     (async () => {
       try {
-        const url = `${ROUTE}/read?workspaceId=${encodeURIComponent(workspaceId)}&path=${encodeURIComponent(relPath)}`;
+        const url = sourceUrl || `${ROUTE}/read?workspaceId=${encodeURIComponent(workspaceId)}&path=${encodeURIComponent(relPath)}`;
         const res = await fetch(url);
         const data = await res.json();
         if (cancelled) return;
@@ -125,7 +125,7 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
       }
     })();
     return () => { cancelled = true; };
-  }, [workspaceId, relPath, isMd]);
+  }, [workspaceId, relPath, isMd, sourceUrl]);
 
   useEffect(() => {
     if (mermaidLoaded && window.mermaid && !mermaidInitRef.current) {
@@ -294,6 +294,7 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
               spellCheck: false,
             })
           : h(MilkdownEditor, {
+              readOnly,
               content: editContent,
               onChange: setEditContent,
               mermaid: mermaidLoaded ? window.mermaid : null,

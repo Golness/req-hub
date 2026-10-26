@@ -1,14 +1,13 @@
 /** Commit-based document sync: branch resolution, code inputs, and task reservation. */
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { randomUUID } from 'node:crypto';
 import taskModel from '../shared/sync-task.cjs';
 import { readFile, lstat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { hashBytes, decodeDocument } from './sync-artifacts.js';
 import { filterSyncCodeDiff, isSyncCodeFile, parseSyncCodeDiff } from './sync-code-files.js';
 import { parseBranchName } from './utils.js';
-import { loadState, getActiveSync, getSyncHistory, setActiveSync, getAbortController, completeSync, removeSyncTask } from './sync-state.js';
+import { loadState, getActiveSync, getSyncHistory, getSyncScope, setActiveSync, getAbortController, completeSync, removeSyncTask } from './sync-state.js';
 import { defaultSyncBaseBranch, listSyncCommits } from './sync-branches.js';
 
 const execFileAsync = promisify(execFile);
@@ -60,6 +59,7 @@ export async function findBranchByRequirement(cwd, requirementId, currentBranch)
 /** Freeze a local requirement branch tip. Git ancestry, never timestamps, orders versions. */
 export async function prepareCommitSync(cwd, requirementId, docType, history, options = {}) {
   if (!['requirement', 'design'].includes(docType)) throw new Error('不支持的文档类型');
+  await options.onProgress?.({ stage: 'commits' });
   const current = await git(cwd, 'branch', '--show-current');
   const branchName = await findBranchByRequirement(cwd, requirementId, current);
   const commitHash = await git(cwd, 'rev-parse', '--verify', `refs/heads/${branchName}^{commit}`);
@@ -102,7 +102,8 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
     if ([...chosen].some(hash => !comparison.commits.some(commit => commit.hash === hash))) throw new Error('COMMIT_OUT_OF_RANGE: 所选 commit 不在目标分支相对基准分支的差异中');
     commits = comparison.commits.filter(commit => chosen.has(commit.hash));
     const diffs = [];
-    for (const commit of commits) {
+    for (const [index, commit] of commits.entries()) {
+      await options.onProgress?.({ stage: 'commits', current: index, total: commits.length });
       const parent = commit.parent;
       const diff = filterSyncCodeDiff(parent
         ? await git(cwd, 'diff', '--no-renames', '--no-textconv', '--no-ext-diff', parent, commit.hash, '--')
@@ -129,7 +130,9 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
   ].filter(Boolean).join('\n\n');
   const sourceSnapshots = [];
   const casePaths = new Map();
-  for (const file of new Set(parseSyncCodeDiff(codeDiff).map(item => item.file))) {
+  const files = [...new Set(parseSyncCodeDiff(codeDiff).map(item => item.file))];
+  for (const file of files) {
+    await options.onProgress?.({ stage: 'sources', current: sourceSnapshots.length, total: files.length });
     const lower = file.toLowerCase();
     if (casePaths.has(lower) && casePaths.get(lower) !== file) throw new Error('SOURCE_CASE_COLLISION');
     casePaths.set(lower, file);
@@ -163,6 +166,7 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
     }
     sourceSnapshots.push({ file, base, target, final });
   }
+  await options.onProgress?.({ stage: 'checking' });
   if ((await git(cwd, 'rev-parse', branchName)) !== commitHash || (await git(cwd, 'ls-files', '--stage', '-z')) !== indexBefore) throw new Error('INPUT_CHANGED: Git 状态在捕获期间变化');
   if (JSON.stringify(await readWorkingChanges(cwd)) !== JSON.stringify(uncommittedChanges)) throw new Error('INPUT_CHANGED: 工作区在捕获期间变化');
   if (selectionMode || sessionSnapshots.length) {
@@ -187,7 +191,7 @@ function abortable(promise, signal) {
   });
 }
 
-export async function beginCommitSync(cwd, reqDir, fields, { signal } = {}) {
+export async function beginCommitSync(cwd, reqDir, fields, { signal, onProgress } = {}) {
   const key = `${fields.workspaceId}:${fields.requirementId}`;
   const previous = reservations.get(key) || Promise.resolve();
   let release;
@@ -197,7 +201,7 @@ export async function beginCommitSync(cwd, reqDir, fields, { signal } = {}) {
   try {
     await abortable(previous, signal);
     signal?.throwIfAborted();
-    await loadState(fields.workspaceId, fields.requirementId, reqDir);
+    await loadState(fields.workspaceId, fields.requirementId, reqDir, { workspace: fields.workspace || { id: fields.workspaceId, path: cwd }, docsRoot: fields.docsRoot || reqDir, store: getSyncScope(fields.workspaceId, fields.requirementId)?.store });
     if (getAbortController(fields.workspaceId, fields.requirementId)?.controller.signal.aborted) {
       throw new Error('上一个同步任务正在终止，请稍后重试');
     }
@@ -205,15 +209,15 @@ export async function beginCommitSync(cwd, reqDir, fields, { signal } = {}) {
     if (taskModel.isSyncActive(active)) return { active: true, sync: active };
     if (active) await completeSync(active.id, fields.workspaceId, fields.requirementId);
     const prepared = await abortable(prepareCommitSync(cwd, fields.requirementId, fields.docType,
-      await getSyncHistory(fields.workspaceId, fields.requirementId), { baseBranch: fields.baseBranch, commitHashes: fields.commitHashes, branchTip: fields.branchTip, baseCommit: fields.baseCommit, includeWorkingChanges: fields.includeWorkingChanges, sessionSnapshots: fields.sessionSnapshots }), signal);
+      await getSyncHistory(fields.workspaceId, fields.requirementId), { baseBranch: fields.baseBranch, commitHashes: fields.commitHashes, branchTip: fields.branchTip, baseCommit: fields.baseCommit, includeWorkingChanges: fields.includeWorkingChanges, sessionSnapshots: fields.sessionSnapshots, onProgress }), signal);
     if (prepared.skipped) return prepared;
     const id = `${fields.docType}-${prepared.commitHash}-${hashBytes(Buffer.from(prepared.branchName)).slice(0, 12)}${prepared.selectionKey ? '-' + prepared.selectionKey.slice(0, 16) : ''}`;
-    const sync = { ...fields, schemaVersion: 2, id, commitHash: prepared.commitHash, branchName: prepared.branchName,
+    const sync = { ...fields, schemaVersion: 2, taskId: id, commitHash: prepared.commitHash, branchName: prepared.branchName,
       hasUncommitted: prepared.uncommittedChanges.hasChanges,
       selectionMode: prepared.selectionMode, selectionKey: prepared.selectionKey,
       selectedCommitHashes: prepared.selectionMode ? prepared.commits.map(commit => commit.hash) : undefined,
-      baselineCommit: prepared.baselineCommit, snapshotDir: `v2/${id}/${randomUUID()}`,
-      startedAt: Date.now(), status: 'running' };
+      baselineCommit: prepared.baselineCommit,
+      startedAt: fields.startedAt ?? Date.now(), status: 'running' };
     signal?.throwIfAborted(); created = sync;
     await setActiveSync(sync, reqDir);
     signal?.throwIfAborted();

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import model from '../../src/shared/sync-task.cjs';
 import { SyncLifecycle } from '../../src/server/sync-lifecycle.js';
-import { setActiveSync, getActiveSync, getSyncHistory, updateSyncProgress, abortSync, setAbortController, deleteAbortController, removeSyncTask } from '../../src/server/sync-state.js';
+import { setActiveSync, getActiveSync, getSyncHistory, updateSyncProgress, abortSync, setAbortController, deleteAbortController, removeSyncTask, getSyncScope } from '../../src/server/sync-state.js';
 
 const task = options => ({ id: randomUUID(), workspaceId: randomUUID(), requirementId: 'req', status: 'running', startedAt: 1, steps: model.createSyncSteps(options), generatedFiles: [] });
 const openUnits = task => task.steps.flatMap(step => [step, ...(step.chunks || [])]).filter(unit => ['pending', 'queued', 'running'].includes(unit.status));
@@ -18,7 +18,7 @@ describe('one sync lifecycle for tasks, phases and chunks', () => {
       const current={...old,removed:false,status:'running',snapshotDir:'v2/retry',steps:model.createSyncSteps()};
       await setActiveSync(current,root);
       await lifecycle.step('init',{status:'running'});await lifecycle.finish({status:'failed',error:'late failure'});
-      expect(events).toHaveLength(0);expect((await getActiveSync(old.workspaceId,old.requirementId)).snapshotDir).toBe('v2/retry');
+      expect(events).toHaveLength(0);expect((await getActiveSync(old.workspaceId,old.requirementId)).snapshotDir).toBe(current.snapshotDir);
       expect(await getSyncHistory(old.workspaceId,old.requirementId)).toHaveLength(0);
       await new SyncLifecycle(current).finish({status:'failed'});
     } finally {await rm(root,{recursive:true,force:true});}
@@ -27,11 +27,12 @@ describe('one sync lifecycle for tasks, phases and chunks', () => {
     const root=await mkdtemp(join(tmpdir(),'reqhub-fenced-')), old=task();old.snapshotDir='v2/old';
     try {
       await setActiveSync(old,root);const lifecycle=new SyncLifecycle(old);
+      await removeSyncTask(old);
       const current={...old,steps:model.createSyncSteps(),snapshotDir:'v2/new'};
       await setActiveSync(current,root);
       await lifecycle.step('init',{status:'completed'});await lifecycle.finish({status:'failed',error:'old timeout'});
       const active=await getActiveSync(old.workspaceId,old.requirementId);
-      expect(active.snapshotDir).toBe('v2/new');expect(active.status).toBe('running');expect(active.steps[0].status).toBe('pending');
+      expect(active.snapshotDir).toBe(current.snapshotDir);expect(active.status).toBe('running');expect(active.steps[0].status).toBe('pending');
       expect(await getSyncHistory(old.workspaceId,old.requirementId)).toHaveLength(0);
       await new SyncLifecycle(current).finish({status:'failed'});
     } finally {await rm(root,{recursive:true,force:true});}
@@ -69,9 +70,11 @@ describe('one sync lifecycle for tasks, phases and chunks', () => {
     try {
       await setActiveSync(t, root); const lifecycle = new SyncLifecycle(t, e => events.push(e));
       await lifecycle.step('code_analysis', { status: 'running', chunks: [{ index: 0, status: 'pending' }, { index: 1, status: 'pending' }] });
+      await lifecycle.progress({ phase: 'code_analysis', status: 'started', concurrency: 3, codeTokens: 24000 });
       await Promise.all([lifecycle.chunk('code_analysis', 0, { status: 'completed' }), lifecycle.chunk('code_analysis', 1, { status: 'running', sessionId: 'child' })]);
-      const disk = JSON.parse(await readFile(join(root, 'sync-logs/v2/.sync-state.json'), 'utf8'));
+      const scope = getSyncScope(t.workspaceId,t.requirementId), disk = scope.store.state(scope);
       expect(disk.activeSync.steps[1].chunks[1].sessionId).toBe('child');
+      expect(disk.activeSync.steps[1]).toMatchObject({ concurrency: 3, totalTokens: 24000 });
       await lifecycle.finish({ status: 'failed', error: 'failed chunk', phase: 'code_analysis' });
       await lifecycle.step('code_analysis', { status: 'running' });
       await updateSyncProgress(t.id, { status: 'running' }, t.workspaceId, t.requirementId);

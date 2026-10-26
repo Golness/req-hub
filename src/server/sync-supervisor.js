@@ -24,6 +24,7 @@ export class SyncSupervisor {
     if (this.owner !== owner) throw new Error('SYNC_LEASE_EXPIRED: 同步任务执行权已失效');
   }
   touch(owner) { if (this.owner === owner) owner.lastProgressAt = this.now(); }
+  preparing(owner, activity) { this.assert(owner); owner.activity = activity; this.touch(owner); }
   reason(owner = this.owner) {
     if (!owner) return null;
     const now = this.now();
@@ -76,7 +77,9 @@ export class SyncSupervisor {
   }
   snapshot() {
     const owner = this.owner;
-    return { active: owner ? structuredClone(owner.task || { ...owner.fields, notificationId: owner.notificationId, status: 'preparing', startedAt: owner.startedAt, steps: [] }) : null,
+    const steps = owner && !owner.task ? model.createSyncSteps() : [];
+    if (steps.length) Object.assign(steps[0], { status: 'running', startedAt: owner.startedAt, activity: owner.activity || { stage: 'preparing' } });
+    return { active: owner ? structuredClone(owner.task || { ...owner.fields, notificationId: owner.notificationId, status: 'preparing', startedAt: owner.startedAt, steps }) : null,
       latest: this.latest, lastProgressAt: owner?.lastProgressAt, limits: this.limits };
   }
 }

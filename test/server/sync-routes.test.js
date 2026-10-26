@@ -5,9 +5,10 @@ import { createSyncHarness } from './sync-v2-harness.js';
 import { sessionEvents } from './session-fixture.js';
 import { renderSessionDocument } from '../../src/server/session-utils.js';
 import { codexRecords, writeCodexRollout } from './codex-fixture.js';
+import { closeSyncStorages } from '../../src/server/sync-storage.js';
 import { syncSupervisor } from '../../src/server/sync-supervisor.js';
 import { Readable } from 'node:stream';
-import { setActiveSync, setAbortController } from '../../src/server/sync-state.js';
+import { getSyncScope, setActiveSync, setAbortController } from '../../src/server/sync-state.js';
 vi.mock('../../src/server/config.js',()=>({loadConfig:vi.fn().mockResolvedValue({docsDir:'docs',sync:{baseBranch:'main'}})}));
 vi.mock('../../src/server/doc-reader.js',()=>({findRequirementDir:async root=>join(root,'2026-10-20-route-test')}));
 const {createSyncRoutes:createHostSyncRoutes}=await import('../../src/server/routes/sync-routes.js');
@@ -15,6 +16,9 @@ const allocatedRoutes=new Set();
 function createSyncRoutes(...args){const routes=createHostSyncRoutes(...args);allocatedRoutes.add(routes);return routes;}
 const {getSyncHistory,getActiveSync,getAbortController,abortSync}=await import('../../src/server/sync-state.js');
 let repo,reqDir,routes,workspaceId,harness;
+function store() {return getSyncScope(workspaceId,requirementId).store;}
+function output(task,name) {return store().file(task,name);}
+function evidence(task,name) {return store().readEvidence(task,name);}
 const requirementId='2026-10-20-route-test';
 const git=(...args)=>execFileSync('git',args,{cwd:repo,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
 const source='# 标题\r\n\r\n旧规则\r\n\r\n## 无关\r\n保持  空格\r\n';
@@ -52,7 +56,7 @@ beforeEach(async()=>{
  const setup=()=>createSyncRoutes({list:()=>[{id:workspaceId,path:repo}]},{},{},{get:()=>harness.parentAgent},harness.ctx);
  routes=setup();
 });
-afterEach(async()=>{for(const owned of allocatedRoutes)await owned.dispose();allocatedRoutes.clear();vi.unstubAllEnvs();await rm(repo,{recursive:true,force:true});});
+afterEach(async()=>{for(const owned of allocatedRoutes)await owned.dispose();allocatedRoutes.clear();closeSyncStorages();vi.unstubAllEnvs();await rm(repo,{recursive:true,force:true});});
 describe('v2 sync route integration',()=>{
  it('imports Codex Markdown, previews it and analyzes mixed DSH/Codex evidence through the same frozen files',async()=>{
   const home=join(repo,'codex-home'), databasePath=join(repo,'codex-cache','codex.sqlite');
@@ -73,7 +77,7 @@ describe('v2 sync route integration',()=>{
    expect((await dispatch(options)).body).toContain('"type":"done"');
    const task=(await getSyncHistory(workspaceId,requirementId))[0];expect(task.status).toBe('completed');
    expect(task.sessionSnapshots).toHaveLength(2);
-   const markdown=await readFile(join(reqDir,'sync-logs',task.snapshotDir,'input/sessions/session-2.md'),'utf8');
+   const markdown=evidence(task,'session.document.2');
    expect(markdown).toBe(renderSessionDocument(selected.id,preview.data.turns.filter(turn=>turn.syncable)));
    expect(markdown).toContain('CODEX_INTERMEDIATE_BODY');expect(markdown).toContain('CODEX_FINAL_BODY');
    expect(markdown).not.toContain('尚未结束的输入');expect(markdown).not.toContain('SECRET');
@@ -148,7 +152,7 @@ describe('v2 sync route integration',()=>{
   expect((await getRoute('/req-hub/sync-overview')).data).toMatchObject({active:null,latest:{status:'completed'}});
  });
  it('reclaims an ownerless task and stale aborted controller before allowing a new task',async()=>{
-  const old={id:'orphan',snapshotDir:'v2/orphan',schemaVersion:2,workspaceId,requirementId,docType:'design',status:'processing',completedAt:1,steps:[{phase:'init',status:'waiting'}]};
+  const old={id:'orphan',snapshotDir:'v2/orphan',schemaVersion:2,workspaceId,requirementId,docType:'design',status:'running',completedAt:1,steps:[{phase:'init',status:'waiting'}]};
   await setActiveSync(old,reqDir);const stale=new AbortController();stale.abort();setAbortController(workspaceId,requirementId,stale,old.id);
   const overview=await getRoute('/req-hub/sync-overview');expect(overview.data.active).toBeNull();
   expect(overview.data.latest.error).toContain('OWNER_MISSING');expect(getAbortController(workspaceId,requirementId)).toBeUndefined();
@@ -167,7 +171,7 @@ describe('v2 sync route integration',()=>{
   expect(await getActiveSync(workspaceId,requirementId)).toBeNull();expect(syncSupervisor.owner).toBeNull();
   harness.ctx.subagents.start=original;
   expect((await dispatch()).body).toContain('"type":"done"');
-  const current=(await getSyncHistory(workspaceId,requirementId))[0];expect(current.id).toBe(old.id);expect(current.snapshotDir).not.toBe(oldAttempt);expect(current.status).toBe('completed');
+  const current=(await getSyncHistory(workspaceId,requirementId))[0];expect(current.taskId).toBe(old.taskId);expect(current.id).not.toBe(old.id);expect(current.snapshotDir).not.toBe(oldAttempt);expect(current.status).toBe('completed');
   releaseDispose();await new Promise(resolve=>setTimeout(resolve,10));
   expect((await getSyncHistory(workspaceId,requirementId))[0].status).toBe('completed');
   expect(await readFile(join(reqDir,'requirement.md'),'utf8')).toContain('新规则');
@@ -181,11 +185,10 @@ describe('v2 sync route integration',()=>{
   const options={sessionIds:['s'],sessionVersions:{s:selected.snapshotVersion},commitHashes:[git('rev-parse','HEAD')],includeWorkingChanges:false};
   expect((await dispatch(options)).body).toContain('"type":"done"');
   const task=(await getSyncHistory(workspaceId,requirementId))[0];expect(task.status).toBe('completed');
-  const file=join(reqDir,'sync-logs',task.snapshotDir,'input/sessions/session-1.md');
-  const persisted=await readFile(file,'utf8');expect(persisted).toBe(renderSessionDocument('s',preview.data.turns));
+  const persisted=evidence(task,'session.document.1');expect(persisted).toBe(renderSessionDocument('s',preview.data.turns));
   expect(persisted).not.toContain('SECRET');expect(persisted).toContain('INTERMEDIATE_BODY');
-  const turnDoc=await readFile(join(reqDir,'sync-logs',task.snapshotDir,'input/sessions/session-1-turn-1.md'),'utf8');expect(turnDoc).toBe(persisted);
-  expect(task.generatedFiles.some(file=>file.fileName.endsWith('input/sessions/session-1.md'))).toBe(true);
+  const turnDoc=evidence(task,'session.turn.0');expect(turnDoc).toBe(persisted);
+  expect(task.generatedFiles.some(file=>file.fileName.endsWith('sessions-session-1.md'))).toBe(true);
   expect(harness.calls.some(call=>call.name==='req_hub_sync_read'&&call.args.artifactId==='session.turn.0')).toBe(true);
   expect(harness.requests.every(request=>!JSON.stringify(request.prompt).includes('INTERMEDIATE_BODY'))).toBe(true);
   expect(JSON.parse((await dispatch(options)).body).skipped).toBe(true);
@@ -209,9 +212,17 @@ describe('v2 sync route integration',()=>{
   const response=await dispatch({docType});expect(response.body).toContain('"type":"done"');
   expect(await readFile(join(reqDir,docType+'.md'),'utf8')).toBe(source.replace('旧规则','新规则'));
   const task=(await getSyncHistory(workspaceId,requirementId))[0];expect(task).toMatchObject({schemaVersion:2,status:'completed',publishState:'state_committed'});
-  expect(task.snapshotDir).toMatch(/^v2\//);
-  expect(await readFile(join(reqDir,'sync-logs',task.snapshotDir,docType+'.md'),'utf8')).toBe(source.replace('旧规则','新规则'));
+  expect(task.snapshotDir).toMatch(/^attempts\//);
+  expect(await readFile(output(task,docType+'.md'),'utf8')).toBe(source.replace('旧规则','新规则'));
   expect(task.generatedFiles.some(file=>file.fileName.endsWith('validation.json'))).toBe(true);
+  const artifact=task.generatedFiles.find(file=>file.fileName===docType+'.md');
+  const query=new URLSearchParams({workspaceId,requirementId,attemptId:task.id,artifactId:artifact.artifactId});
+  expect((await getRoute('/req-hub/sync-file?'+query)).data.text).toBe(source.replace('旧规则','新规则'));
+  query.set('artifactId','unknown');expect((await getRoute('/req-hub/sync-file?'+query)).status).toBe(404);
+  expect((await getRoute('/req-hub/sync-file?'+new URLSearchParams({workspaceId,requirementId,fileName:'requirement.md'}))).status).toBe(400);
+  expect((await getRoute('/req-hub/sync-storage?workspaceId='+workspaceId)).data.usage.objectCount).toBeGreaterThan(0);
+  expect((await postRoute('/req-hub/sync-storage',{workspaceId})).data.success).toBe(true);
+  await expect(access(join(reqDir,'sync-logs'))).rejects.toMatchObject({code:'ENOENT'});
   const repeated=await dispatch({docType});expect(JSON.parse(repeated.body).skipped).toBe(true);
  });
  it('ignores removed index flags and finishes publication without an index step',async()=>{
@@ -237,7 +248,7 @@ describe('v2 sync route integration',()=>{
   await writeFile(join(repo,'new.ts'),'UNTRACKED');await writeFile(join(repo,'api.test.ts'),'TEST_IGNORED');
   const response=await dispatch();expect(response.body).toContain('"type":"done"');
   const task=(await getSyncHistory(workspaceId,requirementId))[0];
-  const input=await readFile(join(reqDir,'sync-logs',task.snapshotDir,'input-code.diff'),'utf8');
+  const input=evidence(task,'code.input');
   expect(input).toContain('+STAGED');expect(input).toContain('+UNSTAGED');expect(input).toContain('+UNTRACKED');expect(input).not.toContain('TEST_IGNORED');
   for(const request of harness.requests) expect(JSON.stringify(request.prompt)).not.toMatch(/STAGED|UNSTAGED|UNTRACKED/);
  });
@@ -248,9 +259,9 @@ describe('v2 sync route integration',()=>{
   const response=await dispatch({baseBranch:'main',commitHashes:[chosen],branchTip:tip,baseCommit:base,includeWorkingChanges:false});
   expect(response.body).toContain('"type":"done"');
   const task=(await getSyncHistory(workspaceId,requirementId))[0];expect(task.selectedCommitHashes).toEqual([chosen]);
-  const input=await readFile(join(reqDir,'sync-logs',task.snapshotDir,'input-code.diff'),'utf8');
+  const input=evidence(task,'code.input');
   expect(input).toContain('+changed');expect(input).not.toContain('UNSELECTED_SENTINEL');
-  const manifest=JSON.parse(await readFile(join(reqDir,'sync-logs',task.snapshotDir,'input/manifest.json'),'utf8'));
+  const manifest=JSON.parse(await readFile(output(task,'manifest.json'),'utf8'));
   expect(manifest.artifacts.some(a=>a.id==='code.0.selected-commits')).toBe(true);
   expect(await readFile(join(reqDir,'requirement.md'),'utf8')).toContain('新规则');
  });
@@ -271,7 +282,7 @@ describe('v2 sync route integration',()=>{
   await mkdir(join(reqDir,'sync-logs'),{recursive:true});
   await writeFile(join(reqDir,'sync-logs','.sync-state.json'),'{invalid legacy state');
   const response=await dispatch();expect(response.body).toContain('"type":"done"');
-  expect(await readFile(join(reqDir,'sync-logs','.sync-state.json'),'utf8')).toBe('{invalid legacy state');
+  await expect(access(join(reqDir,'sync-logs'))).rejects.toMatchObject({code:'ENOENT'});
  });
  it('rejects unsupported provider isolation in the first step before spawning',async()=>{
   harness.ctx.subagents.getProvider=()=>({capabilities:{toolFilter:false}});

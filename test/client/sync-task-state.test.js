@@ -48,6 +48,26 @@ it('renders a server failure as a terminal task even when the error is the final
   expect(container.textContent).toContain('同步失败'); expect(container.textContent).toContain('fixture failure');
   expect(container.textContent).not.toContain('同步进行中'); expect(button('终止同步任务')).toBeUndefined();
 });
+it('shows preparation before the POST responds, follows real file counts and then hands over to SSE', async () => {
+  const original = fetch.getMockImplementation();
+  let release;
+  fetch.mockImplementation(async (url, options) => {
+    if (url.includes('/phased-sync')) return new Promise(resolve => { release = resolve; });
+    if (url.includes('/sync-overview')) return json({ active: { ...task(), status: 'preparing', steps: [{ phase: 'init', label: '同步检查', status: 'running', activity: { stage: 'sources', current: 12, total: 40 } }] } });
+    return original(url, options);
+  });
+  await start();
+  expect(container.textContent).toContain('正在准备同步并检查输入');
+  await act(async () => new Promise(resolve => setTimeout(resolve, 1100)));
+  expect(container.textContent).toContain('正在冻结代码文件… (12/40)');
+  events = [{ type: 'error', error: detail.error, sync: detail }];
+  await act(async () => release(await original('/phased-sync', { method: 'POST' })));
+  expect(container.textContent).toContain('同步失败');
+  expect(container.textContent).not.toContain('正在冻结代码文件');
+  const observations = fetch.mock.calls.filter(([url]) => url.includes('/sync-overview')).length;
+  await act(async () => new Promise(resolve => setTimeout(resolve, 1100)));
+  expect(fetch.mock.calls.filter(([url]) => url.includes('/sync-overview'))).toHaveLength(observations);
+});
 it('recovers authoritative failure state after a stream disconnect instead of leaving the task running', async () => {
   events = [{ type: 'sync_started', syncId: 'real-task' }, { type: 'state', sync: task() }];
   await start(); expect(container.textContent).toContain('同步失败'); expect(button('终止同步任务')).toBeUndefined();

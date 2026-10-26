@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { apply } from '../../src/server/index.js';
 import { KnowledgeService } from '../../src/server/knowledge/build-service.js';
 import { createOperations } from '../../src/server/operations.js';
+import { setActiveSync, getSyncScope, removeSyncTask, loadState } from '../../src/server/sync-state.js';
 import { saveConfig } from '../../src/server/config.js';
 
 let root, close;
@@ -51,19 +52,25 @@ it('guards real sync-file and write routes while preserving normal file operatio
   await writeFile(join(root, 'outside/secret.md'), 'secret'); await writeFile(join(root, 'docs', relative, 'result.md'), 'result');
   await symlink(join(root, 'outside'), join(root, 'docs/linked'), process.platform === 'win32' ? 'junction' : 'dir');
   const operations = createOperations([...routes.values()]);
-  expect((await operations.execute({ action: 'sync-file', query: { workspaceId: 'ws', requirementId: requirement, fileName: 'result.md' } }, {})).value.content).toBe('result');
-  expect((await operations.execute({ action: 'sync-file', query: { workspaceId: 'ws', requirementId: requirement, fileName: '../../../outside/secret.md' } }, {})).status).toBe(403);
+  await operations.execute({action:'sync-file',query:{}},{});
+  await loadState('ws',requirement,join(root,'docs',relative),{workspace:{id:'ws',path:root},docsRoot:join(root,'docs')});
+  const task={workspaceId:'ws',requirementId:requirement,status:'running'};await setActiveSync(task,join(root,'docs',relative));
+  const storage=getSyncScope('ws',requirement).store;storage.putEvidence(task,'preview','result');const artifact=storage.artifact(task,'result.md',{logicalId:'preview'});
+  const query={workspaceId:'ws',requirementId:requirement,attemptId:task.id,artifactId:artifact.artifactId};
+  expect((await operations.execute({action:'sync-file',query},{})).value.content).toBe('result');
+  expect((await operations.execute({ action: 'sync-file', query: { workspaceId: 'ws', requirementId: requirement, fileName: '../../../outside/secret.md' } }, {})).status).toBe(400);
   expect((await operations.execute({ action: 'write', method: 'POST', body: { workspaceId: 'ws', path: 'linked/secret.md', content: 'overwritten' } }, {})).status).toBe(403);
   expect(await readFile(join(root, 'outside/secret.md'), 'utf8')).toBe('secret');
   expect((await operations.execute({ action: 'write', method: 'POST', body: { workspaceId: 'ws', path: relative + '/result.md', content: 'edited' } }, {})).status).toBe(200);
   expect(await readFile(join(root, 'docs', relative, 'result.md'), 'utf8')).toBe('edited');
+  await removeSyncTask(task);
   const outside = await mkdtemp(join(tmpdir(), 'rh-outside-docs-'));
   try {
     await mkdir(join(outside, relative), { recursive: true });
     await writeFile(join(outside, relative, 'result.md'), 'outside workspace');
     await symlink(outside, join(root, 'external-docs'), process.platform === 'win32' ? 'junction' : 'dir');
     await saveConfig({ docsDir: 'external-docs' });
-    expect((await operations.execute({ action: 'sync-file', query: { workspaceId: 'ws', requirementId: requirement, fileName: 'result.md' } }, {})).status).toBe(403);
+    expect((await operations.execute({ action: 'sync-file', query: { workspaceId: 'ws', requirementId: requirement, ...query } }, {})).status).toBe(403);
   } finally {
     // Remove the junction before its separately owned temporary target.
     await rm(join(root, 'external-docs'), { recursive: true, force: true });

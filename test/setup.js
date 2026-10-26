@@ -3,7 +3,15 @@
  * 提供 DSH 服务的 mock 和通用工具
  */
 
-import { vi } from 'vitest';
+import { vi, afterAll } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { closeSyncStorages } from '../src/server/sync-storage.js';
+const syncTestHome = mkdtempSync(join(tmpdir(), 'reqhub-storage-tests-'));
+const previousHome = process.env.DSH_HOME;
+process.env.DSH_HOME = syncTestHome;
+afterAll(() => { closeSyncStorages(); if (previousHome === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = previousHome; rmSync(syncTestHome, { recursive: true, force: true }); });
 import Module, { createRequire } from 'node:module';
 
 // CSS Modules retain class identities in source-plane DOM tests.

@@ -40,9 +40,10 @@ it('isolates runtime tools to the child session and denies calls after close', a
   expect(() => search.execute({ scopeId: 'a', query: '订单' }, { agent: { session: { id: 'parent' } } })).toThrow('DENIED');
   async function* next() { yield 'ok'; }
   bindOwnedSession(runtime, 'child');
-  for await (const _ of hook({ sessionId: 'child', messages: [{ content: `REQHUB_WRITING=${runtime.id}` }], tools: [] }, next)) {}
+  for await (const _ of hook({ sessionId: 'child', messages: [{ content: `REQHUB_WRITING=${runtime.id}` }], tools: [{ name: 'child_session_helper' }] }, next)) {}
   expect(search.execute({ scopeId: 'a', query: '订单' }, { agent: { session: { id: 'child' } } })[0].id).toBe('one');
   expect(guard({ name: 'shell', agent: { session: { id: 'child' } } })).toContain('仅允许');
+  expect(guard({ name: 'child_session_helper', parent: Symbol('run_code'), agent: { session: { id: 'child' } } })).toContain('仅允许');
   installation.close(runtime);
   expect(() => search.execute({ scopeId: 'a', query: '订单' }, { agent: { session: { id: 'child' } } })).toThrow('DENIED');
   installation.dispose();

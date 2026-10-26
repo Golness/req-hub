@@ -172,3 +172,15 @@ it('opens an empty Markdown file for editing and saves raw Markdown through the 
     workspaceId: 'ws', path: 'empty.md', content: markdown,
   });
 });
+
+it('previews an artifact by ID as read-only and never saves it through the document write API', async () => {
+ const fetchMock=vi.fn(async()=>({ok:true,json:async()=>({text:'# Frozen'})}));vi.stubGlobal('fetch',fetchMock);
+ const container=document.createElement('div');document.body.appendChild(container);root=createRoot(container);
+ const sourceUrl='/req-hub/sync-file?attemptId=attempt&artifactId=opaque';
+ await act(async()=>root.render(React.createElement(FilePreview,{workspaceId:'ws',name:'requirement.md',sourceUrl,readOnly:true})));
+ await act(async()=>vi.waitFor(()=>expect(container.querySelector('.ProseMirror h1')?.textContent).toBe('Frozen')));
+ expect(fetchMock.mock.calls[0][0]).toBe(sourceUrl);expect(container.querySelector('.ProseMirror').getAttribute('contenteditable')).toBe('false');
+ expect(container.querySelector('[title="保存文件 (Ctrl+S)"]')).toBeNull();
+ await act(async()=>document.dispatchEvent(new KeyboardEvent('keydown',{key:'s',ctrlKey:true,bubbles:true})));
+ expect(fetchMock.mock.calls.some(([,options])=>options?.method==='POST')).toBe(false);
+});

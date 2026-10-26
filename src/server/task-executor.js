@@ -1045,6 +1045,8 @@ export class TaskExecutor {
       const execResult = await this.executeSubagent(run, options);
       const { result, sessionId } = execResult;
       this.signal?.throwIfAborted();
+      const failure = result.stopReason === 'error' && !result.diagnostic
+        ? options.runtime?.failure || await this.readSubagentFailure(sessionId) : null;
 
       // 提取输出
       const output = this.extractOutput(result.output);
@@ -1054,7 +1056,7 @@ export class TaskExecutor {
         stopReason: result.stopReason,
         outputLength: output.length,
         hasDiagnostic: !!result.diagnostic,
-        diagnostic: result.diagnostic,
+        diagnostic: result.diagnostic || failure?.message || result.error?.message || null,
         structured: result.structured ? Object.keys(result.structured) : null,
         rawOutputType: result.output ? (Array.isArray(result.output) ? 'array' : typeof result.output) : 'null',
         rawOutputLength: result.output ? result.output.length : 0,
@@ -1087,10 +1089,10 @@ export class TaskExecutor {
         deliverables,
         sessionId,
         stopReason: result.stopReason,
-        diagnostic: result.diagnostic,
+        diagnostic: result.diagnostic || failure?.message || result.error?.message || null,
         skillUsed: promptData.skillUsed,
         elapsed,
-        errorCode: this.getErrorCodeFromStopReason(result.stopReason),
+        errorCode: failure?.code || this.getErrorCodeFromStopReason(result.stopReason),
         warnings: this.warnings,
       });
 
@@ -1138,11 +1140,21 @@ export class TaskExecutor {
     }
   }
 
-  /**
-   * Phase 5: Dispose subagent resources.
-   * @param {Object|null} run - Subagent run instance
-   * @returns {Promise<void>}
-   */
+  /** Recover a failed owned child's final-turn diagnostic when spawn omits it. */
+  async readSubagentFailure(sessionId) {
+    if (!this.ctx.sessionQuery?.observeSession) return null;
+    let observation;
+    try {
+      observation = await this.ctx.sessionQuery.observeSession(sessionId, { signal: this.signal });
+      const end = observation.events.findLast(event => event.type === 'turn/end');
+      return end?.data?.reason?.kind === 'error' ? end.data.reason.error : null;
+    } catch (error) {
+      log.taskExecutor.warn('Subagent failure diagnostic unavailable', { sessionId, error: error.message });
+      return null;
+    } finally { observation?.[Symbol.dispose]?.(); }
+  }
+
+  /** Phase 5: await quiescent disposal before returning execution ownership. */
   async disposeRun(run, { strict = false } = {}) {
     if (!run) return;
 
@@ -1254,8 +1266,9 @@ ${userPrompt}
       return deliverables;
     }
 
+    let observation;
     try {
-      const observation = await this.ctx.sessionQuery.observeSession(sessionId);
+      observation = await this.ctx.sessionQuery.observeSession(sessionId);
       if (!observation) {
         log.taskExecutor.warn(`无法观察 session: ${sessionId}`);
         return deliverables;
@@ -1272,7 +1285,7 @@ ${userPrompt}
       }
     } catch (e) {
       log.taskExecutor.warn(`收集交付物失败: ${e.message}`);
-    }
+    } finally { observation?.[Symbol.dispose]?.(); }
 
     return deliverables;
   }

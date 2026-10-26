@@ -38,9 +38,9 @@ export async function resolveSyncBudget({ ctx, llm, parentAgent, agentOptions = 
 }
 
 /** Limit the serialized result, including JSON escaping, to the Host's pruning boundary. */
-export function syncReadPage(artifactId, text, offset, limit, sha256, thresholdChars = DEFAULT_RESULT_CHARS) {
+export function syncReadPage(artifactId, text, offset, limit, sha256, thresholdChars = DEFAULT_RESULT_CHARS, decorate = value => value) {
   const cap = Math.min(DEFAULT_RESULT_CHARS, thresholdChars) - 128;
-  const result = end => ({ artifactId, offset, nextOffset: end, eof: end === text.length, sha256, text: text.slice(offset, end) });
+  const result = end => decorate({ artifactId, offset, nextOffset: end, eof: end === text.length, sha256, text: text.slice(offset, end) });
   let low = offset, high = Math.min(text.length, offset + limit), end = offset;
   if (Array.from(JSON.stringify(result(high))).length <= cap) { end = high; low = high + 1; }
   while (low <= high) {
@@ -53,14 +53,17 @@ export function syncReadPage(artifactId, text, offset, limit, sha256, thresholdC
   return result(end);
 }
 
-export function estimateArtifactReadTokens(id, text) {
-  let offset = 0, total = 0;
+export function estimateArtifactReadCost(id, text) {
+  let offset = 0, total = 0, pages = 0;
   do {
-    const page = syncReadPage(id, text, offset, 8000, '0'.repeat(64));
+    const page = syncReadPage(id, text, offset, 8000, '0'.repeat(64), DEFAULT_RESULT_CHARS,
+      value => ({ ...value, readState: { remaining: 999999, next: { artifactId: id, offset: text.length } } }));
     // Includes the result and the assistant's tool call/arguments on every page.
     total += estimateSubagentInputTokens(JSON.stringify(page)) + 384;
+    pages++;
     offset = page.nextOffset;
     if (page.eof) break;
   } while (true);
-  return total;
+  return { tokens: total, pages };
 }
+export function estimateArtifactReadTokens(id, text) { return estimateArtifactReadCost(id, text).tokens; }

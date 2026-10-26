@@ -77,7 +77,7 @@ it('removes a running task from the footer silently and immediately enables star
  await render();await click([...container.querySelectorAll('.rh-rail-btn')].find(button=>button.textContent==='同步'));
  const start=()=>[...container.querySelectorAll('button')].find(button=>button.textContent==='同步需求文档');
  expect(start().disabled).toBe(true);
- await click(container.querySelector('.rh-statusbar [aria-label="删除同步任务"]'));
+ await click(container.querySelector('.rh-statusbar [aria-label="删除本次执行"]'));
  expect(container.querySelector('.rh-sync-status')).toBeNull();expect(start().disabled).toBe(false);
  expect(confirm).not.toHaveBeenCalled();expect(alert).not.toHaveBeenCalled();expect(container.querySelector('.rh-toast')).toBeNull();
 });

@@ -9,7 +9,7 @@ export function createConversationKnowledgeRoutes(registry, library, adapters, k
   const available = async () => {
     await library.ready();
     const db = await library.store.database(), ids = new Set();
-    for (const row of db.prepare('SELECT scope FROM bindings WHERE owner=? UNION SELECT scope FROM jobs WHERE json_extract(payload,\'$.owner\')=?').all(library.owner, library.owner)) ids.add(row.scope);
+    for (const row of db.prepare('SELECT scope FROM scope_access WHERE owner=?').all(library.owner)) ids.add(row.scope);
     const result = [];
     for (const id of ids) {
       const scope = db.prepare('SELECT * FROM scopes WHERE id=?').get(id);

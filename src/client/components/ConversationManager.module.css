@@ -11,3 +11,5 @@
 .transcript { font-family: inherit; font-size: 13px; line-height: 20px; white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; margin: 0; }
 .job { font-size: 12px; line-height: 18px; display: flex; align-items: center; gap: 8px; }
 @media (max-width: 600px) { .content { flex-direction: column; } .list { max-height: 200px; flex: none; } .preview { min-height: 120px; } }
+
+.storage { display:flex; flex-wrap:wrap; align-items:center; gap:8px; color:var(--dsw-alias-label-secondary); font-size:12px; line-height:18px; }

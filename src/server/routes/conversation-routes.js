@@ -2,10 +2,10 @@ import { json, readBody } from '../utils.js';
 import { conversationError } from '../conversations/store.js';
 
 export function createConversationRoutes(registry, library, adapters) {
-  return ['list', 'detail', 'delete', 'cancel', 'refresh', 'jobs'].map(action => ({
+  return ['list', 'detail', 'delete', 'cancel', 'refresh', 'jobs', 'storage', 'cleanup'].map(action => ({
     kind: 'exact', path: '/req-hub/conversations-' + action,
     async handler(req, res) {
-      if (req.method !== (['list', 'detail', 'jobs'].includes(action) ? 'GET' : 'POST')) return json(res, { error: 'METHOD_NOT_ALLOWED' }, 405);
+      if (req.method !== (['list', 'detail', 'jobs', 'storage'].includes(action) ? 'GET' : 'POST')) return json(res, { error: 'METHOD_NOT_ALLOWED' }, 405);
       let streaming = false;
       const send = event => { if (!res.destroyed && !res.writableEnded) res.write(JSON.stringify(event) + '\n'); };
       try {
@@ -23,8 +23,9 @@ export function createConversationRoutes(registry, library, adapters) {
           }
           return json(res, await library.refresh(input.workspaceId, input.source === 'dsh' ? input.workspaceId : input.projectId, adapter));
         }
+        if (action === 'storage' || action === 'cleanup') return json(res, {success:true,...await library.storage(input.workspaceId,adapters,action === 'cleanup')});
         const rows = await library.accessible(input.workspaceId, adapters);
-        if (action === 'list') return json(res, { sessions: rows });
+        if (action === 'list') {await library.storage(input.workspaceId,adapters,true);return json(res, { sessions:await library.accessible(input.workspaceId,adapters) });}
         if (action === 'jobs') {
           const scopes = new Set(rows.map(row => row.scopeId));
           for (const adapter of adapters) { const bound = await library.store.binding(library.owner, input.workspaceId, adapter.source); if (bound && bound.instance === adapter.instance) scopes.add(bound.id); }
