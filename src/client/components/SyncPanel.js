@@ -35,7 +35,7 @@ function ActiveSyncSummary({ task, onOpen, label }) {
   const current = steps.find(step => ['running', 'queued'].includes(step.status));
   const completed = steps.filter(step => step.status === 'completed').length;
   const total = steps.filter(step => step.status !== 'skipped').length;
-  const type = task.docType === 'design' ? t('DocumentDropdown.message005') : t('DocsViewerBody.message073');
+  const type = task.docType === 'design' ? t('documents.design') : t('DocsViewerBody.message073');
   const status = task.status === 'cancelling' ? t('SyncStatusBar.message001') : t('SyncStatusBar.message002');
   return h('section', { className: css.activeSummary, 'aria-label': t('sync.summary.label') },
     h('div', { className: css.activeSummaryText },
@@ -155,14 +155,14 @@ function SyncPanel({ workspaceId, selectedReq, onClose, focusedSync }) {
     });
   }
 
-  // Main view - Aligned with AnalyzePanel style
+  // Main sync view
   return h('div', { className: 'rh-op-panel' },
-    // Requirement card (same as AnalyzePanel)
+    // Current requirement summary
     selectedReq && h('div', { className: 'rh-req-card' },
       h('div', { className: 'rh-req-card-title' }, selectedReq.title),
-      h('div', { className: 'rh-req-card-row' }, t("AnalyzePanel.message014"), selectedReq.developer),
-      h('div', { className: 'rh-req-card-row' }, t("AnalyzePanel.message015"), selectedReq.date),
-      h('div', { className: 'rh-req-card-row' }, t("AnalyzePanel.message016"), selectedReq.fileCount)
+      h('div', { className: 'rh-req-card-row' }, t("requirement.developerLabel"), selectedReq.developer),
+      h('div', { className: 'rh-req-card-row' }, t("requirement.dateLabel"), selectedReq.date),
+      h('div', { className: 'rh-req-card-row' }, t("requirement.documentCountLabel"), selectedReq.fileCount)
     ),
 
     resumable && h(ActiveSyncSummary, {task: resumable, onOpen: () => {setSelectedHistorySync(resumable);setView('detail');}}),
@@ -213,14 +213,14 @@ function SessionTurnsView({ workspaceId, sessionId, sessionTitle, snapshotVersio
         if (data.success) {
           setTurnsData(data);
         } else {
-          setError(data.error || t("AnalyzePanel.message001"));
+          setError(data.error || t("sync.loadFailed"));
         }
       } else {
-        setError(data.error || t("AnalyzePanel.message001"));
+        setError(data.error || t("sync.loadFailed"));
       }
     } catch (e) {
       console.error('Failed to load session turns:', e);
-      setError(e.message || t("AnalyzePanel.message001"));
+      setError(e.message || t("sync.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -644,7 +644,7 @@ function SyncProgressView({ sync, onBack, onViewFile, workspaceId, requirementId
         h(DeleteSyncTaskButton, { task: { ...sync, workspaceId, requirementId }, onDeleted: onBack }),
       ),
       h('div', { className: css.row15},
-        h('span', null, t("AnalyzePanel.message006"), sync.docTypeName),
+        h('span', null, t("sync.documentTypeLabel"), sync.docTypeName),
         h('span', null, t("SyncPanel.message038"), new Date(sync.startedAt).toLocaleString()),
         sync.completedAt && h('span', null, t("SyncPanel.message039"), new Date(sync.completedAt).toLocaleString()),
         sync.abortedAt && h('span', null, t("SyncPanel.message040"), new Date(sync.abortedAt).toLocaleString()),
@@ -775,7 +775,7 @@ function SyncHistoryView({ onBack, onSelectSync, workspaceId, requirementId }) {
       loading
         ? h('div', { className: css.mutedText10}, t("common.loading"))
         : visibleHistory.length === 0
-          ? h('div', { role: 'status', className: css.mutedText11}, t("SyncPanel.message050", { value0: historyDocType === 'design' ? t("DocumentDropdown.message005") : t("DocsViewerBody.message073") }))
+          ? h('div', { role: 'status', className: css.mutedText11}, t("SyncPanel.message050", { value0: historyDocType === 'design' ? t("documents.design") : t("DocsViewerBody.message073") }))
           : h('div', { className: css.column5},
               visibleHistory.map(sync =>
                 h('div', {
@@ -940,7 +940,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
   const [commitRevision, setCommitRevision] = useState(0);
   const [includeWorkingChanges, setIncludeWorkingChanges] = useState(true);
 
-  const docTypeName = activeTab === 'requirement' ? t("DocsViewerBody.message073") : t("DocumentDropdown.message005");
+  const docTypeName = activeTab === 'requirement' ? t("DocsViewerBody.message073") : t("documents.design");
 
   // Reattach to both preparation and a persisted execution.
   useEffect(() => {

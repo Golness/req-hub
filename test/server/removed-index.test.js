@@ -13,7 +13,7 @@ it('keeps document routes without exposing legacy index maintenance or field loo
   expect(paths).toContain('/req-hub/file-tree');
   expect(PROMPT_REGISTRY).not.toHaveProperty('search');
   expect(PROMPT_REGISTRY).toHaveProperty('writing');
-  expect(PROMPT_REGISTRY).toHaveProperty('analyze');
+  expect(PROMPT_REGISTRY).not.toHaveProperty('analyze');
 });
 
 it('ignores removed post-sync flags while retaining historical tasks', () => {

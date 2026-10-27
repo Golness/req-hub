@@ -110,7 +110,7 @@ function WritingPanel({ workspaceId }) {
   const locked = running || !!proposal;
   return h('div', { className: 'rh-writing-panel' },
     h('div', { className: 'rh-knowledge-toolbar' },
-      h('label', null, t("WritingPanel.message005"), h(Select, { value: docType, disabled: locked, onChange: e => { setDocType(e.target.value); setStarter(''); } }, h('option', { value: 'requirement' }, t("DocsViewerBody.message073")), h('option', { value: 'design' }, t("DocumentDropdown.message005")))),
+      h('label', null, t("WritingPanel.message005"), h(Select, { value: docType, disabled: locked, onChange: e => { setDocType(e.target.value); setStarter(''); } }, h('option', { value: 'requirement' }, t("DocsViewerBody.message073")), h('option', { value: 'design' }, t("documents.design")))),
       h('label', null, t("WritingPanel.message006"), h(Select, { value: starter, disabled: locked, onChange: e => setStarter(e.target.value) }, h('option', { value: '' }, t("WritingPanel.message007")), h('option', { value: docType }, options?.starters?.[docType]?.label || t("WritingPanel.message008")))),
       h(Button, { className: 'rh-btn rh-btn-ghost', disabled: locked || !!content.trim() || !options, onClick: () => setContent(starter ? options.starters[starter].content : '') }, t("WritingPanel.message009")),
       h(Button, { className: 'rh-btn rh-btn-ghost', disabled: !content, onClick: download }, t("WritingPanel.message010"))),

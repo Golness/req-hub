@@ -62,9 +62,6 @@ export async function readSessionSnapshot(sessionQuery, sessionId, sessions) {
     totalTokens: calculateTurnsTokens(turns) };
 }
 
-export async function extractSessionTurns(sessionQuery, sessionId, options = {}) {
-  return (await readSessionSnapshot(sessionQuery, sessionId, options.sessions)).turns;
-}
 
 export async function extractMultipleSessionTurns(sessionQuery, sessionIds, options = {}) {
   const snapshots = await Promise.all(sessionIds.map(id => options.readSnapshot ? options.readSnapshot(id) : readSessionSnapshot(sessionQuery, id, options.sessions)));

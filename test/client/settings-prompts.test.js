@@ -17,7 +17,7 @@ let failRegistry;
 let fetchMock;
 
 beforeEach(() => {
-  config = { ai: { selectedModel: 'model', prompts: {}, skillBindings: {} } };
+  config = { ai: { selectedModel: 'model', prompts: {}, skillBindings: {}, syncV2: { prompts: {}, skillBindings: {} } } };
   failSave = false;
   failRegistry = false;
   fetchMock = vi.fn(async (url, options) => {
@@ -74,8 +74,8 @@ async function edit(value) {
 
 it('groups every registered prompt by rail feature and supports keyboard tabs', async () => {
   await renderSettings();
-  expect([...document.querySelectorAll('[role="tab"]')].map(el => el.textContent)).toEqual(['同步11', '写作1']);
-  expect(document.querySelectorAll('.rh-prompt-item')).toHaveLength(11);
+  expect([...document.querySelectorAll('[role="tab"]')].map(el => el.textContent)).toEqual(['同步10', '写作1']);
+  expect(document.querySelectorAll('.rh-prompt-item')).toHaveLength(10);
   expect(document.querySelectorAll('textarea')).toHaveLength(1);
   expect(document.body.textContent).not.toContain('Prompt 结构说明');
   expect(document.querySelector('.rh-prompt-reference').open).toBe(false);
@@ -91,24 +91,24 @@ it('groups every registered prompt by rail feature and supports keyboard tabs', 
 it('retains drafts and selections across categories, inserts variables, and saves all drafts', async () => {
   await renderSettings();
   await click(tab('同步'));
-  await click(prompt('需求分析'));
-  await edit('分析草稿 {requirementId} {docsContent}');
+  await click(prompt('代码差异分析（需求文档）'));
+  await edit('分析草稿 {runtimeId} {manifestId}');
   await click(tab('写作'));
   await edit('写作草稿 {runtimeId} {docTypeName} {scopes} {instruction} {content}');
   await click(tab('同步'));
   await click(tab('写作'));
   expect(document.querySelector('textarea').value).toContain('写作草稿');
   await click(tab('同步'));
-  await click(prompt('需求分析'));
+  await click(prompt('代码差异分析（需求文档）'));
   expect(document.querySelector('textarea').value).toContain('分析草稿');
   await edit('');
   expect(document.querySelector('textarea').value).toBe('');
   await click(document.querySelector('.rh-prompt-reference summary'));
   await click(document.querySelector('.rh-prompt-variable'));
-  expect(document.querySelector('textarea').value).toBe('{requirementId}');
-  await edit('分析草稿 {requirementId} {docsContent}');
+  expect(document.querySelector('textarea').value).toBe('{runtimeId}');
+  await edit('分析草稿 {runtimeId} {manifestId}');
   await click(save());
-  expect(config.ai.prompts.analyze).toContain('分析草稿');
+  expect(config.ai.syncV2.prompts['phased-code-analysis-requirement']).toContain('分析草稿');
   expect(config.ai.prompts.writing).toContain('写作草稿');
   expect(save().disabled).toBe(true);
   expect(document.querySelector('.rh-settings-actions').textContent).toContain('已保存');
@@ -117,7 +117,7 @@ it('retains drafts and selections across categories, inserts variables, and save
 it('preserves the editor when returning from a skill preview', async () => {
   await renderSettings();
   await click(tab('同步'));
-  await click(prompt('需求分析'));
+  await click(prompt('代码差异分析（需求文档）'));
   await click(tab('写作'));
   await edit('写作草稿');
   await click(document.querySelector('.rh-prompt-skill .rh-select-trigger'));
@@ -134,13 +134,13 @@ it('preserves the editor when returning from a skill preview', async () => {
 });
 
 it('persists reset through the merging config API and retains drafts on save failure', async () => {
-  config.ai.prompts.analyze = '旧自定义内容';
-  config.ai.skillBindings.analyze = 'review';
+  config.ai.syncV2.prompts['phased-code-analysis-requirement'] = '旧自定义内容';
+  config.ai.syncV2.skillBindings['phased-code-analysis-requirement'] = 'review';
   await renderSettings();
   await click(tab('同步'));
-  await click(prompt('需求分析'));
+  await click(prompt('代码差异分析（需求文档）'));
   await click(document.querySelector('.rh-prompt-editor-heading button'));
-  expect(document.querySelector('textarea').value).toBe(PROMPT_REGISTRY.analyze.default);
+  expect(document.querySelector('textarea').value).toBe(PROMPT_REGISTRY['phased-code-analysis-requirement'].default);
   expect(document.querySelector('.rh-prompt-skill .rh-select-trigger').textContent).toBe('不绑定');
   failSave = true;
   await click(save());
@@ -148,14 +148,14 @@ it('persists reset through the merging config API and retains drafts on save fai
   expect(save().disabled).toBe(false);
   failSave = false;
   await click(save());
-  expect(config.ai.prompts.analyze).toBe('');
-  expect(config.ai.skillBindings.analyze).toBeNull();
+  expect(config.ai.syncV2.prompts['phased-code-analysis-requirement']).toBe('');
+  expect(config.ai.syncV2.skillBindings['phased-code-analysis-requirement']).toBeNull();
   await act(async () => root.unmount());
   root = null;
   await renderSettings();
   await click(tab('同步'));
-  await click(prompt('需求分析'));
-  expect(document.querySelector('textarea').value).toBe(PROMPT_REGISTRY.analyze.default);
+  await click(prompt('代码差异分析（需求文档）'));
+  expect(document.querySelector('textarea').value).toBe(PROMPT_REGISTRY['phased-code-analysis-requirement'].default);
 });
 
 it('retries prompt registry failures without losing loaded settings', async () => {

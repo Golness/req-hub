@@ -7,7 +7,7 @@ import { installSyncTools } from './sync-controlled-tools.js';
 /**
  * ReqHub — Requirement document management plugin for DeepSeek Harness.
  *
- * Provides requirement document organization, AI-powered analysis,
+ * Provides requirement document organization, knowledge-assisted writing,
  * code-to-doc synchronization, and semantic search capabilities.
  *
  * @module req-hub
@@ -15,7 +15,6 @@ import { installSyncTools } from './sync-controlled-tools.js';
 
 import { createConfigRoutes } from './routes/config-routes.js';
 import { createTreeRoutes } from './routes/tree-routes.js';
-import { createAnalyzeRoutes } from './routes/analyze-routes.js';
 import { createSyncRoutes } from './routes/sync-routes.js';
 import { createWritingRoutes } from './routes/writing-routes.js';
 import { createKnowledgeRoutes } from './routes/knowledge-routes.js';
@@ -86,7 +85,6 @@ export function apply(ctx, config = {}) {
   const syncTools = installSyncTools(ctx);
   if (syncTools) disposers.push(() => syncTools.dispose());
 
-  const analysisRoutes = createAnalyzeRoutes(workspaceRegistry, llm, sessions, agents, agentPresets, sessionQuery, ctx);
   const syncRoutes = createSyncRoutes(workspaceRegistry, llm, sessions, agents, ctx, { knowledgeService: knowledge.service });
 
   // 创建所有路由
@@ -97,9 +95,6 @@ export function apply(ctx, config = {}) {
     
     // 文档树相关
     ...createTreeRoutes(workspaceRegistry),
-    
-    // AI 分析相关（传入 ctx 用于 subagent）
-    ...analysisRoutes,
     
     // 文档同步相关（传入 agents 和 ctx 用于 subagent）
     ...syncRoutes,
@@ -494,7 +489,7 @@ export function apply(ctx, config = {}) {
 
   let closing;
   const cleanup = () => closing ||= disposeAll([
-    () => analysisRoutes.dispose(), () => syncRoutes.dispose(),
+    () => syncRoutes.dispose(),
     ...disposers.slice(1), releaseConfig,
   ]).then(() => { log.startup.info('ReqHub 插件卸载'); });
   // Cordis owns effects; returning a function from apply alone is insufficient.

@@ -18,7 +18,7 @@ function SyncStatusBar({ monitor, onOpen }) {
   return h('div', { className: 'rh-sync-status', role: 'status', 'aria-live': 'polite', 'data-status': task.status },
     h(Button, { type:'button',className:'rh-btn rh-btn-ghost rh-btn-sm rh-sync-status-link',disabled:!task.id,
       onClick:()=>{ onOpen(task); monitor.dismiss(); },title:`${task.requirementId} · ${text}${detail}` },
-      `${task.docTypeName || (task.docType === 'design' ? t("DocumentDropdown.message005") : t("DocsViewerBody.message073"))} · ${task.requirementId} · ${text}${detail}`),
+      `${task.docTypeName || (task.docType === 'design' ? t("documents.design") : t("DocsViewerBody.message073"))} · ${task.requirementId} · ${text}${detail}`),
     monitor.error && h(Button, {type:'button',className:'rh-btn rh-btn-ghost rh-btn-sm',onClick:monitor.refresh}, monitor.error + t("SyncStatusBar.message010")),
     h(DeleteSyncTaskButton, { task }),
     !active && h(Button, {type:'button',className:'rh-btn rh-btn-ghost rh-btn-sm','aria-label':t("SyncStatusBar.message011"),onClick:monitor.dismiss}, t("common.close"))

@@ -35,11 +35,3 @@ export function getCached(key) {
 export function setCached(key, data) {
   cache.set(key, { data, timestamp: Date.now() });
 }
-
-/**
- * Clear all cached entries.
- * @returns {void}
- */
-export function clearCache() {
-  cache.clear();
-}

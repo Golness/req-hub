@@ -30,7 +30,6 @@ export function createOperations(routes) {
       const sessionId = exec.agent?.session?.id;
       // The caller's actual agent owns delegation; it cannot impersonate another session.
       if (action === 'writing-optimize' && body && typeof body === 'object') body = { ...body, sessionId };
-      if (action === 'analyze-stream') params.sessionId = sessionId;
       const path = route.operationPath || route.path;
       if (path.includes(':id') && (typeof id !== 'string' || !/^[a-zA-Z0-9-]+$/.test(id))) throw new Error('INVALID_OPERATION_ID');
       const request = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))]);

@@ -39,7 +39,7 @@ function inferDocType(filename) {
   return 'other';
 }
 
-const docTypeLabels = { requirement: t("DocsViewerBody.message072"), design: t("DocumentDropdown.message005"), cr: 'CR', other: t("DocumentDropdown.message006") };
+const docTypeLabels = { requirement: t("DocsViewerBody.message072"), design: t("documents.design"), cr: 'CR', other: t("documents.document") };
 
 /**
  * @component TreeNode
@@ -118,7 +118,7 @@ function TreeNode({ node, depth, expandedDirs, toggleDir, activeFilePath, onFile
     ),
     h('span', {
       className: ('rh-doctype-tag') + ' ' + css.content,
-    }, docTypeLabels[docType] || t("DocumentDropdown.message006"))
+    }, docTypeLabels[docType] || t("documents.document"))
   );
 }
 
@@ -390,7 +390,7 @@ function FileTreeSidebar({ workspaceId, selectedReq, onSelectFile, multiSelect =
             },
               h('option', { value: 'all' }, t("FileTreeSidebar.message017")),
               h('option', { value: 'requirement' }, t("DocsViewerBody.message072")),
-              h('option', { value: 'design' }, t("DocumentDropdown.message005")),
+              h('option', { value: 'design' }, t("documents.design")),
               h('option', { value: 'cr' }, 'CR'),
               h('option', { value: 'other' }, t("FileTreeSidebar.message021"))
             )
@@ -427,7 +427,7 @@ function FileTreeSidebar({ workspaceId, selectedReq, onSelectFile, multiSelect =
         ? h('div', { className: ('rh-empty') + ' ' + css.size2 }, t("common.loading"))
         : loadError ? h('div', { className: 'rh-knowledge-error', role: 'alert' }, loadError)
         : !selectedReq
-          ? h('div', { className: ('rh-empty') + ' ' + css.size2 }, t("DocumentDropdown.message003"))
+          ? h('div', { className: ('rh-empty') + ' ' + css.size2 }, t("requirement.selectDirectory"))
           : filteredTree.length === 0
             ? h('div', { className: ('rh-empty') + ' ' + css.size2 }, t("FileTreeSidebar.message029"))
             : h('div', {
@@ -437,7 +437,7 @@ function FileTreeSidebar({ workspaceId, selectedReq, onSelectFile, multiSelect =
                 // File count header
                 h('div', {
                   className: css.mutedText3
-                }, t("DocTree.message002", { value0: countFiles(filteredTree) })),
+                }, t("files.count", { value0: countFiles(filteredTree) })),
                 filteredTree.map((node, idx) =>
                   h(TreeNode, {
                     key: node.path || idx,

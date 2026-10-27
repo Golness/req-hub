@@ -10,7 +10,6 @@ import { delegationContext, bindOwnedSession } from './delegation-context.js';
  * @module task-executor
  */
 
-import { parseAIResponse } from './ai-engine.js';
 import { getPromptAsync, buildFullPrompt, PROMPT_REGISTRY } from './prompts.js';
 import { log } from './logger.js';
 import { stat } from 'node:fs/promises';
@@ -1351,37 +1350,6 @@ export async function executeTask(ctx, llm, config, options) {
 
   return executor.execute(options);
 }
-
-/**
- * Convenience method: execute task and parse JSON result.
- * @param {Object} ctx - DSH context
- * @param {Object} llm - LLM service
- * @param {Object} config - Configuration
- * @param {Object} options - Task options
- * @returns {Promise<{success: boolean, data?: Object, error?: string, result: TaskResult}>}
- */
-export async function executeAndParse(ctx, llm, config, options) {
-  const result = await executeTask(ctx, llm, config, options);
-
-  if (result.isError) {
-    return { success: false, error: result.diagnostic || result.output, result };
-  }
-
-  const parsed = parseAIResponse(result.output);
-  return { success: true, data: parsed, result };
-}
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 /** Render the exact initial subagent payload without starting a task. */

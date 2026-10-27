@@ -222,7 +222,7 @@ export default {
   // Don't clean output directory (consistent with DSH official, avoids clearing Node output)
   clean: false,
 
-  // Disable @tsdown/css — CSS is handled by our Rolldown plugins
+  // CSS is handled by the plugin-owned Rolldown plugins
   css: false,
 
   // Dependency handling

@@ -152,7 +152,7 @@ export function createConfigRoutes(registry, llm) {
             enabled: ai.enabled !== false,
             provider: providerName,
             model: selectedModel || '(未选择)',
-            hasCustomPrompt: !!(ai.prompts?.analyze && ai.prompts.analyze.trim()),
+            hasCustomPrompt: Object.keys(PROMPT_REGISTRY).some(key => !!(key.startsWith('phased-') ? ai.syncV2?.prompts?.[key] : ai.prompts?.[key])?.trim()),
           });
         } catch (e) {
           log.config.error(`GET /ai-config 失败: ${e.message}`);
@@ -265,4 +265,3 @@ export function createConfigRoutes(registry, llm) {
     },
   ];
 }
-

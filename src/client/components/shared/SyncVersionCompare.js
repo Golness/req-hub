@@ -8,7 +8,7 @@ const { ROUTE } = require('../../constants.js');
 const { DiffViewer } = require('./DiffViewer.js');
 const { VersionSelect } = require('./VersionSelect.js');
 const { hasPublishedDocument } = require('../../../shared/sync-task.cjs');
-const DOC_TYPES = [['requirement', t("DocsViewerBody.message073")], ['design', t("DocumentDropdown.message005")]];
+const DOC_TYPES = [['requirement', t("DocsViewerBody.message073")], ['design', t("documents.design")]];
 
 function SyncVersionCompare({ history, workspaceId, requirementId, docType: selectedDocType, onDocTypeChange }) {
   const id = React.useId();

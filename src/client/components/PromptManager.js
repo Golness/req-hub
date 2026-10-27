@@ -19,7 +19,6 @@ const CATEGORIES = [
 
 function getPromptCategory(key, meta) {
   if (key.startsWith('phased-') || meta.category === 'phased-sync') return 'sync';
-  if (key === 'analyze') return 'sync';
   return CATEGORIES.some(category => category.id === meta.category) ? meta.category : 'other';
 }
 

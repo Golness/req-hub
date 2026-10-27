@@ -13,8 +13,6 @@ const MAX_DEPTH = 10;
 /** @type {number} Maximum HTTP request body size (1MB) */
 const MAX_BODY_SIZE = 1024 * 1024;
 
-/** @type {number} Maximum document content size (10MB) */
-const MAX_DOC_CONTENT = 10000000;
 
 /**
  * @typedef {Object} BranchInfo
@@ -53,26 +51,6 @@ export function parseBranchName(branch) {
   return null;
 }
 
-/**
- * Validate Git branch name for safety.
- * Supports Unicode characters (including Chinese), rejects dangerous path traversal patterns.
- * @param {string} branchName - Branch name to validate
- * @throws {Error} If branch name is invalid or contains unsafe characters
- * @returns {void}
- */
-export function validateBranchName(branchName) {
-  if (!branchName || branchName.trim().length === 0) {
-    throw new Error('Invalid branch name');
-  }
-  // Reject path traversal and absolute paths
-  if (branchName.includes('..') || branchName.startsWith('/') || branchName.startsWith('\\')) {
-    throw new Error('Invalid branch name');
-  }
-  // Reject control characters and whitespace
-  if (/[\x00-\x1f\s]/.test(branchName)) {
-    throw new Error('Invalid branch name');
-  }
-}
 
 /**
  * Check if a child path is safely inside a parent path.
@@ -201,18 +179,4 @@ export function readBody(req, maxSize = MAX_BODY_SIZE) {
     req.on('end', () => resolve(body));
     req.on('error', reject);
   });
-}
-
-/**
- * Truncate long text to specified maximum length.
- * Adds Chinese truncation notice if text was cut.
- * @param {string} text - Original text
- * @param {number} [maxLength=MAX_DOC_CONTENT] - Maximum allowed length
- * @returns {string} Truncated text with notice if needed
- */
-export function truncateText(text, maxLength = MAX_DOC_CONTENT) {
-  if (text.length > maxLength) {
-    return text.slice(0, maxLength) + '\n\n[内容已截断]';
-  }
-  return text;
 }

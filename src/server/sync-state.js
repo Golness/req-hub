@@ -84,7 +84,7 @@ export async function removeSyncTask(task, options = {}) {
   }
   task.removed = true; return deleted;
 }
-export async function deleteSyncFromHistory(id, workspaceId, requirementId) { const task = await getSyncById(id, workspaceId, requirementId); if (task) await removeSyncTask(task); }
+
 export function setAbortController(workspaceId, requirementId, controller, syncId) { controllers.set(key(workspaceId, requirementId), { controller, syncId }); }
 export function getAbortController(workspaceId, requirementId) { return controllers.get(key(workspaceId, requirementId)); }
 export function deleteAbortController(workspaceId, requirementId, syncId, controller) {

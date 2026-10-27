@@ -1,7 +1,0 @@
-/* Component presentation; runtime geometry uses local CSS variables. */
-.size { min-height: 80px; }
-.row { display: inline-flex; align-items: center; gap: 4px; }
-.row2 { width: 10px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
-.indicator { transform: var(--rh-transform-0); transition: transform 0.15s; flex-shrink: 0; }
-.content { flex-shrink: 0; }
-.row3 { display: inline-flex; align-items: center; gap: 2px; }

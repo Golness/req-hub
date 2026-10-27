@@ -22,64 +22,6 @@ export function setSkillsService(skills) {
   skillsCache.clear();
 }
 
-/**
- * Get the skills service reference.
- * @returns {Object|null} Skills service or null if not set
- */
-export function getSkillsService() {
-  return skillsService;
-}
-
-/**
- * Get list of available skills.
- * @param {string} cwd - Working directory for skill lookup
- * @returns {Promise<Array<{name: string, description: string, whenToUse: string}>>} Available skills
- */
-export async function getAvailableSkills(cwd) {
-  if (!skillsService) return [];
-  try {
-    const skills = await skillsService.list({ cwd });
-    return skills.map(s => ({
-      name: s.name,
-      description: s.description,
-      whenToUse: s.whenToUse
-    }));
-  } catch (e) {
-    return [];
-  }
-}
-
-const DEFAULT_ANALYZE_PROMPT = `你是一个需求分析专家。请分析以下需求文档内容，并返回 JSON 格式的结构化数据。
-
-需求目录名: {requirementId}
-
-以下是需求文档内容:
-
-{docsContent}
-
-返回格式要求（严格 JSON，不要包含其他文字）：
-{
-  "type": "large" | "medium" | "small",  // 需求规模
-  "summary": "一句话摘要",
-  "features": ["功能点1", "功能点2"],     // 提取的功能点
-  "fields": ["table.field"],              // 涉及的数据库字段
-  "tags": ["标签1", "标签2"],             // 关键词标签
-  "timeline": [                           // 时间线事件（请提取文档中所有相关的时间节点，不要遗漏）
-    {
-      "date": "YYYY-MM-DD",
-      "title": "事件标题",
-      "type": "requirement" | "design" | "cr" | "release",
-      "description": "事件描述"
-    }
-  ]
-}
-
-重要提示：
-1. timeline 数组必须包含文档中提到的所有时间节点，不要只提取部分事件
-2. 如果文档中有多个版本迭代、评审、发布等事件，都要包含在 timeline 中
-3. 按时间顺序排列所有事件
-
-请基于文档内容进行全面分析，提取所有关键信息。`;
 
 // Shared contracts keep all ten sync prompts aligned with the same evidence and edit model.
 const SYNC_DOCUMENT_PROFILES = {
@@ -154,7 +96,6 @@ ${profile.quality}
 }
 
 
-
 /**
  * @typedef {Object} PromptMeta
  * @property {string} label - Display name
@@ -172,21 +113,6 @@ ${profile.quality}
  * @type {Object<string, PromptMeta>}
  */
 export const PROMPT_REGISTRY = {
-  analyze: {
-    label: '需求分析',
-    description: '分析需求文档，提取结构化数据',
-    default: DEFAULT_ANALYZE_PROMPT,
-    variables: [
-      { name: 'requirementId', description: '需求目录名/ID', required: true },
-      { name: 'docsContent', description: '需求文档内容', required: true },
-    ],
-    outputFormat: 'JSON',
-    requirements: [
-      '必须返回严格的 JSON 格式',
-      'JSON 必须包含 type, summary, features, fields, tags, timeline 字段',
-      'timeline 必须是数组，包含所有时间节点',
-    ],
-  },
   writing: {
     label: '文档优化', category: 'writing', description: '结合所选知识库优化需求文档或技术方案',
     default: `REQHUB_WRITING={runtimeId}
@@ -456,6 +382,3 @@ export function getPrompt(config, promptKey) {
   if (custom && custom.trim()) return custom;
   return PROMPT_REGISTRY[promptKey]?.default || '';
 }
-
-
-

@@ -3,7 +3,7 @@ import { loadConfig } from '../config.js';
 import { json, readBody } from '../utils.js';
 import { knowledgeError, normalizeSourcePath } from '../knowledge/source-reader.js';
 
-/** One prefix route, lifecycle-owned by the plugin; old search/analyze routes stay compatible. */
+/** One prefix route, lifecycle-owned by the plugin; knowledge operations share the same Host service. */
 export function createKnowledgeRoutes(registry, options = {}) {
   const service = new KnowledgeService({ registry, configLoader: options.configLoader || loadConfig, readSourceFile: options.readSourceFile, databasePath: options.databasePath });
   const streams = new Set();

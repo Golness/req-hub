@@ -13,15 +13,10 @@ import {
 } from '../../src/server/task-executor.js';
 
 // Mock 依赖模块
-vi.mock('../../src/server/ai-engine.js', () => ({
-  parseAIResponse: vi.fn((text) => {
-    try { return JSON.parse(text); } catch { return null; }
-  }),
-}));
 
 vi.mock('../../src/server/prompts.js', () => ({
   PROMPT_REGISTRY: {
-    analyze: {
+    writing: {
       variables: [
         { name: 'docsContent', required: true, description: '文档内容' },
       ],
@@ -48,10 +43,8 @@ vi.mock('../../src/server/logger.js', () => ({
 }));
 
 vi.mock('../../src/server/token-utils.js', () => ({
-  charsToTokens: (n) => Math.ceil(n / 4),
   estimateTextTokens: (s) => Math.ceil(s.length / 4),
   formatTokens: (n) => `${n}`,
-  CHARS_PER_TOKEN: 4,
   MAX_SYNC_INPUT_TOKENS: 150000,
   estimateSubagentInputTokens: s => Buffer.byteLength(s || '', 'utf8') + 8,
 }));
@@ -110,7 +103,7 @@ describe('TaskExecutor', () => {
   describe('validatePreconditions', () => {
     it('should fail when ctx is missing', async () => {
       const executor = createTaskExecutor({ ctx: null, llm, config, parentAgent, cwd: '/tmp' });
-      const errors = await executor.validatePreconditions({ promptKey: 'analyze', variables: {} });
+      const errors = await executor.validatePreconditions({ promptKey: 'writing', variables: {} });
       expect(errors.length).toBeGreaterThan(0);
       expect(errors[0].code).toBe(TaskExecutorErrorCode.INVALID_CONTEXT);
     });
@@ -118,34 +111,34 @@ describe('TaskExecutor', () => {
     it('should fail when subagents service is missing', async () => {
       const badCtx = { subagents: null };
       const executor = createTaskExecutor({ ctx: badCtx, llm, config, parentAgent, cwd: '/tmp' });
-      const errors = await executor.validatePreconditions({ promptKey: 'analyze', variables: {} });
+      const errors = await executor.validatePreconditions({ promptKey: 'writing', variables: {} });
       expect(errors[0].code).toBe(TaskExecutorErrorCode.SUBAGENT_UNAVAILABLE);
     });
 
     it('should fail when parentAgent is missing', async () => {
       const executor = createTaskExecutor({ ctx, llm, config, parentAgent: null, cwd: '/tmp' });
-      const errors = await executor.validatePreconditions({ promptKey: 'analyze', variables: {} });
+      const errors = await executor.validatePreconditions({ promptKey: 'writing', variables: {} });
       expect(errors[0].code).toBe(TaskExecutorErrorCode.MISSING_PARENT_AGENT);
     });
 
     it('should fail when parentAgent is stopped', async () => {
       const stopped = createMockParentAgent({ status: 'stopped' });
       const executor = createTaskExecutor({ ctx, llm, config, parentAgent: stopped, cwd: '/tmp' });
-      const errors = await executor.validatePreconditions({ promptKey: 'analyze', variables: {} });
+      const errors = await executor.validatePreconditions({ promptKey: 'writing', variables: {} });
       expect(errors[0].code).toBe(TaskExecutorErrorCode.PARENT_AGENT_STOPPED);
     });
 
     it('should fail when parentAgent has no session', async () => {
       const noSession = createMockParentAgent({ session: null });
       const executor = createTaskExecutor({ ctx, llm, config, parentAgent: noSession, cwd: '/tmp' });
-      const errors = await executor.validatePreconditions({ promptKey: 'analyze', variables: {} });
+      const errors = await executor.validatePreconditions({ promptKey: 'writing', variables: {} });
       expect(errors[0].code).toBe(TaskExecutorErrorCode.PARENT_AGENT_NO_SESSION);
     });
 
     it('should pass with valid inputs', async () => {
       const executor = createTaskExecutor({ ctx, llm, config, parentAgent, cwd: '/tmp' });
       const errors = await executor.validatePreconditions({
-        promptKey: 'analyze',
+        promptKey: 'writing',
         variables: { docsContent: 'some content' },
       });
       expect(errors).toEqual([]);
@@ -154,7 +147,7 @@ describe('TaskExecutor', () => {
     it('should fail when required variables are missing', async () => {
       const executor = createTaskExecutor({ ctx, llm, config, parentAgent, cwd: '/tmp' });
       const errors = await executor.validatePreconditions({
-        promptKey: 'analyze',
+        promptKey: 'writing',
         variables: {},
       });
       expect(errors.length).toBeGreaterThan(0);
@@ -208,7 +201,7 @@ describe('TaskExecutor', () => {
   describe('execute', () => {
     it('should return error result when preconditions fail', async () => {
       const executor = createTaskExecutor({ ctx: null, llm, config, parentAgent, cwd: '/tmp' });
-      const result = await executor.execute({ promptKey: 'analyze', variables: {} });
+      const result = await executor.execute({ promptKey: 'writing', variables: {} });
       expect(result.isError).toBe(true);
       expect(result.errorCode).toBe(TaskExecutorErrorCode.INVALID_CONTEXT);
     });
@@ -219,7 +212,7 @@ describe('TaskExecutor', () => {
 
       const executor = createTaskExecutor({ ctx, llm, config, parentAgent, cwd: '/tmp' });
       const result = await executor.execute({
-        promptKey: 'analyze',
+        promptKey: 'writing',
         variables: { docsContent: 'test doc' },
         description: 'Test analysis',
       });
@@ -275,7 +268,7 @@ describe('prepared sync payload dispatch', () => {
 
   it('does not impose the sync budget on unrelated tasks', async () => {
     const executor = new TaskExecutor({ ctx: createMockCtx(), config: {} });
-    await executor.startSubagent({ promptKey: 'analyze' }, { fullPrompt: 'x'.repeat(160000) });
+    await executor.startSubagent({ promptKey: 'writing' }, { fullPrompt: 'x'.repeat(160000) });
     expect(executor.ctx.subagents.start).toHaveBeenCalledOnce();
   });
 });

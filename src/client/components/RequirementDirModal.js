@@ -80,7 +80,7 @@ function RequirementDirModal({ workspaceId, selectedReqId, onSelect, onClose }) 
                     },
                       h('span', { className: 'rh-modal-item-icon' }, h(IconFolderOpen, { size: 14 })),
                       h('span', { className: 'rh-modal-item-name' }, `${req.date.slice(5)} ${req.title}`),
-                      h('span', { className: ('rh-modal-item-count') + ' ' + css.row2 }, t("DocTree.message002", { value0: req.fileCount }))
+                      h('span', { className: ('rh-modal-item-count') + ' ' + css.row2 }, t("files.count", { value0: req.fileCount }))
                     )
                   )
                 )

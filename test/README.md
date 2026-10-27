@@ -11,7 +11,6 @@ test/
 │   ├── task-executor.test.js   # 任务执行器测试
 │   ├── sync-state.test.js      # 同步状态管理测试
 │   ├── tree.test.js            # 文档树构建测试
-│   ├── analyze-engine.test.js  # 分析引擎测试
 │   └── config.test.js          # 配置管理测试
 └── client/                     # 客户端组件测试
     └── components.test.js      # 组件导出和工具函数测试
@@ -55,7 +54,6 @@ pnpm test:coverage
 - **TaskExecutor**: 前置条件验证、模板变量检查、输出提取、错误处理
 - **SyncState**: 状态加载/保存、活动同步管理、历史记录、中止控制
 - **Tree**: 文档树构建、需求目录解析、文件统计
-- **AnalyzeEngine**: 需求分析流程、错误处理、LLM 集成
 - **Config**: 配置加载/保存、自动默认值设置
 
 ### 客户端模块

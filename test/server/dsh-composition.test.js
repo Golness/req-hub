@@ -64,6 +64,10 @@ it.skipIf(!available)('composes ReqHub with real DSH Cordis, WebServer, Connecti
     expect((await fetch(base + '/req-hub/write', { method: 'POST', headers: { ...authenticated, origin: 'https://outside.invalid' }, body: JSON.stringify({ workspaceId: 'fixture', path: 'a.md', content: 'attacked' }) })).status).toBe(403);
     const body = { workspaceId: 'fixture', path: 'a.md', content: '# Via tool' };
     const tool = ctx.tools.get('req_hub_action'); expect(tool).toBeTruthy();
+    for (const action of ['analyze-preview', 'analyze-stream', 'analysis-status', 'analysis-cancel', 'meta']) {
+      expect((await fetch(base + '/req-hub/' + action, { headers: authenticated })).status).toBe(404);
+      await expect(tool.execute({ action }, { signal: new AbortController().signal })).rejects.toThrow('UNKNOWN_OPERATION');
+    }
     const output = await tool.execute({ action: 'write', method: 'POST', body }, { signal: new AbortController().signal });
     expect(output.status).toBe(200); expect(await readFile(join(root, 'docs/a.md'), 'utf8')).toBe('# Via tool');
     const response = await fetch(base + '/req-hub/read?workspaceId=fixture&path=a.md', { headers: authenticated });
@@ -143,7 +147,7 @@ it.skipIf(!available).each([[false, false], [true, false], [false, true], [false
     const outputs = earlyFinish === 'outputs' ? { report: join(outputRoot, 'report.md'), changes: join(outputRoot, 'changes.json') } : {};
     const runtime = installation.create({ store: { read: async () => 'complete frozen evidence' }, allowed: ['evidence'], required: ['evidence'], outputs, budget });
     const result = await executeTask(ctx, ctx.llm, {}, {
-      parentAgent: parent, promptKey: 'analyze', variables: { requirementId: 'review', docsContent: 'frozen evidence' }, runtime, syncV2: true, liveness: { enabled: false },
+      parentAgent: parent, promptKey: 'phased-code-analysis-requirement', variables: { runtimeId: runtime.id, manifestId: 'manifest' }, runtime, syncV2: true, liveness: { enabled: false },
       toolFilter: { allow: SYNC_TOOLS }, preparedPromptData: { fullPrompt: 'Read evidence and finish. REQHUB_SYNC_V2=' + runtime.id, skillUsed: null },
     });
     expect(result.isError, result.diagnostic).toBe(false);

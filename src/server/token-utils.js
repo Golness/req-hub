@@ -4,8 +4,6 @@
  * @module token-utils
  */
 
-/** @type {number} Characters per token ratio (DSH uses 4 chars/token) */
-export const CHARS_PER_TOKEN = 4;
 
 /** Fallback input estimate when the Host supplies no model capacity metadata. */
 export const MAX_SYNC_INPUT_TOKENS = 150000;
@@ -91,15 +89,6 @@ export function estimateMessageTokens(message) {
   return tokens;
 }
 
-/**
- * Estimate total token count for an array of messages.
- * @param {Array<Object>} messages - Array of message objects
- * @returns {number} Total estimated token count
- */
-export function estimateMessagesTokens(messages) {
-  if (!Array.isArray(messages)) return 0;
-  return messages.reduce((sum, msg) => sum + estimateMessageTokens(msg), 0);
-}
 
 /**
  * Format token count as a human-readable string.
@@ -116,22 +105,3 @@ export function formatTokens(tokens) {
   }
   return tokens.toLocaleString();
 }
-
-/**
- * Convert character count to token count.
- * @param {number} chars - Character count
- * @returns {number} Estimated token count
- */
-export function charsToTokens(chars) {
-  return Math.ceil(chars / CHARS_PER_TOKEN);
-}
-
-/**
- * Convert token count to character count (estimate).
- * @param {number} tokens - Token count
- * @returns {number} Estimated character count
- */
-export function tokensToChars(tokens) {
-  return tokens * CHARS_PER_TOKEN;
-}
-
