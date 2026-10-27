@@ -1,6 +1,7 @@
 'use strict';
 const { Checkbox } = require('./shared/controls.js');
 const { t } = require('../locale.js');
+const css = require('./WritingPanel.module.css').default;
 const { Button } = require('./shared/Button.js');
 const { Input } = require('./shared/Input.js');
 const React = require('react');
@@ -119,7 +120,9 @@ function WritingPanel({ workspaceId }) {
       options?.scopes.length === 0 && h('p', null, t("WritingPanel.message014")),
       h('small', null, scopeIds.length ? t("WritingPanel.message015") : t("WritingPanel.message016"))),
     error && h('div', { className: 'rh-knowledge-error', role: 'alert' }, error),
-    h('div', { className: 'rh-writing-editor' }, h(MilkdownEditor, { content, onChange: setContent, readOnly: locked })),
+    h('div', { className: css.editor },
+      h('div', { className: css.editorHint }, t('writing.editorHint')),
+      h(MilkdownEditor, { content, onChange: setContent, readOnly: locked })),
     h('div', { className: 'rh-knowledge-toolbar' },
       h(Input, { className: 'rh-search-input', 'aria-label': t("WritingPanel.message017"), placeholder: t("WritingPanel.message018"), value: instruction, disabled: locked, maxLength: 4000, onChange: e => setInstruction(e.target.value) }),
       h(Button, { className: 'rh-btn rh-btn-primary', disabled: locked || !content.trim() || !options, onClick: optimize }, running ? t("WritingPanel.message019") : t("WritingPanel.message020")),

@@ -32,6 +32,31 @@ beforeEach(async () => {
 });
 afterEach(async () => { await library.close(); await store.close(); await knowledge.close(); await rm(root, { recursive: true, force: true }); });
 
+it('scopes the page to current workspace paths and rejects unrelated detail/import requests', async () => {
+  const query = { workspaceId: 'kb-target', targetWorkspaceId: 'kb-target', id: entry.conversationId };
+  expect((await action('options', null, query)).value.sessions).toEqual([]);
+  expect((await action('detail', null, query)).status).toBe(404);
+  const input = { workspaceId: 'kb-target', targetWorkspaceId: 'kb-target', selections: [select(['id:native-1'])] };
+  expect((await action('import', input)).status).toBe(400);
+  const inventory = await adapter.inventory();
+  // Native project grouping is provenance; each conversation's cwd decides membership.
+  inventory.workspaces[0].paths = [join(root, 'source')];
+  inventory.sessions[0].cwd = join(root, 'target');
+  inventory.sessions.push({ ...inventory.sessions[0], id: 'codex:other-root', cwd: join(root, 'source') }, { ...inventory.sessions[0], id: 'codex:unknown-root', cwd: undefined });
+  adapter.inventory = async () => inventory;
+  await refresh();
+  const matched = await action('options', null, query);
+  expect(matched.value.sessions).toHaveLength(1);
+  expect(matched.value.targets).toBeUndefined();
+  expect(matched.value.workspace.id).toBe('kb-target');
+  expect((await action('import', { ...input, targetWorkspaceId: 'app-source' })).status).toBe(400);
+  const unrelated = (await action('options')).value.sessions.find(item => item.id === 'codex:other-root');
+  expect((await action('detail', null, { ...query, id: unrelated.conversationId })).status).toBe(404);
+  expect((await action('import', { ...input, selections: [select(['id:native-1'], unrelated.snapshotVersion, unrelated.conversationId)] })).status).toBe(400);
+  expect(await action('import', input)).toMatchObject({ status: 200, value: { added: 1 } });
+  expect((await action('options', null, { workspaceId: 'forged' })).status).toBe(404);
+});
+
 it('explicitly selects a destination without mapping same-name DSH and Codex workspaces', async () => {
   const options = await action('options');
   expect(options.value.targets).toHaveLength(2);

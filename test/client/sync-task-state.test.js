@@ -108,3 +108,16 @@ it('opens preparation again and follows its handoff to a persistent execution',a
 it('makes an active design execution accessible from history even with no completed records',async()=>{
  const original=fetch.getMockImplementation(),active={...task(),docType:'design',docTypeName:'技术方案'};detail=active;fetch.mockImplementation(async(url,...args)=>url.includes('/sync-history?')?json({history:[],activeSync:active}):original(url,...args));await act(async()=>root.render(React.createElement(DocsViewerContext.Provider,{value:{}},React.createElement(SyncPanel,{workspaceId:'ws',selectedReq:req,onClose:vi.fn()}))));await act(async()=>button('同步历史').click());expect(button('查看进行中的同步：技术方案')).toBeDefined();await act(async()=>button('查看进行中的同步：技术方案').click());expect(container.textContent).toContain('同步进行中');expect(container.textContent).toContain('代码差异分析');
 });
+it('distinguishes raw code size from complete input budgets and exposes their components', async()=>{
+  const sync=task('failed');
+  sync.steps[0].sourceTokens=614658;
+  const step=sync.steps.find(item=>item.phase==='code_analysis');
+  Object.assign(step,{totalTokens:90000,chunks:[{index:0,status:'failed',tokens:90000,inputBudget:{evidenceTokens:30000,commonTokens:10000,promptTokens:5000,reservedTokens:45000}}]});
+  await act(async()=>root.render(React.createElement(DocsViewerContext.Provider,{value:{}},React.createElement(SyncPanel,{workspaceId:'ws',selectedReq:req,focusedSync:sync,onClose:vi.fn()}))));
+  expect(container.textContent).toContain('代码正文估算：614.7k tokens');
+  expect(container.textContent).toContain('输入预算 90.0k tokens');
+  await act(async()=>[...container.querySelectorAll('.rh-sync-step-label')].find(el=>el.textContent==='代码差异分析').click());
+  await act(async()=>[...container.querySelectorAll('span')].find(el=>el.textContent==='1 块').click());
+  expect(container.textContent).toContain('证据读取 30.0k · 公共材料 10.0k · 提示词 5.0k · 预留 45.0k');
+  expect(container.textContent).toContain('不代表代码量或实际消耗');
+});

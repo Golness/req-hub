@@ -20,6 +20,7 @@ export function installSyncTools(ctx) {
     exec.signal?.throwIfAborted();
     const runtime = sessions.get(exec.agent?.session?.id);
     if (!runtime || runtime.closed) throw new Error('SYNC_TOOL_DENIED');
+    if (runtime.outputFailure) throw runtime.outputFailure;
     runtime.assertActive?.();
     runtime.signal?.throwIfAborted();
     runtime.onActivity?.();
@@ -27,11 +28,17 @@ export function installSyncTools(ctx) {
   };
   const schemas = {
     req_hub_sync_read: { artifactId: { type: 'string' }, offset: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 8000 } },
-    req_hub_sync_write: { outputId: { type: 'string' }, content: { type: 'string' } },
+    // DSH's enforced schema subset supports oneOf, not anyOf. Validate inner
+    // fields in the owned runtime so failures get precise diagnostics and count
+    // toward the repair limit instead of bypassing it at Host argument parsing.
+    req_hub_sync_write: { outputId: { type: 'string' }, content: { oneOf: [
+      { type: 'string' },
+      { type: 'object', description: 'Analysis index: changes is an array of {id,action,blockId,reason,proposal,evidenceRefs}; pending is an array of {id,reason}. Exact IDs and field values are validated by the tool.' },
+    ] } },
     req_hub_sync_edit: { blockId: { type: 'string' }, expectedHash: { type: 'string' }, oldText: { type: 'string' }, newText: { type: 'string' } },
   };
   for (const name of SYNC_TOOLS) disposers.push(ctx.tools.register({
-    name, description: name === SYNC_TOOLS[0] ? 'Read immutable sync evidence by artifact ID; follow nextOffset until eof.' : name === SYNC_TOOLS[1] ? 'Write one assigned analysis output. Never use this tool to overwrite a candidate document.' : 'Edit an authorized candidate block through the native exact editor. Supply the current candidate hash. Read candidate again after each edit.',
+    name, description: name === SYNC_TOOLS[0] ? 'Read immutable sync evidence by artifact ID; follow nextOffset until eof.' : name === SYNC_TOOLS[1] ? 'Write one assigned analysis output: changes accepts a structured {changes,pending} object; report takes Markdown text. Rejected outputs are not written. Never overwrite a candidate document.' : 'Edit an authorized candidate block through the native exact editor. Supply the current candidate hash. Read candidate again after each edit.',
     parameters: { type: 'object', properties: schemas[name], required: Object.keys(schemas[name]).filter(key => !['offset', 'limit'].includes(key)), additionalProperties: false },
     output: { schema: { type: 'object' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
     async execute(args, exec) {
@@ -50,6 +57,7 @@ export function installSyncTools(ctx) {
     const runtime = sessions.get(request.sessionId) || runtimeForRequest(ctx, runtimes, request);
     if (runtime) {
       if (runtime.closed) throw new Error('SYNC_RUNTIME_CLOSED');
+      if (runtime.outputFailure) throw runtime.outputFailure;
       if (runtime.evidenceCompacted) throw new Error('SYNC_EVIDENCE_COMPACTED');
       runtime.assertActive?.();
       runtime.signal?.throwIfAborted();
@@ -104,7 +112,7 @@ export function installSyncTools(ctx) {
       content: Object.freeze([Object.freeze({ type: 'text', text })]) }));
   }, { global: true }));
   const installation = {
-    revoke(signal) { for (const runtime of [...runtimes.values()]) if (runtime.signal === signal) runtime.close(); },
+    revoke(signal) { for (const runtime of [...runtimes.values()]) if (runtime.signal === signal || runtime.ownerSignal === signal) runtime.close(); },
     create(options) {
       options.signal?.throwIfAborted();
       const runtime = new SyncRuntime(ctx, options);
@@ -155,7 +163,7 @@ class SyncRuntime {
     Object.assign(this, options);
     this.ctx = ctx; this.id = randomUUID(); this.coverage = new Map(); this.contextCost = 0;
     this.readRanges = new Map();
-    this.exposedSinceRequest = 0; this.journal = []; this.outputWritten = new Set(); this.outputErrors = new Map();
+    this.exposedSinceRequest = 0; this.journal = []; this.outputWritten = new Set(); this.outputErrors = new Map(); this.invalidOutputWrites = 0;
     this.inputLimit = options.budget?.limit ?? MAX_SYNC_INPUT_TOKENS;
     this.optionalContextCost = 0;
     this.nativeEditor = options.nativeEditor || resolveSyncEditor(ctx, options.parentAgent);
@@ -187,6 +195,7 @@ class SyncRuntime {
     const sizes = await this.requiredSizes();
     return { schemaVersion: 1, sessionId: this.sessionId, outputsWritten: [...this.outputWritten],
       outputErrors: Object.fromEntries(this.outputErrors),
+      invalidOutputWrites: this.invalidOutputWrites, outputFailure: this.outputFailure?.message,
       required: [...sizes].map(([artifactId, totalChars]) => ({ artifactId, totalChars, nextOffset: Math.max(0, this.coverage.get(artifactId) ?? 0), complete: (this.coverage.get(artifactId) ?? -1) >= totalChars })),
       readState: this.readState(sizes), evidenceCompacted: !!this.evidenceCompacted };
   }
@@ -230,18 +239,32 @@ class SyncRuntime {
     for (const id of this.required) await this.store.read(id);
   }
   async write({ outputId, content }) {
-    if (!this.outputs[outputId] || typeof content !== 'string' || Buffer.byteLength(content) > OUTPUT_LIMIT || !content.trim()) throw new Error('OUTPUT_SCOPE_OR_SIZE');
+    if (this.outputFailure) throw this.outputFailure;
+    if (outputId === 'changes' && content && typeof content === 'object' && !Array.isArray(content)) content = JSON.stringify(content);
+    if (!this.outputs[outputId] || typeof content !== 'string' || Buffer.byteLength(content) > OUTPUT_LIMIT || !content.trim()) this.rejectOutput(outputId, new Error('OUTPUT_SCOPE_OR_SIZE: use an assigned outputId and non-empty content within the byte limit; only changes accepts a structured object.'));
     await this.assertCoverage();
     // Reject invalid analysis while the child is still able to correct it.
     // A successful receipt certifies both the output contract and persistence.
     try { await this.validateOutput?.(outputId, content, this); }
-    catch (error) { this.outputErrors.set(outputId, error.message); throw error; }
+    catch (error) { this.rejectOutput(outputId, error); }
+    if (this.outputFailure) throw this.outputFailure;
     const response = this.charge({ outputId, written: true, bytes: Buffer.byteLength(content), sha256: hashBytes(Buffer.from(content)) });
     this.signal?.throwIfAborted(); this.assertActive?.();
     await writeFile(this.outputs[outputId], content, { encoding: 'utf8', flag: this.outputWritten.has(outputId) ? 'w' : 'wx' });
     this.outputWritten.add(outputId);
     this.outputErrors.delete(outputId);
     return response;
+  }
+  rejectOutput(outputId, error) {
+    if (this.outputFailure) throw this.outputFailure;
+    const attempts = ++this.invalidOutputWrites, limit = this.maxInvalidOutputWrites ?? 6;
+    this.outputErrors.set(outputId, error.message);
+    if (attempts >= limit) {
+      this.outputFailure = new Error(`SYNC_OUTPUT_REPAIR_LIMIT: ${attempts} invalid output writes; stopped this child only. Last validation: ${error.message}`);
+      this.onOutputFailure?.(this.outputFailure);
+      throw this.outputFailure;
+    }
+    throw Object.assign(new Error(`${error.message} No output was written. Invalid write ${attempts}/${limit}; fix the named field, preserve the analysis, and do not reread completed evidence.`), {code:error.code,details:error.details});
   }
   async edit({ blockId, expectedHash, oldText, newText }, exec) {
     await this.assertCoverage();

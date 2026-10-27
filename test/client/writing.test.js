@@ -76,3 +76,26 @@ it('supports blank or starter text without writing any existing document', async
   expect(container.querySelector('.ProseMirror').textContent).toContain('需求模板');
   expect(fetchMock.mock.calls.some(([, opts]) => opts?.method === 'POST')).toBe(false);
 });
+it('allows a new blank draft to be edited immediately and persists it without starting from a template', async () => {
+  localStorage.clear();
+  const make = vi.spyOn(Editor, 'make');
+  await render();
+  const editorRoot = container.querySelector('.rh-milkdown-editor');
+  const editable = container.querySelector('.ProseMirror');
+  expect(editorRoot.hidden).toBe(false);
+  expect(editable.getAttribute('contenteditable')).toBe('true');
+  expect(button('优化').disabled).toBe(true);
+  await act(async () => {
+    make.mock.results[0].value.action(ctx => {
+      const view = ctx.get(editorViewCtx);
+      view.focus();
+      view.dispatch(view.state.tr.insertText('直接编写需求正文', 1));
+    });
+    await new Promise(resolve => setTimeout(resolve, 300));
+  });
+  expect(JSON.parse(localStorage.getItem('req-hub:writing:ws')).requirement).toContain('直接编写需求正文');
+  expect(document.activeElement).toBe(editable);
+  expect(button('优化').disabled).toBe(false);
+  expect(button('下载 Markdown').disabled).toBe(false);
+  expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
+});

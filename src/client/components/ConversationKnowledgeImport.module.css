@@ -3,18 +3,21 @@
 .modal.modal { width: 100%; max-height: 88vh; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
 .inlineModal.inlineModal { max-height: none; overflow: visible; flex-shrink: 0; }
 .hint { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; margin: 0; }
-.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 20px; }
 .acquisition { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
 .acquisition h4 { margin: 0; font-size: 13px; line-height: 20px; font-weight: 500; }
 .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
 .toolbar > * { flex: 1; min-width: 140px; }
-.content { display: flex; gap: 12px; min-height: 200px; overflow: auto; }
-.sessions { flex: 1; min-width: 0; overflow: auto; }
+.content { min-width: 0; }
+.sessions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 12px; width: 100%; min-width: 0; }
+.sessions > p { grid-column: 1 / -1; }
+.sourceGroup { min-width: 0; }
+.sourceGroup[data-source="dsh"] { grid-column: 1; grid-row: 1; }
+.sourceGroup[data-source="codex"] { grid-column: 2; grid-row: 1; }
+.sourceTitle { margin: 0; padding: 6px 0; font-size: 13px; line-height: 20px; font-weight: 500; color: var(--dsw-alias-label-secondary); }
 .session { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 8px 0; border-bottom: 0.5px solid var(--dsw-alias-border-l3); }
 .session label { overflow-wrap: anywhere; }
-.turns { display: flex; flex: 2; flex-direction: column; gap: 10px; min-width: 0; overflow: auto; }
+.turns { display: flex; flex-direction: column; gap: 10px; width: 100%; min-width: 0; padding: 8px 0; box-sizing: border-box; }
 .turn { padding: 8px; border: 0.5px solid var(--dsw-alias-border-l3); border-radius: var(--dsw-radius-sm); font-size: 13px; line-height: 20px; }
 .transcript { white-space: pre-wrap; overflow-wrap: anywhere; }
 .transcript strong { font-weight: 500; }
 .summary { display: flex; flex-direction: column; gap: 4px; font-size: 12px; line-height: 18px; }
-@media (max-width: 600px) { .content { flex-direction: column; } .sessions { max-height: 180px; flex: none; } .turns { min-height: 120px; } }

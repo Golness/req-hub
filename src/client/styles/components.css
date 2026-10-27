@@ -1850,7 +1850,6 @@ p.rh-sync-hint { margin: 6px 0; }
 .rh-writing-sources { padding:12px var(--rh-panel-padding); border-bottom:0.5px solid var(--dsw-alias-border-l1); }
 .rh-writing-scope { display:inline-flex; align-items:center; gap:6px; margin:8px 16px 8px 0; }
 .rh-writing-sources small { display:block; color:var(--dsw-alias-label-secondary); }
-.rh-writing-editor { min-height:300px; flex:1 0 300px; padding:12px; }
 .rh-writing-proposal { padding:12px; }
 .rh-writing-change { margin:16px 0; padding:8px; border:0.5px solid var(--dsw-alias-border-l1); border-radius: var(--dsw-radius-sm); }
 

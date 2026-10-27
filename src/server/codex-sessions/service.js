@@ -13,7 +13,9 @@ export class CodexSessionService {
     this.adapter = { source: 'codex', instance: resolve(codexHome), inventory: () => this.source.inventory(), snapshot: session => this.source.snapshot(session) };
   }
   database() { return this.library.store.database(); }
-  workspaces() { return this.source.inventory().then(({ workspaces, warnings }) => ({ workspaces, warnings })); }
+  workspaces() { return this.source.inventory().then(({ workspaces, sessions, warnings }) => ({
+    workspaces: workspaces.map(workspace => ({ ...workspace, sessionPaths: [...new Set(sessions.filter(session => session.workspaceId === workspace.id).map(session => session.cwd).filter(Boolean))] })), warnings,
+  })); }
   async list(workspaceId) { this.workspaceId = workspaceId; return this.library.list(workspaceId, this.adapter); }
   refresh(workspaceId, projectId, progress) { this.workspaceId = workspaceId; return this.library.refresh(workspaceId, projectId, this.adapter, progress); }
   snapshot(id, workspaceId = this.workspaceId) { return this.library.snapshot(workspaceId, id, this.adapter); }

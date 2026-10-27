@@ -51,7 +51,7 @@ import {
   isSyncTaskRemoved,
   getCachedRequirementPath,
 } from '../sync-state.js';
-import { charsToTokens, formatTokens } from '../token-utils.js';
+import { estimateTextTokens } from '../token-utils.js';
 
 /**
  * Create document sync routes.
@@ -754,7 +754,6 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
               if (uncommittedChanges.untracked.length > 0) parts.push(`${uncommittedChanges.untracked.length} 个新文件`);
               initText += `，未提交变更: ${parts.join('、')}`;
             }
-            initText += `，代码变更约 ${formatTokens(charsToTokens(codeDiff.length))} tokens`;
             if (isNewDoc) initText += '，新建文档';
 
             // ─── Step 2: Session Extract ──────────────────────────
@@ -806,15 +805,16 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
             await addFile('init', 'manifest.json');
             for (const entry of preparedChunks.store.entries.values()) if (entry.file.startsWith('sessions/')) await addFile('init', entry.file.replaceAll('/', '-'), entry.id);
             await updateStep('code_analysis', {
-              chunks: preparedChunks.code.map(c => ({ index: c.index, tokens: c.tokens, files: c.details.map(d => ({ file: d.file, tokens: d.tokens })) })),
+              chunks: preparedChunks.code.map(c => ({ index: c.index, tokens: c.tokens, inputBudget: c.inputBudget, files: c.details.map(d => ({ file: d.file, tokens: d.tokens })) })),
             });
             if (hasSessions) await updateStep('discussion_analysis', {
-              chunks: preparedChunks.discussion.map(c => ({ index: c.index, tokens: c.tokens, turns: c.details })),
+              chunks: preparedChunks.discussion.map(c => ({ index: c.index, tokens: c.tokens, inputBudget: c.inputBudget, turns: c.details })),
             });
             await updateStep('init', {
               status: 'completed',
               text: initText + `，代码 ${preparedChunks.code.length} 块、会话 ${preparedChunks.discussion.length} 块，输入预算检查通过`,
               inputBudget: preparedChunks.budget,
+              sourceTokens: estimateTextTokens(codeDiff),
               hasUncommitted: uncommittedChanges.hasChanges,
             });
 

@@ -29,7 +29,7 @@ function api() {
     }
     if (path.includes('/builds/')) return response(job);
     if (path.endsWith('/entries')) return response({ entries: [{ id: 'doc', title: 'Imported document', version: 1, body: 'Document body', sources: [] }, { id: 'chat', title: 'Imported chat', conversation: { title: 'Imported chat', turns: [] }, body: 'Chat body', sources: [] }] });
-    if (path.endsWith('-options')) return response({ targets: [{ id: 'ws', title: 'Workspace', path: '/repo' }], sessions: [] });
+    if (path.endsWith('-options')) return response({ workspace: { id: 'ws', title: 'Workspace', path: '/repo' }, sessions: [] });
     if (path.endsWith('/codex/sessions')) return response({ workspace: null, sessions: [] });
     if (path.endsWith('/sessions')) return response({ sessions: [] });
     return response({});
@@ -61,7 +61,7 @@ it('keeps document viewing, ingestion and search in four keyboard-accessible kno
   expect(tab('会话入库').getAttribute('aria-selected')).toBe('true');
   expect(container.querySelector('.rh-file-tree-sidebar')).toBeNull();
   expect(document.querySelector('[role="dialog"]')).toBeNull();
-  expect(button('刷新会话')).toBeTruthy(); expect(button('选择 Codex 工作区')).toBeTruthy(); expect(button('导入所选轮次')).toBeTruthy();
+  expect(button('刷新会话')).toBeTruthy(); expect(button('选择 Codex 工作区')).toBeUndefined(); expect(button('刷新 Codex 会话')).toBeTruthy(); expect(button('导入所选轮次')).toBeTruthy();
   await act(async () => tab('会话入库').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })));
   expect(tab('搜索').getAttribute('aria-selected')).toBe('true');
   expect(container.querySelector('.rh-file-tree-sidebar')).toBeNull();

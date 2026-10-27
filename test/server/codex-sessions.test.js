@@ -8,6 +8,7 @@ import { CodexSessionService } from '../../src/server/codex-sessions/service.js'
 import { CodexSource } from '../../src/server/codex-sessions/source.js';
 import { createCodexSessionRoutes } from '../../src/server/routes/codex-session-routes.js';
 import { codexRecords, writeCodexRollout, codexState } from './codex-fixture.js';
+import { matchesWorkspacePath } from '../../src/server/conversations/workspace-path.js';
 
 let root, home, service, native;
 beforeEach(async () => {
@@ -16,6 +17,50 @@ beforeEach(async () => {
 });
 afterEach(async () => { native?.close(); native = null; await service.close(); await rm(root, { recursive: true, force: true }); });
 const parse = records => { const parser = createCodexTranscript('codex:cx-one'); records.forEach(record => parser.push(record)); return parser.finish(); };
+
+it.each([
+  ['D:\\project\\repo', 'd:/PROJECT/repo/', true],
+  ['D:/project/other/../repo', 'd:/project/repo', true],
+  ['\\\\server\\share\\repo', '//SERVER/share/repo/', true],
+  ['/project/repo', '/project/repo/', true],
+  ['/project/repo', '/project/Repo', false],
+  ['D:/project/repo', 'D:/other/repo', false],
+  ['D:/project/repo', 'D:/project/repository', false],
+  ['', '', false],
+])('matches exact workspace paths %s and %s', (path, current, expected) => {
+  expect(matchesWorkspacePath({ paths: [path] }, current)).toBe(expected);
+});
+
+it('matches Codex by current path, ignores unrelated bindings and overrides client-supplied project IDs', async () => {
+  const origin = { id: 'native-id', path: 'd:/PROJECT/repo/', title: 'Different title' };
+  const refreshed = [];
+  let origins = [origin], bound = { id: 'other', path: 'D:/elsewhere' };
+  const routes = createCodexSessionRoutes({ list: () => [{ id: 'ws', path: 'D:\\project\\repo' }] }, {
+    workspaces: async () => ({ workspaces: origins, warnings: [] }),
+    list: async () => ({ workspace: bound, sessions: [{ id: 'current', cwd: 'D:/project/repo' }, { id: 'other', cwd: 'D:/project/elsewhere' }, { id: 'unknown' }] }),
+    refresh: async (workspace, project) => { refreshed.push([workspace, project]); return { workspace: origin, sessions: [{ id: 'current', cwd: 'D:/project/repo' }, { id: 'other', cwd: 'D:/project/elsewhere' }] }; },
+  });
+  const invoke = async (action, body) => {
+    const req = Readable.from(body ? [JSON.stringify(body)] : []);
+    req.method = body ? 'POST' : 'GET'; req.url = '/req-hub/codex/' + action + '?workspaceId=ws&matchWorkspace=true';
+    const res = { writeHead(status) { this.status = status; }, end(raw) { this.value = JSON.parse(raw); } };
+    await routes.find(route => route.path.endsWith('/' + action)).handler(req, res);
+    return res;
+  };
+  expect((await invoke('sessions')).value).toMatchObject({ workspace: origin, sessions: [] });
+  expect((await invoke('refresh', { workspaceId: 'ws', codexWorkspaceId: 'forged', matchWorkspace: true })).value.sessions.map(item => item.id)).toEqual(['current']);
+  expect(refreshed).toEqual([['ws', 'native-id']]);
+  bound = origin;
+  expect((await invoke('sessions')).value.sessions).toHaveLength(1);
+  origins = [{ ...origin, path: 'D:/project', sessionPaths: ['D:/project/repo'] }];
+  expect((await invoke('sessions')).value.sessions.map(item => item.id)).toEqual(['current']);
+  origins = [{ ...origin, id: 'wrong', path: 'D:/elsewhere', title: 'repo' }];
+  expect((await invoke('sessions')).value).toMatchObject({ workspace: null, sessions: [] });
+  await invoke('refresh', { workspaceId: 'ws', matchWorkspace: true });
+  expect(refreshed).toHaveLength(1);
+  origins = [origin, { ...origin, id: 'ambiguous' }];
+  expect((await invoke('sessions')).status).toBe(409);
+});
 
 it('streams refresh progress before the result and reports errors inside an opened stream', async () => {
   const run = async fail => {

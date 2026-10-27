@@ -3,7 +3,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { executeTask, prepareTaskPrompt, TaskExecutorConfig } from './task-executor.js';
 import { estimateTextTokens, estimateSubagentInputTokens, MAX_SYNC_INPUT_TOKENS } from './token-utils.js';
-import { resolveSyncBudget, estimateArtifactReadTokens, estimateArtifactReadCost } from './sync-budget.js';
+import { resolveSyncBudget, estimateArtifactReadTokens, estimateArtifactReadCost, analysisReadPageLimit } from './sync-budget.js';
 import { parseSyncCodeDiff } from './sync-code-files.js';
 import { posix } from 'node:path';
 import { ConcurrentChunkProcessor } from './concurrency/ConcurrentChunkProcessor.js';
@@ -194,15 +194,15 @@ export class PhasedSyncEngine {
     const cost = ids => measureCost(ids, 'tokens');
     const pages = ids => measureCost(ids, 'pages');
     const commonCost = await cost(common);
-    const maxReadPages = this.config.sync?.maxAnalysisReadPages ?? 24;
-    if (!Number.isSafeInteger(maxReadPages) || maxReadPages < 8 || maxReadPages > 128) throw new Error('SYNC_READ_PAGE_LIMIT_INVALID');
+    const maxReadPages = analysisReadPageLimit(budget.limit, this.config.sync?.maxAnalysisReadPages);
     const commonPages = await pages(common);
     const manifestPageReserve = 4;
     // Reserve space for the stage manifest. Large documents still get
     // their necessary reads, with at least four pages left for new evidence.
     const readPageLimit = Math.max(maxReadPages, commonPages + manifestPageReserve + 4);
     const optionalContextTokens = Math.min(8192, Math.floor(budget.limit * 0.08));
-    const fixed = Math.max(...Object.values(templates).map(prompt => estimateSubagentInputTokens(prompt.fullPrompt))) + REQUEST_RESERVE + 4096 + 2 * OUTPUT_LIMIT + optionalContextTokens;
+    const promptTokens = Math.max(...Object.values(templates).map(prompt => estimateSubagentInputTokens(prompt.fullPrompt)));
+    const fixed = promptTokens + REQUEST_RESERVE + 4096 + 2 * OUTPUT_LIMIT + optionalContextTokens;
     if (fixed + commonCost * 2 >= budget.limit) throw new Error('DOCUMENT_INPUT_TOO_LARGE: 文档与固定契约超出完整读取预算');
     // Large files can include several full frozen source versions. Preserve every byte,
     // but give each analysis only a bounded, labelled range instead of requiring the
@@ -262,19 +262,21 @@ export class PhasedSyncEngine {
       const id = source + '-' + chunk.index, manifestId = 'manifest.' + id;
       const required = [...common, ...chunk.items.flatMap(item => item.required)];
       const allowed = [...required, ...chunk.items.flatMap(item => item.context)];
+      chunk.inputBudget = {
+        evidenceTokens: await cost(chunk.items.flatMap(item => item.required)), commonTokens: commonCost,
+        promptTokens, reservedTokens: fixed - promptTokens + 1024,
+        totalTokens: chunk.tokens, limit: budget.limit,
+      };
       await store.put(manifestId, JSON.stringify({ schemaVersion: 2, chunkId: id, docType, task: options.syncContext || {}, required, context: [...new Set(allowed.filter(item => !required.includes(item)))], optionalContextTokens,
         fragments: chunk.items.filter(item => item.part !== undefined).map(item => ({ artifactId: item.required[0], part: item.part, sessionId: item.sessionId, turnNumber: item.turnNumber })),
-        outputIds: ['report', 'changes'], limitBytes: OUTPUT_LIMIT, estimatedReadPages: chunk.readPages }));
+        outputIds: ['report', 'changes'], limitBytes: OUTPUT_LIMIT, estimatedReadPages: chunk.readPages, inputBudget: chunk.inputBudget }));
       return Object.assign(chunk, { id, manifestId, required: [manifestId, ...required], allowed: [manifestId, ...allowed] });
     };
     for (const chunk of code) await stage('code', chunk);
     for (const chunk of discussion) await stage('discussion', chunk);
-    // Binary reduction: every merge node reads at most two bounded reports and indices.
-    const mergeCost = fixed + commonCost + 4 * OUTPUT_LIMIT;
-    // Reports have byte caps, not fixed token costs. Validate each actual merge
-    // input below rather than rejecting small reports at their theoretical maxima.
+    // Summarize all chunk outputs once; validate their actual combined input in run().
     const plan = { schemaVersion: 2, task: options.syncContext || {}, store, code, discussion, common, blocks, originalBytes, templates, fixed, commonCost, sessionFiles,
-      budget: { ...budget, reserve: REQUEST_RESERVE, optionalContextTokens, commonCost, mergeCost, maxAnalysisReadPages: readPageLimit } };
+      budget: { ...budget, reserve: REQUEST_RESERVE, optionalContextTokens, commonCost, maxAnalysisReadPages: readPageLimit } };
     await store.manifest({ docType, task: plan.task, blocks, codeChunks: code.map(c => c.id), discussionChunks: discussion.map(c => c.id), budget: plan.budget });
     await writeFile(this.file(syncDir, docType === 'design' ? 'design.md.prev' : 'requirement.md.prev'), originalBytes);
     this.signal?.throwIfAborted();
@@ -285,7 +287,7 @@ export class PhasedSyncEngine {
     if (!this.parentAgent) throw new Error('缺少父 Agent，无法执行同步');
     const result = await executeTask(this.ctx, this.llm, this.getStageConfig(key), {
       promptKey: key, variables, preparedPromptData: options.preparedPromptData,
-      parentAgent: this.parentAgent, cwd: this.cwd, signal: this.signal,
+      parentAgent: this.parentAgent, cwd: this.cwd, signal: options.signal ?? this.signal,
       timeout: TaskExecutorConfig.defaultTimeout, maxInputTokens: options.runtime?.inputLimit ?? MAX_SYNC_INPUT_TOKENS,
       runtime: options.runtime, syncV2: true, liveness: { enabled: false },
       toolFilter: { allow: SYNC_TOOLS }, description: '同步 v2: ' + key,
@@ -334,8 +336,12 @@ export class PhasedSyncEngine {
           return parsed;
         };
         this.assertActive?.();
-        const runtime = installSyncTools(this.ctx).create({ store, allowed: stage.allowed, required: stage.required, signal: this.signal, onActivity: this.onActivity, assertActive: this.assertActive,
+        const childController = new AbortController();
+        const childSignal = this.signal ? AbortSignal.any([this.signal, childController.signal]) : childController.signal;
+        const runtime = installSyncTools(this.ctx).create({ store, allowed: stage.allowed, required: stage.required, signal: childSignal, ownerSignal: this.signal, onActivity: this.onActivity, assertActive: this.assertActive,
           maxCompletionReminders: this.config.sync?.maxCompletionReminders ?? 3,
+          maxInvalidOutputWrites: this.config.sync?.maxInvalidOutputWrites ?? 6,
+          onOutputFailure: error => childController.abort(error),
           nativeEditor: this.nativeEditor, parentAgent: this.parentAgent, budget: plan.budget,
           outputs: edit ? {} : { report: reportPath, changes: changesPath }, ...edit });
         runtime.validateOutput = async (outputId, content) => {
@@ -344,7 +350,10 @@ export class PhasedSyncEngine {
         try {
           const variables = { runtimeId: runtime.id, manifestId: stage.manifestId, reportId: 'report', changesId: 'changes' };
           const preparedPromptData = await this.preparePrompt(key, variables);
-          await this.executeTask(key, variables, { preparedPromptData, runtime, onSubagentStart: sessionId => progress({ phase: which, status: Number.isInteger(stage.index) ? 'chunk_subagent' : 'summary_subagent', chunkIndex: stage.index, sessionId }) });
+          try {
+            await this.executeTask(key, variables, { preparedPromptData, runtime, signal:childSignal, onSubagentStart: sessionId => progress({ phase: which, status: Number.isInteger(stage.index) ? 'chunk_subagent' : 'summary_subagent', chunkIndex: stage.index, sessionId }) });
+          } catch(error) { throw runtime.outputFailure || error; }
+          if (runtime.outputFailure) throw runtime.outputFailure;
           await runtime.assertCoverage();
           result.stats.totalLLMCalls++;
           if (edit) return runtime.journal;
@@ -379,20 +388,12 @@ export class PhasedSyncEngine {
       };
       let mergeNumber = 0;
       const consolidate = async (inputs, source, targetPhase = source === 'code' ? 'code_analysis' : 'discussion_analysis') => {
-        while (inputs.length > 1) {
-          const next = [];
-          for (let i = 0; i < inputs.length; i += 2) {
-            const pair = inputs.slice(i, i + 2);
-            if (pair.length === 1) { next.push(pair[0]); continue; }
-            const id = 'summary-' + mergeNumber++, manifestId = 'manifest.' + id;
-            const required = [...common, ...pair.flatMap(input => [input.reportId, input.changesId])];
-            await store.put(manifestId, JSON.stringify({ schemaVersion: 2, required, outputIds: ['report', 'changes'] }));
-            const stage = { id, manifestId, required: [manifestId, ...required], allowed: [manifestId, ...required] };
-            next.push(await run(`phased-${source}-analysis-merge-${docType}`, stage, targetPhase, pair));
-          }
-          inputs = next;
-        }
-        return inputs[0] || null;
+        if (inputs.length < 2) return inputs[0] || null;
+        const id = 'summary-' + mergeNumber++, manifestId = 'manifest.' + id;
+        const required = [...common, ...inputs.flatMap(input => [input.reportId, input.changesId])];
+        await store.put(manifestId, JSON.stringify({ schemaVersion: 2, required, outputIds: ['report', 'changes'] }));
+        const stage = { id, manifestId, required: [manifestId, ...required], allowed: [manifestId, ...required] };
+        return run(`phased-${source}-analysis-merge-${docType}`, stage, targetPhase, inputs);
       };
       const all = [];
       for (const source of ['code', 'discussion']) {

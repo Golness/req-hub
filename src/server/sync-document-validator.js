@@ -35,21 +35,25 @@ export function indexDocument(bytes) {
 }
 
 export function validateChanges(value, blocks, evidenceIds) {
-  if (!value || !Array.isArray(value.changes) || !Array.isArray(value.pending)) throw new Error('ANALYSIS_SCHEMA');
+  const fail = (code, path, actual, expected, hint) => {
+    const details = { path, actual: actual ?? null, expected, hint };
+    throw Object.assign(new Error(code + ': ' + JSON.stringify(details)), { code, details });
+  };
+  if (!value || !Array.isArray(value.changes) || !Array.isArray(value.pending)) fail('ANALYSIS_SCHEMA', 'content', typeof value, '{changes:[],pending:[]}', 'Both fields must be arrays.');
   const ids = new Set();
   for (const [index, change] of value.changes.entries()) {
-    if (!change || typeof change.id !== 'string' || !change.id.trim() || ids.has(change.id)) throw new Error(`CHANGE_ID: changes[${index}].id must be a unique non-empty string`);
+    const path = `changes[${index}]`;
+    if (!change || typeof change.id !== 'string' || !change.id.trim() || ids.has(change.id)) fail('CHANGE_ID', path + '.id', change?.id, 'unique non-empty string', 'Preserve the analysis and fix this field only.');
     ids.add(change.id);
-    if (!['add', 'modify', 'delete'].includes(change.action) || !blocks.some(b => b.id === change.blockId)
-      || typeof change.reason !== 'string' || !change.reason.trim() || typeof change.proposal !== 'string'
-      || !change.proposal.trim() || !Array.isArray(change.evidenceRefs) || !change.evidenceRefs.length
-      || change.evidenceRefs.some(id => !evidenceIds.includes(id))) {
-      const invalidRefs = Array.isArray(change.evidenceRefs) ? change.evidenceRefs.filter(id => !evidenceIds.includes(id)) : [];
-      throw new Error(`CHANGE_EVIDENCE_OR_SCOPE: changes[${index}] must use a valid action, exact blockId from document.blocks, non-empty reason/proposal, and non-empty evidenceRefs from this task's allowed evidence IDs. Invalid references: ${JSON.stringify(invalidRefs)}. Use exact .part-N IDs from the manifest for fragments; sourceArtifactId is not a substitute.`);
-    }
+    if (!['add', 'modify', 'delete'].includes(change.action)) fail('CHANGE_ACTION', path + '.action', change.action, ['add','modify','delete'], 'Use one of the exact action values.');
+    if (!blocks.some(b => b.id === change.blockId)) fail('CHANGE_BLOCK_ID', path + '.blockId', change.blockId, blocks.slice(0,8).map(b => b.id), `Copy the exact ID; do not retype its hash. These are the first ${Math.min(8,blocks.length)} of ${blocks.length} authorized IDs; document.blocks contains the full list. Evidence references are not the failing field.`);
+    for (const field of ['reason','proposal']) if (typeof change[field] !== 'string' || !change[field].trim()) fail('CHANGE_TEXT', path + '.' + field, change[field], 'non-empty string', 'Keep the actual evidence-based analysis; do not replace it with placeholders.');
+    if (!Array.isArray(change.evidenceRefs) || !change.evidenceRefs.length) fail('CHANGE_EVIDENCE_OR_SCOPE', path + '.evidenceRefs', change.evidenceRefs, 'non-empty array of authorized evidence IDs', 'Use exact IDs from the task manifest.');
+    const invalidRefs = change.evidenceRefs.filter(id => !evidenceIds.includes(id));
+    if (invalidRefs.length) fail('CHANGE_EVIDENCE_OR_SCOPE', path + '.evidenceRefs', invalidRefs, evidenceIds.slice(0,8), `Only evidenceRefs is failing. These are the first ${Math.min(8,evidenceIds.length)} of ${evidenceIds.length} authorized evidence IDs; use the full task manifest. Preserve .part-N suffixes. document.blocks is a document index, not change evidence.`);
   }
   for (const [index, pending] of value.pending.entries()) {
-    if (!pending || typeof pending.id !== 'string' || !pending.id.trim() || typeof pending.reason !== 'string' || !pending.reason.trim()) throw new Error(`PENDING_SCHEMA: pending[${index}] requires non-empty string fields id and reason; use {"id":"p1","reason":"specific uncertainty"}, not a string or an object without id`);
+    for (const field of ['id','reason']) if (!pending || typeof pending[field] !== 'string' || !pending[field].trim()) fail('PENDING_SCHEMA', `pending[${index}].${field}`, pending?.[field], 'non-empty string', 'Pending entries must be objects with id and reason; preserve genuine uncertainty, never use test placeholders.');
   }
   return value;
 }

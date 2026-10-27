@@ -20,6 +20,45 @@ async function run(docType, harnessOptions = {}, input = {}) {
 }
 
 describe('v2 frozen evidence and isolated candidates', () => {
+  it('terminates repeated invalid output writes with their precise cause without cancelling the parent task',async()=>{
+    const dir=await mkdtemp(join(tmpdir(),'req-hub-invalid-write-limit-')),owner=new AbortController();
+    const harness=createSyncHarness({onStart(){
+      const tool=harness.definitions.get('req_hub_sync_write'),execute=tool.execute;
+      tool.execute=async(args,exec)=>{
+        if(args.outputId!=='changes')return execute(args,exec);
+        const bad=JSON.parse(args.content);bad.changes[0].blockId='mistyped-block';
+        for(let i=0;i<20;i++){
+          try{await execute({...args,content:bad},exec);}catch(error){if(exec.signal.aborted)throw error;}
+        }
+        throw Error('INVALID_WRITE_LOOP_NOT_STOPPED');
+      };
+    }});
+    try{
+      const engine=new PhasedSyncEngine({...harness,signal:owner.signal,config:{sync:{maxInvalidOutputWrites:2}},cwd:dir});
+      const result=await engine.sync({docType:'requirement',currentDoc:source,codeDiff:diff,syncDir:dir});
+      expect(owner.signal.aborted).toBe(false);expect(harness.requests[0].signal.aborted).toBe(true);
+      expect(result.errors[0].error).toContain('SYNC_OUTPUT_REPAIR_LIMIT');expect(result.errors[0].error).toContain('CHANGE_BLOCK_ID');
+      const diagnostic=JSON.parse(await readFile(join(dir,'code-0.read-state.json'),'utf8'));
+      expect(diagnostic.invalidOutputWrites).toBe(2);expect(diagnostic.outputsWritten).toEqual(['report']);
+      expect(result.mergedDoc).toBeNull();
+    }finally{await rm(dir,{recursive:true,force:true});}
+  });
+  it('packs more than 24 read pages when capacity allows and reports additive budget components', async () => {
+    const dir=await mkdtemp(join(tmpdir(),'req-hub-adaptive-pages-'));
+    const codeDiff=Array.from({length:40},(_,i)=>diff.replaceAll('src/rule.js',`src/rule-${i}.js`)+'\n+'+'a'.repeat(4000)).join('\n');
+    const harness=createSyncHarness({noChange:true});
+    const engine=new PhasedSyncEngine({...harness,config:{},cwd:dir});
+    try {
+      const options={docType:'requirement',currentDoc:source,codeDiff,syncDir:join(dir,'auto')};
+      const auto=await engine.prepareSyncChunks(options);
+      engine.config={sync:{maxAnalysisReadPages:24}};
+      const capped=await engine.prepareSyncChunks({...options,syncDir:join(dir,'capped')});
+      expect(auto.code.length).toBeLessThan(capped.code.length);
+      expect(auto.code.some(chunk=>chunk.readPages>24)).toBe(true);
+      expect(auto.code.flatMap(chunk=>chunk.items).map(item=>item.file).sort()).toEqual(capped.code.flatMap(chunk=>chunk.items).map(item=>item.file).sort());
+      for(const chunk of auto.code){const b=chunk.inputBudget;expect(b.evidenceTokens+b.commonTokens+b.promptTokens+b.reservedTokens).toBe(chunk.tokens);expect(chunk.tokens).toBeLessThan(b.limit);expect(chunk.readPages).toBeLessThanOrEqual(auto.budget.maxAnalysisReadPages);}
+    }finally{await rm(dir,{recursive:true,force:true});}
+  });
   it('validates analysis during tool execution so the same child can fix JSON, pending and evidence scope before completion', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'req-hub-analysis-repair-'));
     let checked = false;
@@ -122,12 +161,40 @@ describe('v2 frozen evidence and isolated candidates', () => {
     expect(files[0]).toBe(files[1]);
     expect(files[0]).toContain('+# 标题');
   });
-  it('merges all code chunks through bounded reference-only summary stages', async () => {
+  it('merges all code chunks through one reference-only summary stage', async () => {
     const codeDiff = [0,1].map(i => 'diff --git a/src/f'+i+'.js b/src/f'+i+'.js\n--- a/src/f'+i+'.js\n+++ b/src/f'+i+'.js\n@@ -1 +1 @@\n-old\n+'+'x'.repeat(210000)).join('\n');
     const {result,harness}=await run('requirement',{}, {codeDiff});
     expect(result.errors).toEqual([]);expect(result.stats.codeChunks).toBeGreaterThanOrEqual(2);
-    expect(harness.requests.some(request=>request.label.includes('analysis-merge'))).toBe(true);
+    expect(harness.requests.filter(request=>request.label.includes('analysis-merge'))).toHaveLength(1);
     expect(result.mergedDoc).toBe(source.replace('旧规则','新规则'));
+  });
+  it.each(['code', 'discussion'])('uses exactly one summary for 24 %s chunks and preserves all evidence', async kind => {
+    const dir = await mkdtemp(join(tmpdir(), 'req-hub-single-summary-'));
+    const harness = createSyncHarness();
+    const engine = new PhasedSyncEngine({ ...harness, config: {}, cwd: dir });
+    try {
+      const input = { docType: 'requirement', currentDoc: source, syncDir: dir,
+        codeDiff: kind === 'code' ? Array.from({ length: 24 }, (_, i) => diff.replaceAll('src/rule.js', `src/rule-${i}.js`)).join('\n') : '',
+        sessionTurns: kind === 'discussion' ? Array.from({ length: 24 }, (_, i) => ({ sessionId: 's', turnNumber: i + 1, userInput: '用户确认新规则', summary: '确认' })) : [] };
+      const plan = await engine.prepareSyncChunks(input);
+      // Isolate summary fan-in from the separately tested chunk-packing policy.
+      const items = plan[kind].flatMap(chunk => chunk.items);
+      expect(items).toHaveLength(24);
+      plan[kind] = await Promise.all(items.map(async (item, index) => {
+        const id = kind + '-fixture-' + index, manifestId = 'manifest.' + id;
+        const required = [...plan.common, ...item.required];
+        await plan.store.put(manifestId, JSON.stringify({ schemaVersion: 2, required, outputIds: ['report', 'changes'] }));
+        return { id, index, manifestId, items: [item], required: [manifestId, ...required], allowed: [manifestId, ...required, ...item.context] };
+      }));
+      const result = await engine.sync({ ...input, preparedChunks: plan });
+      expect(result.errors).toEqual([]);
+      expect(harness.requests.filter(request => request.label.includes('analysis-merge'))).toHaveLength(1);
+      expect(harness.requests).toHaveLength(26); // 24 analyses, one summary, one edit.
+      const combined = JSON.parse(await readFile(join(dir, 'summary-0.json'), 'utf8'));
+      expect(combined.changes[0].evidenceRefs).toHaveLength(24);
+      expect(new Set(combined.changes[0].sourceIds).size).toBe(24);
+      expect(result.mergedDoc).toBe(source.replace('旧规则', '新规则'));
+    } finally { await rm(dir, { recursive: true, force: true }); }
   });
   it('reads session artifacts and combines their evidence with code',async()=>{
     const {result}=await run('design',{}, {sessionTurns:[{sessionId:'s',turnNumber:1,userInput:'用户明确确认新规则',summary:'确认'}]});

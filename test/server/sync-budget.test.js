@@ -1,8 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { calculateSyncBudget, resolveSyncBudget, syncReadPage, estimateArtifactReadTokens } from '../../src/server/sync-budget.js';
+import { calculateSyncBudget, resolveSyncBudget, syncReadPage, estimateArtifactReadTokens, analysisReadPageLimit } from '../../src/server/sync-budget.js';
 import { estimateTextTokens, estimateSubagentInputTokens, estimateMessageTokens } from '../../src/server/token-utils.js';
 
 describe('sync estimates and effective Host capacity', () => {
+  it('scales the read workload guard to model capacity while respecting an explicit page limit', () => {
+    expect(analysisReadPageLimit(228729)).toBe(112);
+    expect(analysisReadPageLimit(150000)).toBe(74);
+    expect(analysisReadPageLimit(32000)).toBe(24);
+    expect(analysisReadPageLimit(1000000)).toBe(128);
+    expect(analysisReadPageLimit(228729,24)).toBe(24);
+    expect(()=>analysisReadPageLimit(228729,129)).toThrow('INVALID');
+  });
   it('uses one multilingual token estimate rather than UTF-8 byte counts', () => {
     expect(estimateSubagentInputTokens('x'.repeat(9000))).toBe(3008);
     expect(estimateSubagentInputTokens('中文'.repeat(1000))).toBe(4008);

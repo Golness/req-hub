@@ -45,7 +45,7 @@ export const Config = Schema.object({
     delegation: Schema.object({ provider: Schema.string(), timeout: Schema.natural().min(1), agentOptions: Schema.dict(Schema.any()).default(undefined), liveness: Schema.dict(Schema.any()).default(undefined) }).default(undefined),
   }).default(undefined),
   conversations: Schema.object({ retainedVersions: Schema.natural().min(1).default(3), versionRetentionDays: Schema.natural().min(1).default(7), missingRetentionDays: Schema.natural().default(30), jobRetentionDays: Schema.natural().min(1).default(7), retainedJobs: Schema.natural().min(1).default(100), graceHours: Schema.natural().default(1) }).default(undefined),
-  sync: Schema.object({ baseBranch: Schema.string(), maxAnalysisReadPages: Schema.natural().min(8).max(128).default(24), maxCompletionReminders: Schema.natural().max(5).default(3), retentionDays: Schema.natural().default(0), retainedAttempts: Schema.natural().default(0), capacityBytes: Schema.natural().default(0) }).default(undefined),
+  sync: Schema.object({ baseBranch: Schema.string(), maxAnalysisReadPages: Schema.natural().min(8).max(128).default(undefined), maxCompletionReminders: Schema.natural().max(5).default(3), maxInvalidOutputWrites: Schema.natural().min(1).max(20).default(6), retentionDays: Schema.natural().default(0), retainedAttempts: Schema.natural().default(0), capacityBytes: Schema.natural().default(0) }).default(undefined),
 });
 function checked(value) {
   const initial = validate(value);

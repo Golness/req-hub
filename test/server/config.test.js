@@ -29,7 +29,13 @@ beforeEach(() => {
 });
 
 describe('loadConfig', () => {
-  it.each([{ maxAnalysisReadPages: 0 }, { maxAnalysisReadPages: 129 }, { maxCompletionReminders: 6 }])('rejects invalid sync execution limits %j', async sync => {
+  it('leaves the analysis page limit automatic unless explicitly configured', async () => {
+    mockExistsSync.mockReturnValue(true);mockReadFile.mockResolvedValue(JSON.stringify({sync:{baseBranch:'main'}}));
+    expect((await loadConfig()).sync.maxAnalysisReadPages).toBeUndefined();
+    mockReadFile.mockResolvedValue(JSON.stringify({sync:{maxAnalysisReadPages:24}}));
+    expect((await loadConfig()).sync.maxAnalysisReadPages).toBe(24);
+  });
+  it.each([{ maxAnalysisReadPages: 0 }, { maxAnalysisReadPages: 129 }, { maxCompletionReminders: 6 }, {maxInvalidOutputWrites:0}, {maxInvalidOutputWrites:21}])('rejects invalid sync execution limits %j', async sync => {
     mockExistsSync.mockReturnValue(true); mockReadFile.mockResolvedValue(JSON.stringify({ sync }));
     await expect(loadConfig()).rejects.toThrow('INVALID_CONFIG');
   });

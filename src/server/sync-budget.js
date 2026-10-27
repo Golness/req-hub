@@ -2,6 +2,15 @@ import { estimateSubagentInputTokens, MAX_SYNC_INPUT_TOKENS } from './token-util
 
 export const DEFAULT_RESULT_CHARS = 8192;
 
+/** Workload backstop, not a replacement for the complete input-token budget.
+ * Allow capacity-sized reading rather than forcing every model into 24 pages.
+ * 2048 tokens/page deliberately leaves slack for short pages and small artifacts.
+ */
+export function analysisReadPageLimit(inputLimit, configured) {
+  if (configured !== undefined && (!Number.isSafeInteger(configured) || configured < 8 || configured > 128)) throw new Error('SYNC_READ_PAGE_LIMIT_INVALID');
+  return configured ?? Math.min(128, Math.max(24, Math.ceil(inputLimit / 2048)));
+}
+
 /** Mirror the Host's capacity/compaction formula without importing internal packages. */
 export function calculateSyncBudget({ provider, model, contextWindow, maxTokens = 8000, compaction } = {}) {
   if (contextWindow === undefined) return { provider, model, limit: MAX_SYNC_INPUT_TOKENS, source: 'fallback', outputTokens: maxTokens };

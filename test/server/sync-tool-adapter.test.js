@@ -3,12 +3,42 @@ import {describe,it,expect} from 'vitest';
 import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';import {tmpdir}from'node:os';import{join}from'node:path';
 import {SyncArtifacts,hashBytes}from'../../src/server/sync-artifacts.js';
 import {installSyncTools,assertSyncCapabilities,OUTPUT_LIMIT}from'../../src/server/sync-controlled-tools.js';
-import {indexDocument,parseAnalysisChanges}from'../../src/server/sync-document-validator.js';
+import {indexDocument,parseAnalysisChanges,validateChanges}from'../../src/server/sync-document-validator.js';
 import{createSyncHarness}from'./sync-v2-harness.js';
 async function fixture(action){const root=await mkdtemp(join(tmpdir(),'req-hub-tool-scope-'));try{const h=createSyncHarness(),store=await new SyncArtifacts(join(root,'input')).init(),installation=installSyncTools(h.ctx);await action({root,h,store,installation});}finally{await rm(root,{recursive:true,force:true});}}
 async function bind(h,runtime,extra=''){bindOwnedSession(runtime,runtime.id);for(const hook of h.hooks.get('llm/stream')) for await(const _ of hook({sessionId:runtime.id,messages:[{role:'user',content:[{type:'text',text:'REQHUB_SYNC_V2='+runtime.id+extra}]}],tools:[{name:'req_hub_sync_read'}]},async function*(){})) {}}
 const call=(h,runtime,name,args)=>h.definitions.get(name).execute(args,{name,agent:{session:{id:runtime.id}},signal:new AbortController().signal});
 describe('sync v2 controlled evidence access',()=>{
+ it('identifies a mistyped empty block separately from valid evidence references',()=>{
+  const blocks=indexDocument(Buffer.alloc(0));
+  const change={id:'c1',action:'add',blockId:blocks[0].id.replace('e3b0','e3b9'),reason:'Confirmed requirement',proposal:'New requirement',evidenceRefs:['code.7.diff']};
+  let failure;try{validateChanges({changes:[change],pending:[]},blocks,['code.7.diff']);}catch(error){failure=error;}
+  expect(failure.code).toBe('CHANGE_BLOCK_ID');expect(failure.details).toMatchObject({path:'changes[0].blockId',actual:change.blockId,expected:[blocks[0].id]});
+  expect(failure.message).not.toContain('Invalid references');
+  const valid={changes:[{...change,blockId:blocks[0].id}],pending:[]};expect(validateChanges(valid,blocks,['code.7.diff'])).toBe(valid);
+  expect(()=>validateChanges({changes:[{...valid.changes[0],action:'new'}],pending:[]},blocks,['code.7.diff'])).toThrow('CHANGE_ACTION');
+  expect(()=>validateChanges({changes:[{...valid.changes[0],reason:''}],pending:[]},blocks,['code.7.diff'])).toThrow('changes[0].reason');
+  expect(()=>validateChanges({changes:[{...valid.changes[0],evidenceRefs:['document.blocks']}],pending:[]},blocks,['code.7.diff'])).toThrow('changes[0].evidenceRefs');
+ });
+ it('accepts structured changes, serializes quoted Unicode text and still enforces the exact scope',async()=>fixture(async({root,h,store,installation})=>{
+  expect(h.definitions.get('req_hub_sync_write').parameters.properties.content.oneOf.map(branch=>branch.type)).toEqual(['string','object']);
+  const blocks=indexDocument(Buffer.alloc(0)),path=join(root,'structured.json');
+  const runtime=installation.create({store,allowed:[],required:[],outputs:{changes:path},validateOutput:(_id,raw)=>parseAnalysisChanges(raw,blocks,['code.7.diff'])});await bind(h,runtime);
+  const content={changes:[{id:'c1',action:'add',blockId:blocks[0].id,reason:'已确认"规则"',proposal:'第一行\n第二行',evidenceRefs:['code.7.diff']}],pending:[]};
+  expect(await call(h,runtime,'req_hub_sync_write',{outputId:'changes',content})).toMatchObject({written:true});expect(JSON.parse(await readFile(path,'utf8'))).toEqual(content);runtime.close();
+ }));
+ it('bounds invalid writes and cancels only their child while parent revocation still owns sibling runtimes',async()=>fixture(async({root,h,store,installation})=>{
+  const owner=new AbortController(),child=new AbortController(),other=new AbortController();
+  const bad=installation.create({store,allowed:[],required:[],outputs:{changes:join(root,'bad.json')},signal:AbortSignal.any([owner.signal,child.signal]),ownerSignal:owner.signal,maxInvalidOutputWrites:2,onOutputFailure:error=>child.abort(error),validateOutput:()=>{throw new Error('CHANGE_BLOCK_ID: exact id required');}});
+  const good=installation.create({store,allowed:[],required:[],outputs:{report:join(root,'good.md')},signal:AbortSignal.any([owner.signal,other.signal]),ownerSignal:owner.signal});
+  await bind(h,bad);await bind(h,good);
+  const invalid=()=>call(h,bad,'req_hub_sync_write',{outputId:'changes',content:{changes:[],pending:[]}});
+  await expect(invalid()).rejects.toThrow('Invalid write 1/2');await expect(invalid()).rejects.toThrow('SYNC_OUTPUT_REPAIR_LIMIT');
+  expect(child.signal.aborted).toBe(true);expect(owner.signal.aborted).toBe(false);expect(other.signal.aborted).toBe(false);expect(bad.closed).toBe(true);
+  expect(await call(h,good,'req_hub_sync_write',{outputId:'report',content:'Sibling result'})).toMatchObject({written:true});
+  expect((await bad.diagnostics()).invalidOutputWrites).toBe(2);await expect(readFile(join(root,'bad.json'))).rejects.toMatchObject({code:'ENOENT'});
+  installation.revoke(owner.signal);expect(good.closed).toBe(true);
+ }));
  it('rejects malformed analysis before acknowledging it and permits correction in the same owned runtime',async()=>fixture(async({root,h,store,installation})=>{
   const artifactId='code.0.diff.part-1',blocks=indexDocument(Buffer.alloc(0)),path=join(root,'changes.json');
   await store.put(artifactId,'frozen fragment');

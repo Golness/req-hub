@@ -1,7 +1,6 @@
 'use strict';
 const { t } = require('../locale.js');
 const css = require('./MilkdownEditor.module.css').default;
-const { cssValue } = require('./shared/presentation.js');
 
 const React = require('react');
 const h = React.createElement;
@@ -139,7 +138,7 @@ function MilkdownEditor({ content, onChange, readOnly = false, mermaid = null })
   return h(React.Fragment, null, status, h('div', {
     ref: editorRef,
     className: ('rh-milkdown-editor') + ' ' + css.pane,
-    style: { "--rh-display-2": cssValue(loading || error ? 'none' : undefined) }
+    hidden: loading || !!error,
   }));
 }
 

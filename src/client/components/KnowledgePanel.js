@@ -31,7 +31,7 @@ function KnowledgePanel({ workspaceId, knowledge, tab, documentView, selectedFil
     tab === 'files' && (knowledge.error || error) && h('div', { className: 'rh-knowledge-error', role: 'alert' }, knowledge.error || error),
     h('div', { className: css.body, id: tab === 'search' ? undefined : 'knowledge-content', role: tab === 'search' ? undefined : 'tabpanel', 'aria-labelledby': tab === 'search' ? undefined : `knowledge-tab-${tab}` },
     h('div', { className: css.documentPane, hidden: tab !== 'documents' }, selectedFile ? documentView : h(EmptyState, { title: t('KnowledgePanel.message016'), description: t('KnowledgePanel.message017') })),
-    tab === 'sessions' ? h(ConversationKnowledgeImport, { initialTarget: workspaceId, embedded: true, onImported: () => { setRevision(value => value + 1); knowledge.refresh(); } })
+    tab === 'sessions' ? h(ConversationKnowledgeImport, { key: workspaceId, initialTarget: workspaceId, embedded: true, onImported: () => { setRevision(value => value + 1); knowledge.refresh(); } })
       : tab === 'files' && h('div', { className: 'rh-knowledge-results' },
         h('div', { className: 'rh-search-count' }, knowledge.status ? t('knowledgeLayout.documentCount', { count: knowledge.status.documentCount ?? data?.entries?.filter(entry => !entry.conversation).length ?? 0 }) : t("KnowledgePanel.message019")),
         knowledge.selected.length > 0 && h('details', null, h('summary', null, t("KnowledgePanel.message020", { value0: knowledge.selected.length })), h('ul', null, knowledge.selected.map(path => h('li', { key: path, title: path }, path)))),

@@ -415,6 +415,12 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
       const hasChunks = step.chunks && step.chunks.length > 0;
       const isChunksExpanded = expandedChunks[step.phase];
       const isStepExpanded = expandedSteps[step.phase];
+      const budget = hasChunks && step.chunks.every(chunk => chunk.inputBudget)
+        ? step.chunks.reduce((sum, chunk) => Object.fromEntries(Object.keys(sum).map(key => [key, sum[key] + chunk.inputBudget[key]])), {evidenceTokens:0, commonTokens:0, promptTokens:0, reservedTokens:0}) : null;
+      const budgetText = value => t('sync.budget.breakdown', {
+        evidence: formatTokens(value.evidenceTokens), common: formatTokens(value.commonTokens),
+        prompt: formatTokens(value.promptTokens), reserved: formatTokens(value.reservedTokens),
+      });
 
       return h('div', {
         key: idx,
@@ -440,7 +446,7 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
           // Token 数标签
           step.totalTokens && h('span', {
             className: css.mutedText6
-          }, `${formatTokens(step.totalTokens)} tokens`),
+          }, t('sync.budget.label', {tokens:formatTokens(step.totalTokens)})),
           // Expand arrow
           h('span', { className: `rh-sync-step-arrow${isStepExpanded ? ' expanded' : ''}` }, '▾')
         ),
@@ -448,6 +454,9 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
         (step.text || step.activity) && h('div', {
           className: css.mutedText7
         }, step.status === 'running' && step.activity ? syncActivityText(step.activity) : syncErrorText(step.text)),
+        Number.isFinite(step.sourceTokens) && h('div', {
+          className: css.mutedText8,
+        }, t('sync.budget.source', { tokens: formatTokens(step.sourceTokens) })),
 
         // Expanded detail section
         isStepExpanded && h('div', { className: 'rh-sync-step-detail' },
@@ -474,6 +483,8 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
             isChunksExpanded && h('div', { className: css.column3 },
               // 分块总览
               h('div', { className: css.mutedText8}, t("SyncPanel.message019", { value0: step.chunks.length, value1: formatTokens(step.totalTokens) })),
+              budget && h('div', { className: css.mutedText8 }, budgetText(budget)),
+              h('div', { className: css.mutedText8 }, t('sync.budget.notice')),
 
               // 每块详情
               step.chunks.map((chunk, ci) =>
@@ -509,7 +520,7 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
                         : null
                     ),
                     // token 数
-                    h('span', { className: css.mutedText9}, `${formatTokens(chunk.tokens)} tokens`),
+                    h('span', { className: css.mutedText9, title: chunk.inputBudget ? budgetText(chunk.inputBudget) : undefined }, t('sync.budget.label', {tokens:formatTokens(chunk.tokens)})),
                   ),
                   // sessionId（紧凑展示）
                   chunk.sessionId && h('div', {

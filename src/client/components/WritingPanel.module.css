@@ -1,0 +1,5 @@
+.editor { display: flex; flex-direction: column; min-height: 300px; flex: 1 0 300px; padding: 12px; min-width: 0; }
+.editorHint { flex-shrink: 0; font-size: var(--rh-font-size-sm); line-height: 20px; color: var(--dsw-alias-label-secondary); margin-bottom: 8px; }
+.editor :global(.rh-milkdown-editor):not([hidden]) { display: flex; flex-direction: column; flex: 1; min-height: 240px; }
+.editor :global(.milkdown) { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.editor :global(.ProseMirror) { flex: 1; min-height: 208px; width: 100%; overflow-wrap: anywhere; }

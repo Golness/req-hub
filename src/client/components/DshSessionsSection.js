@@ -48,7 +48,7 @@ function DshSessionsSection({ workspaceId, selection = EMPTY, onSelectionChange,
   };
   const visible = sessions.filter(row => `${row.title} ${row.id}`.toLowerCase().includes(search.trim().toLowerCase()));
   return h('section', { className: 'rh-sync-source-section rh-sync-sessions', 'aria-label': t('SyncPanel.message086') },
-    h('div', { className: 'rh-sync-section-heading' }, h('h3', { className: 'rh-sync-section-title' }, t('SyncPanel.message087')),
+    h('div', { className: 'rh-sync-section-heading' }, h('h3', { className: 'rh-sync-section-title' }, t(acquireOnly ? 'conversationSources.dsh' : 'SyncPanel.message087')),
       h(Button, { className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: disabled || loading, onClick: () => load(true) }, t('SyncPanel.message088')),
       onManage && h(Button, { className: 'rh-btn rh-btn-ghost rh-btn-sm', disabled: disabled || loading, onClick: onManage }, t('conversations.manage'))),
     h('p', { className: 'rh-sync-hint' }, t(acquireOnly ? 'conversationSources.dshHint' : 'SyncPanel.message089')),

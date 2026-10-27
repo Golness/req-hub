@@ -1,4 +1,12 @@
 export declare const zh: {
+  readonly "conversationImport.collapseTurns": string;
+  readonly "conversationImport.search": string;
+  readonly "conversationImport.sourceEmpty": string;
+  readonly "conversationImport.workspaceMismatch": string;
+  readonly "conversationSources.dsh": string;
+  readonly "conversationSources.codex": string;
+  readonly "conversationSources.codexMissing": string;
+  readonly "conversationSources.codexAmbiguous": string;
   readonly "AnalyzePanel.message001": string;
   readonly "common.loading": string;
   readonly "common.back": string;
@@ -617,5 +625,14 @@ export declare const zh: {
   readonly "sync.error.PENDING_SCHEMA": string;
   readonly "sync.error.EVIDENCE_REFERENCE_NOT_READ": string;
   readonly "sync.error.MERGE_CHANGE_DROPPED": string;
+  readonly "writing.editorHint": string;
+  readonly "sync.budget.label": string;
+  readonly "sync.budget.breakdown": string;
+  readonly "sync.budget.notice": string;
+  readonly "sync.budget.source": string;
+  readonly "sync.error.CHANGE_BLOCK_ID": string;
+  readonly "sync.error.CHANGE_ACTION": string;
+  readonly "sync.error.CHANGE_TEXT": string;
+  readonly "sync.error.SYNC_OUTPUT_REPAIR_LIMIT": string;
   readonly "sync.navigation.active": string;
 };
