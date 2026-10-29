@@ -113,7 +113,7 @@ export class PhasedSyncEngine {
   async preparePrompt(key, variables) {
     const prompt = await prepareTaskPrompt(this.ctx, this.llm, this.getStageConfig(key), { promptKey: key, variables, cwd: this.cwd, parentAgent: this.parentAgent });
     const binding = this.config.ai?.syncV2?.skillBindings?.[key];
-    if (binding && prompt.skillUsed !== binding) throw new Error('SKILL_LOAD_FAILED: ' + binding);
+    // Missing skills use the business protocol and retain an unavailable status.
     return prompt;
   }
   async prepareSyncChunks(options) {

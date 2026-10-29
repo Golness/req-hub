@@ -125,7 +125,7 @@ it('opens knowledge search as its fourth tab with Ctrl+K and no independent rail
   await click(button('知识库'));
   expect(container.querySelector('.rh-file-tree-sidebar')).toBeTruthy();
   expect(button('知识库').className).toContain('active'); expect(button('查看')).toBeUndefined();
-  expect([...container.querySelectorAll('[role="tab"]')].map(tab => tab.textContent)).toEqual(['查看文档', '文档入库', '会话入库', '搜索']);
+  expect([...container.querySelectorAll('[role="tab"]')].map(tab => tab.textContent)).toEqual(['查看文档', '文档入库', '会话入库', '搜索', '索引', 'Wiki', '问答', '健康检查', '维护规则', '最近变更']);
   expect(container.querySelector('.rh-file-tree-sidebar')).toBeTruthy();
   expect(container.querySelector('.rh-knowledge-selection')).toBeNull();
   await click([...container.querySelectorAll('[role="tab"]')].find(tab => tab.textContent === '文档入库'));

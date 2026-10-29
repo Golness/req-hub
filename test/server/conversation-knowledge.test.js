@@ -119,7 +119,7 @@ it('indexes imported records globally, preserves them after cache deletion, and 
   const results = await knowledge.searchAll('Shipping'); expect(results.hits).toHaveLength(1);
   const document = scope.store.list()[0]; expect(document.sources[0].status).toBe('active');
   const runtime = new WritingRuntime([{ id: scope.identity }], [{ ...document, scopeId: scope.identity }]);
-  expect(runtime.search({ scopeId: scope.identity, query: 'Shipping' })[0].conversation.turns[0].number).toBe(1);
+  expect(runtime.search({ scopeId: scope.identity, query: 'Shipping' }).hits[0]).toMatchObject({ id: document.id, version: document.version, sources: [{ relativePath: document.sources[0].relativePath }] });
   const read = runtime.read({ id: document.id }); expect(read.sources[0].conversation.turns[0].snapshotVersion).toBe(entry.snapshotVersion);
   runtime.submit({ content: 'Updated requirement', evidenceIds: [document.id] });
   expect(runtime.result.evidence[0].type).toBe('conversation');

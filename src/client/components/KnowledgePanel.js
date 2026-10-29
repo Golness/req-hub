@@ -10,6 +10,7 @@ const { Skeleton } = require('./shared/Skeleton.js');
 const { knowledgeRequest } = require('../hooks/useKnowledge.js');
 const { ConversationKnowledgeImport } = require('./ConversationKnowledgeImport.js');
 const { ConversationProvenance } = require('./ConversationProvenance.js');
+const { WikiPanel } = require('./WikiPanel.js');
 
 const LABELS = { pending: t("KnowledgePanel.message001"), running: t("KnowledgePanel.message002"), completed: t("KnowledgePanel.message003"), skipped: t("KnowledgePanel.message004"), failed: t("KnowledgePanel.message005"), stale: t("KnowledgePanel.message006"), cancelled: t("KnowledgePanel.message007"), interrupted: t("KnowledgePanel.message008"), partial: t("KnowledgePanel.message009"), queued: t("KnowledgePanel.message010"), cancelling: t("KnowledgePanel.message011") };
 
@@ -25,6 +26,7 @@ function KnowledgePanel({ workspaceId, knowledge, tab, documentView, selectedFil
     return () => controller.abort();
   }, [workspaceId, knowledge.job?.updatedAt, revision, tab]);
   const retry = knowledge.job?.files.filter(f => ['failed', 'stale', 'cancelled', 'interrupted'].includes(f.status)).map(f => f.relativePath) || [];
+  if (['index','wiki','query','lint','rules','changes'].includes(tab)) return h(WikiPanel, { key: workspaceId + ':' + tab, workspaceId, tab });
   return h('div', { className: 'rh-knowledge-panel' },
     tab === 'files' && h('div', { className: 'rh-knowledge-toolbar' },
       h(Button, { className: 'rh-btn rh-btn-ghost rh-btn-sm', onClick: () => { setRevision(value => value + 1); knowledge.refresh(); }, disabled: knowledge.running }, t('KnowledgePanel.message015'))),

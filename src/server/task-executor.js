@@ -437,10 +437,11 @@ export class TaskExecutor {
     try {
       this.callbacks.onProgress?.({ stage: 'skill_loading', promptKey });
 
-      const promptResult = await getPromptAsync(this.config, promptKey, this.cwd, this.scopedSkills);
+      const promptResult = await getPromptAsync(this.config, promptKey, this.cwd, this.scopedSkills || this.ctx?.agentPresets?.serviceFor?.(this.parentAgent, 'skills') || this.ctx?.skills, { scope: this.parentAgent, signal: this.signal });
       const { systemPrompt, promptTemplate, skillUsed } = promptResult;
 
       result.skillUsed = skillUsed;
+      result.skillStatus = promptResult.skillStatus || (skillUsed ? 'loaded' : 'not_bound');
       result.skillContent = systemPrompt;
       result.promptTemplate = promptTemplate;
 
@@ -490,7 +491,7 @@ export class TaskExecutor {
         }
 
         fullPrompt = buildFullPrompt({
-          systemPrompt: PROMPT_REGISTRY[promptKey]?.contractVersion === 2 ? '' : result.skillContent || '',
+          systemPrompt: '',
           promptTemplate: result.promptTemplate,
           variables
         });
@@ -1228,25 +1229,15 @@ export class TaskExecutor {
     const { skillContent, skillName } = options;
 
     if (skillContent) {
-      return `
-<skill_content name="${skillName}">
+      return `Apply the following skill to generated text. Preserve the requested language.
+Keep facts, conditions, uncertainty, code, paths, and protocol fields unchanged.
+The task protocol controls tools and output format. Do not add delivery tools.
+<skill_content name=${JSON.stringify(skillName)}>
 ${skillContent}
 </skill_content>
 
----
-
-## 任务数据
-
-${userPrompt}
-
----
-
-## 执行要求
-
-1. 遵循上述 Skill 指令执行任务
-2. 如果需要创建文件，使用 \`present\` 工具声明交付物
-3. 返回完整的结果
-`;
+Task protocol and frozen input:
+${userPrompt}`;
     }
 
     return userPrompt;
@@ -1354,6 +1345,6 @@ export async function executeTask(ctx, llm, config, options) {
 
 /** Render the exact initial subagent payload without starting a task. */
 export async function prepareTaskPrompt(ctx, llm, config, options) {
-  const executor = new TaskExecutor({ ctx, llm, config, cwd: options.cwd, parentAgent: options.parentAgent });
+  const executor = new TaskExecutor({ ctx, llm, config, cwd: options.cwd, parentAgent: options.parentAgent, signal: options.signal, scopedSkills: options.scopedSkills });
   return executor.loadPrompt(options);
 }

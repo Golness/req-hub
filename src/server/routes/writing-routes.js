@@ -71,7 +71,12 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
         let input; try { input = JSON.parse(await readBody(req)); } catch { throw knowledgeError('WRITING_SAVE_INVALID', 400); }
         if (!input || typeof input !== 'object') throw knowledgeError('WRITING_SAVE_INVALID', 400);
         try {
-          return json(res, await saveWriting(registry, await configLoader(), input, () => { if (closed) throw knowledgeError('WRITING_CLOSED', 503); req.operationExec?.signal?.throwIfAborted(); }));
+          const saved = await saveWriting(registry, await configLoader(), input, () => { if (closed) throw knowledgeError('WRITING_CLOSED', 503); req.operationExec?.signal?.throwIfAborted(); });
+          if (knowledge.wiki) {
+            try { saved.wiki = await knowledge.wiki.capture(input.workspaceId, saved.path, req.operationExec?.agent?.session?.id || req.headers?.['x-session-id'], req.operationExec?.signal); }
+            catch { saved.wiki = { state: 'failed', code: 'WIKI_INGEST_FAILED' }; }
+          }
+          return json(res, saved);
         } catch (error) {
           if (/^WRITING_[A-Z_]+$/.test(error.message)) throw error;
           throw knowledgeError(error.status === 403 ? 'WRITING_SAVE_PATH_DENIED' : error.code === 'ENOENT' ? 'WRITING_SAVE_TARGET_REQUIRED' : 'WRITING_SAVE_FAILED', error.status || (error.code === 'ENOENT' ? 404 : 500));

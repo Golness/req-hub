@@ -90,10 +90,10 @@ it('keeps creation visibly unavailable and explains it in a modal without leavin
   expect(create().getAttribute('aria-disabled')).toBeNull();
   expect(container.textContent).toContain('创建需求目录');
 });
-it('keeps four knowledge tabs and places assistance in the relevant workflows', async () => {
+it('preserves source tabs and adds Wiki workflows', async () => {
   api(); await open();
   expect([...container.querySelectorAll('.rh-rail-btn')].some(node => node.textContent === '查看')).toBe(false);
-  expect([...container.querySelectorAll('[role="tab"]')].map(node => node.textContent)).toEqual(['查看文档', '文档入库', '会话入库', '搜索']);
+  expect([...container.querySelectorAll('[role="tab"]')].map(node => node.textContent)).toEqual(['查看文档', '文档入库', '会话入库', '搜索', '索引', 'Wiki', '问答', '健康检查', '维护规则', '最近变更']);
   const tabs = container.querySelector('[role="tablist"]');
   expect(tabs.closest('.rh-right-panel')).toBeNull();
   expect(tabs.compareDocumentPosition(container.querySelector('.rh-file-tree-sidebar')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

@@ -5,7 +5,7 @@
  */
 
 import { loadConfig, saveConfig, autoDefaultConfig } from '../config.js';
-import { PROMPT_REGISTRY, getPrompt, getAllPromptMetas, getPromptMeta, validatePromptTemplate } from '../prompts.js';
+import { PROMPT_REGISTRY, getPrompt, getAllPromptMetas, getPromptMeta, validatePromptTemplate, defaultSkillBindings } from '../prompts.js';
 import { json, readBody } from '../utils.js';
 import { log } from '../logger.js';
 
@@ -26,6 +26,7 @@ export function createConfigRoutes(registry, llm) {
           try {
             let config = await loadConfig();
             config = await autoDefaultConfig(config, registry);
+            config = await defaultSkillBindings(config, undefined, { cwd: registry.list().find(item => item.id === config.workspaceId)?.path });
             
             res.writeHead(200, {
               'Content-Type': 'application/json',

@@ -178,6 +178,7 @@ function WritingPanelBody({ workspaceId, requirement, onSaved, active = true, to
       const result = await request('/save', { ...payload, ...(expectedVersion !== undefined ? { expectedVersion } : {}) }, controller.signal);
       if (controller.signal.aborted) return;
       setPendingSave(null); showToast({ tone: 'success', text: t('writing.saved', { path: result.path }) }); onSaved?.();
+      if (result.wiki?.state === 'failed') showToast({ tone: 'warning', text: t('wiki.sourceSavedProcessingFailed') });
     } catch (e) {
       if (controller.signal.aborted) return;
       if (e.code === 'WRITING_FILE_EXISTS' || e.code === 'WRITING_SAVE_CONFLICT' && e.details?.version) setPendingSave({ payload, version: e.details.version, filename: e.details.filename, conflict: e.code === 'WRITING_SAVE_CONFLICT' });

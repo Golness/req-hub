@@ -6,6 +6,7 @@
 
 import { readdir, stat, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
+import { safeDocumentPath } from './safe-path.js';
 
 /** @type {RegExp} Pattern for requirement directory names (YYYY-MM-DD-title) */
 const REQ_DIR_RE = /^(\d{4}-\d{2}-\d{2})-(.+)$/;
@@ -30,6 +31,21 @@ function parseRequirementDir(dirName) {
     date: m[1],
     title: m[2],
   };
+}
+
+/** Count requirement directories without reading their contents. */
+export async function countRequirementDirectories(docsDir) {
+  let developers;
+  try { developers = await readdir(docsDir, { withFileTypes: true }); }
+  catch (error) { if (error.code === 'ENOENT') return 0; throw error; }
+  let count = 0;
+  for (const developer of developers) {
+    if (!developer.isDirectory() || developer.name.startsWith('.')) continue;
+    const developerPath = await safeDocumentPath(docsDir, developer.name);
+    const entries = await readdir(developerPath, { withFileTypes: true });
+    count += entries.filter(entry => entry.isDirectory() && parseRequirementDir(entry.name)).length;
+  }
+  return count;
 }
 
 /**

@@ -45,7 +45,7 @@ function Modal({ open, title, onClose, className, children, role = 'dialog' }) {
 }
 
 /** Viewport fitting is local; theme materials remain owned by DSH. */
-function usePlacement(open, anchor, surface, gap = 4, anchorPoint) {
+function usePlacement(open, anchor, surface, gap = 4, anchorPoint, side = 'bottom') {
   const [position, setPosition] = React.useState({});
   React.useLayoutEffect(() => {
     if (!open) return;
@@ -54,14 +54,22 @@ function usePlacement(open, anchor, surface, gap = 4, anchorPoint) {
       const rect = anchorPoint ? { left: anchorPoint.x, top: anchorPoint.y, bottom: anchorPoint.y } : anchor.current.getBoundingClientRect(), box = surface.current.getBoundingClientRect();
       const width = window.innerWidth, height = window.innerHeight;
       const inset = Math.max(12, parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dsh-frame-overlay-top')) || 0);
+      if (side === 'right') {
+        const right = rect.right + gap, left = rect.left - box.width - gap;
+        const x = right + box.width <= width - 12 ? right : left >= 12 ? left : right;
+        const top = Math.max(inset, Math.min((rect.top + rect.bottom - box.height) / 2, height - box.height - 12));
+        setPosition({ '--rh-overlay-left': Math.max(12, Math.min(x, width - box.width - 12)) + 'px', '--rh-overlay-top': top + 'px', '--rh-overlay-height': Math.max(40, height - top - 12) + 'px' });
+        return;
+      }
       const top = height - rect.bottom - gap >= Math.min(box.height, 160) ? rect.bottom + gap : Math.max(inset, rect.top - box.height - gap);
       setPosition({ '--rh-overlay-left': Math.max(12, Math.min(rect.left, width - box.width - 12)) + 'px', '--rh-overlay-top': Math.min(top, height - 24) + 'px', '--rh-overlay-height': Math.max(40, height - top - 12) + 'px' });
     };
     update(); window.addEventListener('resize', update); window.addEventListener('scroll', update, true);
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(update) : null;
     if (surface.current) observer?.observe(surface.current);
+    if (anchor.current) observer?.observe(anchor.current);
     return () => { window.removeEventListener('resize', update); window.removeEventListener('scroll', update, true); observer?.disconnect(); };
-  }, [open, anchor, surface, gap, anchorPoint]);
+  }, [open, anchor, surface, gap, anchorPoint, side]);
   return position;
 }
 
@@ -122,9 +130,9 @@ function Popover({ anchor, open, onClose, label, className, children }) {
     }, children), document.body));
 }
 
-function HoverCard({ anchor, content, className }) {
+function HoverCard({ anchor, content, className, side = 'bottom' }) {
   const [open, setOpen] = React.useState(false), trigger = React.useRef(null), card = React.useRef(null);
-  const id = React.useId(), position = usePlacement(open, trigger, card, 8);
+  const id = React.useId(), position = usePlacement(open, trigger, card, side === 'right' ? 10 : 8, undefined, side);
   return h('span', { ref: trigger, className: join(css.hoverAnchor, className), onMouseEnter: () => setOpen(true), onMouseLeave: () => setOpen(false), onFocus: () => setOpen(true), onBlur: () => setOpen(false), onKeyDown: event => { if (event.key === 'Escape') setOpen(false); } },
     React.cloneElement(anchor, { 'aria-describedby': open ? id : anchor.props['aria-describedby'] }),
     open && createPortal(h('div', { ref: card, id, role: 'tooltip', className: css.hoverCard, style: position }, content), document.body));

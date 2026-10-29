@@ -75,7 +75,7 @@ async function edit(value) {
 
 it('groups every registered prompt by rail feature and supports keyboard tabs', async () => {
   await renderSettings();
-  expect([...document.querySelectorAll('[role="tab"]')].map(el => el.textContent)).toEqual(['同步10', '知识库1', '写作1']);
+  expect([...document.querySelectorAll('[role="tab"]')].map(el => el.textContent)).toEqual(['同步10', '知识库2', '写作1']);
   expect(document.querySelectorAll('.rh-prompt-item')).toHaveLength(10);
   expect(document.querySelectorAll('textarea')).toHaveLength(1);
   expect(document.body.textContent).not.toContain('Prompt 结构说明');

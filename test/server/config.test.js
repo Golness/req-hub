@@ -29,6 +29,13 @@ beforeEach(() => {
 });
 
 describe('loadConfig', () => {
+  it.each([{autoManage:'yes'},{maxConcurrentJobs:0},{maxConcurrentJobs:9},{maxWikiPagesPerScope:0},{maxInputBytes:999},{maxResultBytes:1000001},{maxSourceDocuments:201},{maxAffectedPages:0},{timeoutMs:999},{smallFileThresholdBytes:-1}])('rejects invalid Wiki execution settings %j',async wiki=>{
+    mockExistsSync.mockReturnValue(true);mockReadFile.mockResolvedValue(JSON.stringify({wiki}));await expect(loadConfig()).rejects.toThrow('INVALID_CONFIG');
+  });
+  it('retains explicit empty skill bindings in both prompt protocols',async()=>{
+    mockExistsSync.mockReturnValue(true);mockReadFile.mockResolvedValue(JSON.stringify({ai:{skillBindings:{writing:null},syncV2:{contractVersion:2,skillBindings:{'phased-merge-design':null}}}}));
+    const config=await loadConfig();expect(config.ai.skillBindings.writing).toBeNull();expect(config.ai.syncV2.skillBindings['phased-merge-design']).toBeNull();
+  });
   it('leaves the analysis page limit automatic unless explicitly configured', async () => {
     mockExistsSync.mockReturnValue(true);mockReadFile.mockResolvedValue(JSON.stringify({sync:{baseBranch:'main'}}));
     expect((await loadConfig()).sync.maxAnalysisReadPages).toBeUndefined();

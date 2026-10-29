@@ -27,41 +27,6 @@
  * Their existing blue text marks location; tabs retain their full-width underline.
  */
 
-.rh-trigger {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 42px;
-  margin: 0;
-  padding: 0 10px 0 8px;
-  box-sizing: border-box;
-  border: none;
-  border-radius: var(--dsw-radius-md);
-  background: transparent;
-  cursor: pointer;
-  overflow: hidden;
-  color: var(--dsw-alias-label-primary);
-  font-family: inherit;
-  font-size: var(--rh-font-size-title);
-  line-height: var(--rh-line-height);
-  transition: background 0.15s;
-}
-
-.rh-trigger:hover {
-  background: transparent;
-}
-
-.rh-trigger-rail {
-  flex: none;
-  width: 36px;
-  height: 36px;
-  justify-content: center;
-  gap: 0;
-  padding: 0;
-  margin: 0;
-}
-
 .rh-result-card {
   border: 0.5px solid var(--dsw-alias-border-l1);
   border-radius: var(--rh-button-radius);

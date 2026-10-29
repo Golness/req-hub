@@ -5,6 +5,7 @@ const { t } = require('../../locale.js');
 
 const React = require('react');
 const { Menu } = require('./controls.js');
+const css = require('./Select.module.css').default;
 const h = React.createElement;
 const { IconChevronDown } = require('../../icons.js').createIconComponents(h);
 
@@ -63,7 +64,7 @@ function Select({ children, options, value, onChange, disabled = false, classNam
     listClassName: `rh-select-menu${canSearch ? ' rh-select-menu-searchable' : ''}`,
   }, canSearch && h('div', { className: 'rh-select-search', role: 'presentation' },
     h(Input, {
-      ref: searchRef, type: 'search', value: query, placeholder: searchPlaceholder,
+      ref: searchRef, className: css.searchInput, type: 'search', value: query, placeholder: searchPlaceholder,
       'aria-label': t("Select.message003", { value0: aria['aria-label'] || t("Select.message002") }),
       onChange: event => setQuery(event.target.value),
       onKeyDown: event => {

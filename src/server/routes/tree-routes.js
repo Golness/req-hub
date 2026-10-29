@@ -11,9 +11,8 @@ import { readdir, stat, mkdir, writeFile } from 'node:fs/promises';
 import { resolve, relative, join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { loadConfig } from '../config.js';
-import { buildTree, countRequirements, findRequirementPath } from '../tree.js';
+import { buildTree, countRequirements, countRequirementDirectories, findRequirementPath } from '../tree.js';
 import { walkDocs, isInside, json, readBody } from '../utils.js';
-import { getCached, setCached } from '../cache.js';
 import { log } from '../logger.js';
 import { SUPPORTED_DOC_EXTS } from '../tree.js';
 import { readSource } from '../knowledge/source-reader.js';
@@ -23,7 +22,7 @@ import { readSource } from '../knowledge/source-reader.js';
  * @param {Object} registry - Workspace registry service
  * @returns {Array<Object>} Array of route definitions
  */
-export function createTreeRoutes(registry) {
+export function createTreeRoutes(registry, options = {}) {
   return [
     // GET /workspaces - 获取工作区列表
     {
@@ -132,42 +131,36 @@ export function createTreeRoutes(registry) {
 
         try {
           const config = await loadConfig();
-          const cacheKey = `all-workspaces:${config.docsDir}`;
-          const cached = getCached(cacheKey);
-          
-          if (cached) {
-            json(res, cached);
-            return;
-          }
-
           const workspaces = registry.list();
           const stats = [];
 
           for (const w of workspaces) {
-            const docsRoot = resolve(w.path, config.docsDir);
-            let docCount = 0;
+            let requirementCount = 0;
             let exists = false;
+            let errorCode;
 
             try {
-              const info = await stat(docsRoot);
+              const info = await stat(w.path);
               if (info.isDirectory()) {
                 exists = true;
-                for (const ext of SUPPORTED_DOC_EXTS) {
-                  const items = await walkDocs(docsRoot, ext);
-                  docCount += items.length;
-                }
+                const docsRoot = resolve(w.path, config.docsDir);
+                if (docsRoot !== resolve(w.path)) await safeDocumentPath(w.path, config.docsDir, { allowMissing: true });
+                requirementCount = await countRequirementDirectories(docsRoot);
               }
-            } catch { /* ignore */ }
+            } catch (error) {
+              if (error.code !== 'ENOENT' || exists) errorCode = 'REQUIREMENT_STATS_UNAVAILABLE';
+            }
 
             stats.push({
               workspaceId: w.id,
               title: w.title || w.id,
-              docCount,
-              exists
+              projectPath: w.path,
+              requirementCount: errorCode ? null : requirementCount,
+              exists,
+              ...(errorCode ? { errorCode } : {})
             });
           }
 
-          setCached(cacheKey, stats);
           json(res, stats);
         } catch (e) {
           log.tree.error(`获取统计信息失败: ${e.message}`);
@@ -390,7 +383,12 @@ export function createTreeRoutes(registry) {
           // 获取修改时间
           const fileStat = await stat(fullPath);
 
-          json(res, { success: true, mtime: fileStat.mtime.toISOString() });
+          const result = { success: true, mtime: fileStat.mtime.toISOString() };
+          if (options.knowledgeService?.wiki) {
+            try { result.wiki = await options.knowledgeService.wiki.capture(workspaceId, filePath, req.operationExec?.agent?.session?.id || req.headers?.['x-session-id']); }
+            catch { result.wiki = { state: 'failed', code: 'WIKI_INGEST_FAILED' }; }
+          }
+          json(res, result);
         } catch (e) {
           log.tree.error(`文件写入失败: ${e.message}`);
           json(res, { success: false, error: e.message }, e.status || 500);

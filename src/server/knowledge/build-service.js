@@ -121,6 +121,10 @@ export class KnowledgeService {
       save();
     }
     job.status = signal.aborted ? 'cancelled' : job.files.some(f => ['failed', 'stale'].includes(f.status)) ? 'partial' : 'completed'; save();
+    if (!signal.aborted && this.wiki) {
+      try { await this.wiki.consume(scope); }
+      catch { job.wiki = { status: 'failed', code: 'WIKI_INGEST_FAILED' }; save(); }
+    }
   }
 
   cancel(scope, id) {

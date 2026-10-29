@@ -41,8 +41,20 @@ export const Config = Schema.object({
   workspaceId: nullableString(), developerName: nullableString(), requirementId: nullableString(),
   ai: Schema.object({
     enabled: Schema.boolean(), selectedModel: nullableString(), prompts: Schema.dict(String).default(undefined),
-    syncV2: Schema.object({ prompts: Schema.dict(String).default(undefined) }).default(undefined),
+    skillBindings: Schema.dict(nullableString()).default(undefined),
+    syncV2: Schema.object({ prompts: Schema.dict(String).default(undefined), skillBindings: Schema.dict(nullableString()).default(undefined), contractVersion: Schema.const(2).default(undefined) }).default(undefined),
     delegation: Schema.object({ provider: Schema.string(), timeout: Schema.natural().min(1), agentOptions: Schema.dict(Schema.any()).default(undefined), liveness: Schema.dict(Schema.any()).default(undefined) }).default(undefined),
+  }).default(undefined),
+  wiki: Schema.object({
+    autoManage: Schema.boolean().default(true), maxConcurrentJobs: Schema.natural().min(1).max(8).default(2),
+    maxWikiPagesPerScope: Schema.natural().min(1).max(10000).default(500),
+    maxInputBytes: Schema.natural().min(1000).max(20000000).default(2000000),
+    maxResultBytes: Schema.natural().min(1000).max(1000000).default(250000),
+    maxSourceDocuments: Schema.natural().min(1).max(200).default(30),
+    maxAffectedPages: Schema.natural().min(1).max(200).default(30),
+    timeoutMs: Schema.natural().min(1000).max(3600000).default(300000),
+    autoCrossRef: Schema.boolean().default(true), useGitNexusForCrossRef: Schema.boolean().default(true),
+    lintOnIngest: Schema.boolean().default(false), smallFileThresholdBytes: Schema.natural().default(512),
   }).default(undefined),
   enhancements: Schema.object({
     enabled: Schema.boolean().default(false),

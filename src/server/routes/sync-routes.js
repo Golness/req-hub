@@ -854,6 +854,10 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
             await publishDocument({ docPath, syncDir: join(syncDir, 'outputs'), fileName: docFileName, original: originalVersion,
               candidateBytes: result.candidateBytes, validation: result.validation, signal: abortController.signal, assertActive: () => { syncSupervisor.assert(lease); storage.assert(syncTask); } });
             await lifecycle.metadata({ publishState: 'document_written' });
+            if (options.knowledgeService?.wiki) {
+              try { await options.knowledgeService.wiki.capture(workspaceId, relative(docsRoot, docPath), sessionId, abortController.signal); }
+              catch (error) { await lifecycle.metadata({ wiki: { status: 'failed', code: 'WIKI_INGEST_FAILED' } }); }
+            }
             await updateStep('publish', { status: 'completed', text: '正式文档与成功快照一致' });
             await addFile('merge', docFileName);
 

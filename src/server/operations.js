@@ -7,6 +7,13 @@ export function createOperations(routes) {
   const byAction = new Map(catalog.map(route => [route.path.slice('/req-hub/'.length), route]));
   // Prefix APIs have explicit operation paths; never let a tool select an arbitrary URL.
   for (const [action, path] of [
+    ...['index','search','changelog','pages','jobs','candidates','rules','refs','backfill','export','restore','scopes','settings','projection'].map(action => ['wiki-'+action, '/req-hub/knowledge/wiki/'+action]),
+    ['wiki-revisions','/req-hub/knowledge/wiki/pages/:id/revisions'],
+    ['wiki-evidence','/req-hub/knowledge/wiki/evidence/:id'],
+    ...['pages','jobs','candidates','summaries','refs'].map(action => ['wiki-'+action+'-item', '/req-hub/knowledge/wiki/'+action+'/:id']),
+    ['wiki-regenerate','/req-hub/knowledge/wiki/pages/:id/regenerate'],
+    ['wiki-cancel','/req-hub/knowledge/wiki/jobs/:id/cancel'], ['wiki-retry','/req-hub/knowledge/wiki/jobs/:id/retry'],
+    ['wiki-save-answer','/req-hub/knowledge/wiki/jobs/:id/save'],
     ['knowledge-document-context', '/req-hub/knowledge/enhancements/context'],
     ['knowledge-enhancement-start', '/req-hub/knowledge/enhancements/jobs'], ['knowledge-enhancement-job', '/req-hub/knowledge/enhancements/jobs/:id'],
     ['knowledge-enhancement-cancel', '/req-hub/knowledge/enhancements/jobs/:id/cancel'], ['knowledge-enhancement-review', '/req-hub/knowledge/enhancements/reviews'],

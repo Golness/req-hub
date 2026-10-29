@@ -79,6 +79,7 @@ export function createConversationKnowledgeRoutes(registry, library, adapters, k
           if (knowledge.closed || library.closed) throw conversationError('SESSION_SERVICE_CLOSED', 503);
           return importConversationBatch(scope.store, selections);
         }));
+        if (knowledge.wiki) { try { await knowledge.wiki.consume(scope, req.headers?.['x-session-id']); } catch { result.wiki = { status: 'failed', code: 'WIKI_INGEST_FAILED' }; } }
         json(res, { ...result, targetWorkspaceId: target.id, targetScopeId: scope.identity });
       } catch (error) { json(res, { error: error.message }, error.statusCode || error.status || 500); }
     },

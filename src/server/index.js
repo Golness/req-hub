@@ -20,6 +20,7 @@ import { createSyncRoutes } from './routes/sync-routes.js';
 import { createWritingRoutes } from './routes/writing-routes.js';
 import { createEnhancementRoutes } from './routes/enhancement-routes.js';
 import { createKnowledgeRoutes } from './routes/knowledge-routes.js';
+import { createWikiRoutes } from './routes/wiki-routes.js';
 import { log, getLogs, clearLogs, getLogLevels, getLogTags } from './logger.js';
 import { json } from './utils.js';
 import { setSkillsService } from './prompts.js';
@@ -81,6 +82,12 @@ export function apply(ctx, config = {}) {
 
   const disposers = [releaseConfig];
   const knowledge = createKnowledgeRoutes(workspaceRegistry);
+  const wiki = createWikiRoutes(knowledge.service, ctx);
+  wiki.service.database();
+  knowledge.service.wiki = wiki.service;
+  wiki.service.track(wiki.service.resume().catch(error => { log.startup.warn('WIKI_RESUME_FAILED: ' + error.message); }));
+  disposers.push(ctx.on('agent/created', () => wiki.service.track(wiki.service.resume().catch(error => { log.startup.warn('WIKI_RESUME_FAILED: ' + error.message); }))));
+  disposers.push(() => wiki.dispose());
   const enhancements = createEnhancementRoutes(knowledge.service, ctx);
   disposers.push(() => enhancements.dispose());
   const writing = createWritingRoutes(workspaceRegistry, llm, agents, ctx, knowledge.service);
@@ -95,13 +102,14 @@ export function apply(ctx, config = {}) {
 
   // 创建所有路由
   const routes = [
+    ...wiki.routes,
     ...enhancements.routes,
     ...knowledge.routes,
     // 配置相关
     ...createConfigRoutes(workspaceRegistry, llm),
     
     // 文档树相关
-    ...createTreeRoutes(workspaceRegistry),
+    ...createTreeRoutes(workspaceRegistry, { knowledgeService: knowledge.service }),
     ...creation.routes,
     
     // 文档同步相关（传入 agents 和 ctx 用于 subagent）
