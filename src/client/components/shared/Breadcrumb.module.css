@@ -1,0 +1,9 @@
+.nav:global(.rh-breadcrumb) { min-width: 0; justify-content: flex-start; flex-wrap: nowrap; white-space: nowrap; }
+.item { flex: 0 1 auto; min-width: 0; max-width: 50%; }
+.item.current { max-width: min(320px, 60%); }
+.item .link { display: flex; justify-content: flex-start; width: auto; min-width: 0; }
+.text { display: block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav > :global(.rh-breadcrumb-sep) { flex: none; }
+@container (max-width: 580px) {
+  .item.current { max-width: 100%; }
+}

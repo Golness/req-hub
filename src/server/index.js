@@ -15,8 +15,10 @@ import { installSyncTools } from './sync-controlled-tools.js';
 
 import { createConfigRoutes } from './routes/config-routes.js';
 import { createTreeRoutes } from './routes/tree-routes.js';
+import { createCreationRoutes } from './routes/creation-routes.js';
 import { createSyncRoutes } from './routes/sync-routes.js';
 import { createWritingRoutes } from './routes/writing-routes.js';
+import { createEnhancementRoutes } from './routes/enhancement-routes.js';
 import { createKnowledgeRoutes } from './routes/knowledge-routes.js';
 import { log, getLogs, clearLogs, getLogLevels, getLogTags } from './logger.js';
 import { json } from './utils.js';
@@ -79,7 +81,11 @@ export function apply(ctx, config = {}) {
 
   const disposers = [releaseConfig];
   const knowledge = createKnowledgeRoutes(workspaceRegistry);
+  const enhancements = createEnhancementRoutes(knowledge.service, ctx);
+  disposers.push(() => enhancements.dispose());
   const writing = createWritingRoutes(workspaceRegistry, llm, agents, ctx, knowledge.service);
+  const creation = createCreationRoutes(workspaceRegistry);
+  disposers.push(() => creation.dispose());
   disposers.push(() => writing.dispose());
   disposers.push(() => knowledge.dispose());
   const syncTools = installSyncTools(ctx);
@@ -89,12 +95,14 @@ export function apply(ctx, config = {}) {
 
   // 创建所有路由
   const routes = [
+    ...enhancements.routes,
     ...knowledge.routes,
     // 配置相关
     ...createConfigRoutes(workspaceRegistry, llm),
     
     // 文档树相关
     ...createTreeRoutes(workspaceRegistry),
+    ...creation.routes,
     
     // 文档同步相关（传入 agents 和 ctx 用于 subagent）
     ...syncRoutes,

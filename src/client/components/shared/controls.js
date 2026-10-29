@@ -45,13 +45,13 @@ function Modal({ open, title, onClose, className, children, role = 'dialog' }) {
 }
 
 /** Viewport fitting is local; theme materials remain owned by DSH. */
-function usePlacement(open, anchor, surface, gap = 4) {
+function usePlacement(open, anchor, surface, gap = 4, anchorPoint) {
   const [position, setPosition] = React.useState({});
   React.useLayoutEffect(() => {
     if (!open) return;
     const update = () => {
       if (!anchor.current || !surface.current) return;
-      const rect = anchor.current.getBoundingClientRect(), box = surface.current.getBoundingClientRect();
+      const rect = anchorPoint ? { left: anchorPoint.x, top: anchorPoint.y, bottom: anchorPoint.y } : anchor.current.getBoundingClientRect(), box = surface.current.getBoundingClientRect();
       const width = window.innerWidth, height = window.innerHeight;
       const inset = Math.max(12, parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dsh-frame-overlay-top')) || 0);
       const top = height - rect.bottom - gap >= Math.min(box.height, 160) ? rect.bottom + gap : Math.max(inset, rect.top - box.height - gap);
@@ -61,14 +61,14 @@ function usePlacement(open, anchor, surface, gap = 4) {
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(update) : null;
     if (surface.current) observer?.observe(surface.current);
     return () => { window.removeEventListener('resize', update); window.removeEventListener('scroll', update, true); observer?.disconnect(); };
-  }, [open, anchor, surface, gap]);
+  }, [open, anchor, surface, gap, anchorPoint]);
   return position;
 }
 
-function Menu({ anchor, className, listClassName, children, open, items, selectedId, onSelect, onClose, autoFocus = true }) {
+function Menu({ anchor, className, listClassName, children, open, items, selectedId, onSelect, onClose, autoFocus = true, anchorPoint, containerTag = 'span' }) {
   const trigger = React.useRef(null), list = React.useRef(null), close = React.useRef(onClose);
   close.current = onClose;
-  const position = usePlacement(open, trigger, list);
+  const position = usePlacement(open, trigger, list, 4, anchorPoint);
   React.useLayoutEffect(() => {
     if (!open) return;
     const previous = document.activeElement;
@@ -92,23 +92,47 @@ function Menu({ anchor, className, listClassName, children, open, items, selecte
       rows.find(row => row.textContent.trim().toLocaleLowerCase().startsWith(event.key.toLocaleLowerCase()))?.focus();
     } else if (!inInput && ['ArrowLeft', 'ArrowRight'].includes(event.key)) event.stopPropagation();
   };
-  return h('span', { className }, React.cloneElement(anchor, { ref: node => { trigger.current = node; const ref = anchor.ref; if (typeof ref === 'function') ref(node); else if (ref) ref.current = node; } }),
+  return h(containerTag, { className }, React.cloneElement(anchor, { ref: node => { trigger.current = node; const ref = anchor.ref; if (typeof ref === 'function') ref(node); else if (ref) ref.current = node; } }),
     open && createPortal(h('div', { ref: list, role: 'menu', className: join(css.menu, listClassName), style: position, onKeyDown: keyboard }, children,
       items.map(item => h('button', { key: item.id, type: 'button', role: 'menuitem', tabIndex: -1, disabled: item.disabled, 'data-value': item.id, 'data-selected': selectedId === item.id, 'aria-current': selectedId === item.id ? 'true' : undefined, onClick: () => onSelect(item.id) },
         h('span', { className: css.menuLabel }, item.label), selectedId === item.id && h('span', { className: css.selectedMark, 'aria-hidden': true })))), document.body));
 }
 
-function HoverCard({ anchor, content }) {
+function Popover({ anchor, open, onClose, label, className, children }) {
+  const trigger = React.useRef(null), surface = React.useRef(null), close = React.useRef(onClose);
+  close.current = onClose;
+  const position = usePlacement(open, trigger, surface);
+  React.useLayoutEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement;
+    (surface.current.querySelector('[data-date-focus="true"]') || surface.current.querySelector('button'))?.focus();
+    const outside = event => { if (!surface.current?.contains(event.target) && !trigger.current?.contains(event.target)) close.current?.(); };
+    document.addEventListener('pointerdown', outside);
+    return () => {
+      document.removeEventListener('pointerdown', outside);
+      if (previous?.isConnected && (!document.activeElement || document.activeElement === document.body || surface.current?.contains(document.activeElement))) previous.focus();
+    };
+  }, [open]);
+  return h('span', { className: css.popoverAnchor }, React.cloneElement(anchor, { ref: node => { trigger.current = node; } }),
+    open && createPortal(h('div', { ref: surface, role: 'dialog', 'aria-label': label, className: join(css.popover, className), style: position,
+      onKeyDown: event => {
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close.current?.(); trigger.current?.focus(); }
+        else if (event.key === 'Tab') close.current?.();
+      },
+    }, children), document.body));
+}
+
+function HoverCard({ anchor, content, className }) {
   const [open, setOpen] = React.useState(false), trigger = React.useRef(null), card = React.useRef(null);
   const id = React.useId(), position = usePlacement(open, trigger, card, 8);
-  return h('span', { ref: trigger, className: css.hoverAnchor, onMouseEnter: () => setOpen(true), onMouseLeave: () => setOpen(false), onFocus: () => setOpen(true), onBlur: () => setOpen(false), onKeyDown: event => { if (event.key === 'Escape') setOpen(false); } },
+  return h('span', { ref: trigger, className: join(css.hoverAnchor, className), onMouseEnter: () => setOpen(true), onMouseLeave: () => setOpen(false), onFocus: () => setOpen(true), onBlur: () => setOpen(false), onKeyDown: event => { if (event.key === 'Escape') setOpen(false); } },
     React.cloneElement(anchor, { 'aria-describedby': open ? id : anchor.props['aria-describedby'] }),
     open && createPortal(h('div', { ref: card, id, role: 'tooltip', className: css.hoverCard, style: position }, content), document.body));
 }
-function Tooltip({ children, label }) { return h(HoverCard, { anchor: children, content: label }); }
+function Tooltip({ children, label, className }) { return h(HoverCard, { anchor: children, content: label, className }); }
 function Toast({ text, tone, icon, holdMs = 3000, actions, onDone }) {
   const done = React.useRef(onDone); done.current = onDone;
   React.useEffect(() => { const timer = setTimeout(() => done.current?.(), holdMs + 1000); return () => clearTimeout(timer); }, [holdMs]);
   return h('div', { className: css.toast, role: tone === 'error' ? 'alert' : 'status', 'data-rh-toast': true }, icon, h('span', null, text), actions?.map(action => h(Button, { key: action.label, size: 'sm', onClick: action.onClick }, action.label)));
 }
-module.exports = { Button, Input, Checkbox, Modal, Menu, HoverCard, Tooltip, Toast };
+module.exports = { Button, Input, Checkbox, Modal, Menu, Popover, HoverCard, Tooltip, Toast };

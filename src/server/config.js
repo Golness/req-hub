@@ -25,7 +25,7 @@ function validate(value) {
   for (const key of ['workspaceId', 'developerName', 'requirementId']) string(value, key, true);
   string(value, 'docsDir');
   if (typeof value.docsDir === 'string' && (!value.docsDir.trim() || isAbsolute(value.docsDir) || win32.isAbsolute(value.docsDir) || value.docsDir.split(/[\\/]/).includes('..'))) issues.push({ message: 'docsDir must stay inside the workspace', path: ['docsDir'] });
-  for (const key of ['ai', 'sync', 'conversations']) if (value[key] !== undefined && (!value[key] || typeof value[key] !== 'object' || Array.isArray(value[key]))) issues.push({ message: key + ' must be an object', path: [key] });
+  for (const key of ['ai', 'sync', 'conversations', 'enhancements']) if (value[key] !== undefined && (!value[key] || typeof value[key] !== 'object' || Array.isArray(value[key]))) issues.push({ message: key + ' must be an object', path: [key] });
   if (value.ai && typeof value.ai === 'object') {
     string(value.ai, 'selectedModel', true);
     if (value.ai.enabled !== undefined && typeof value.ai.enabled !== 'boolean') issues.push({ message: 'ai.enabled must be boolean', path: ['ai', 'enabled'] });
@@ -43,6 +43,22 @@ export const Config = Schema.object({
     enabled: Schema.boolean(), selectedModel: nullableString(), prompts: Schema.dict(String).default(undefined),
     syncV2: Schema.object({ prompts: Schema.dict(String).default(undefined) }).default(undefined),
     delegation: Schema.object({ provider: Schema.string(), timeout: Schema.natural().min(1), agentOptions: Schema.dict(Schema.any()).default(undefined), liveness: Schema.dict(Schema.any()).default(undefined) }).default(undefined),
+  }).default(undefined),
+  enhancements: Schema.object({
+    enabled: Schema.boolean().default(false),
+    maxInvalidOutputWrites: Schema.natural().min(1).max(10).default(3),
+    maxConcurrentJobs: Schema.natural().min(1).max(8).default(2),
+    maxDocuments: Schema.natural().min(1).max(200).default(30),
+    maxInputBytes: Schema.natural().min(1000).max(20_000_000).default(2_000_000),
+    maxResultBytes: Schema.natural().min(1000).max(1_000_000).default(250_000),
+    maxNodes: Schema.natural().min(1).max(1000).default(200), maxEdges: Schema.natural().min(1).max(10000).default(1000),
+    maxDepth: Schema.natural().min(1).max(10).default(5), timeoutMs: Schema.natural().min(1000).max(3_600_000).default(300_000),
+    retainedJobs: Schema.natural().min(1).max(500).default(50), retainedRevisions: Schema.natural().min(1).max(10).default(3),
+    gitnexusServer: Schema.string().pattern(/^[A-Za-z0-9_-]{1,32}$/).default('gitnexus'),
+    indexTimeoutMs: Schema.natural().min(1000).max(21_600_000).default(1_800_000),
+    indexWorkers: Schema.natural().min(1).max(8).default(2),
+    indexWorkerReadyTimeoutMs: Schema.natural().min(1000).max(300000).default(60000),
+    maxCodeQueries: Schema.natural().min(1).max(100).default(20),
   }).default(undefined),
   conversations: Schema.object({ retainedVersions: Schema.natural().min(1).default(3), versionRetentionDays: Schema.natural().min(1).default(7), missingRetentionDays: Schema.natural().default(30), jobRetentionDays: Schema.natural().min(1).default(7), retainedJobs: Schema.natural().min(1).default(100), graceHours: Schema.natural().default(1) }).default(undefined),
   sync: Schema.object({ baseBranch: Schema.string(), maxAnalysisReadPages: Schema.natural().min(8).max(128).default(undefined), maxCompletionReminders: Schema.natural().max(5).default(3), maxInvalidOutputWrites: Schema.natural().min(1).max(20).default(6), retentionDays: Schema.natural().default(0), retainedAttempts: Schema.natural().default(0), capacityBytes: Schema.natural().default(0) }).default(undefined),

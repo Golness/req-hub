@@ -32,10 +32,11 @@ function WorkspaceModal({ workspaces, selectedId, onSelect, onClose }) {
                 key: ws.id,
                 className: `rh-modal-item${selectedId === ws.id ? ' selected' : ''}`,
                 'aria-pressed': selectedId === ws.id,
+                title: ws.title || ws.id,
                 onClick: () => { onSelect(ws); onClose(); },
               },
 
-                h('span', { className: 'rh-modal-item-name' }, ws.title || ws.id)
+                h('span', { className: `rh-modal-item-name ${css.name}` }, ws.title || ws.id)
               )
             )
           ),

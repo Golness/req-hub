@@ -38,7 +38,7 @@ const { showToast } = require('./shared/ToastContainer.js');
  * @param {HTMLElement|null} [props.toolbarTarget] - Header container following the breadcrumb
  * @returns {JSX.Element} A file preview with header, content area, and optional TOC sidebar
  */
-function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc, onToggleToc, toolbarTarget, onSaved, onDirtyChange, active = true, sourceUrl, readOnly = false }) {
+function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc, onToggleToc, toolbarTarget, onSaved, onDirtyChange, active = true, sourceUrl, readOnly = false, assist }) {
   const [text, setText] = useState('');
   const [error, setError] = useState(null);
   const [parseWarnings, setParseWarnings] = useState([]);
@@ -297,6 +297,7 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
               readOnly,
               content: editContent,
               onChange: setEditContent,
+              imageContext: relPath ? { workspaceId, requirementPath: relPath.split('/').slice(0, 2).join('/') } : undefined,
               mermaid: mermaidLoaded ? window.mermaid : null,
             })
         : isJson
@@ -349,7 +350,8 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
     h('div', { className: 'rh-file-preview-content' },
       h('div', { ref: previewBodyRef, className: ('rh-preview-body') + ' ' + css.pane2 },
         isExtracted && h('div', { className: 'rh-op-info', role: 'status' }, t("FilePreview.message021"), parseWarnings.length > 0 && h('div', null, parseWarnings.join('；'))),
-        mainContent
+        mainContent,
+        assist
       ),
       tocSidebar
     )

@@ -5,6 +5,7 @@ const css = require('./MilkdownEditor.module.css').default;
 const React = require('react');
 const h = React.createElement;
 const { useState, useEffect, useRef } = React;
+const { imageNodeView } = require('../utils/markdownImages.js');
 const { createMarkdownCodeBlockView } = require('./MarkdownCodeBlockView.js');
 
 /**
@@ -17,11 +18,11 @@ const { createMarkdownCodeBlockView } = require('./MarkdownCodeBlockView.js');
  * @param {boolean} [props.readOnly=false] - Whether the editor is read-only
  * @returns {JSX.Element}
  */
-function MilkdownEditor({ content, onChange, readOnly = false, mermaid = null }) {
+function MilkdownEditor({ content, onChange, readOnly = false, mermaid = null, imageContext = null }) {
   const editorRef = useRef(null);
   const milkdownRef = useRef(null);
-  const propsRef = useRef({ content, onChange, readOnly, mermaid });
-  propsRef.current = { content, onChange, readOnly, mermaid };
+  const propsRef = useRef({ content, onChange, readOnly, mermaid, imageContext });
+  propsRef.current = { content, onChange, readOnly, mermaid, imageContext };
   const diagramRenderersRef = useRef(new Set());
   const markdownRef = useRef(content || '');
   const replaceAllRef = useRef(null);
@@ -58,7 +59,7 @@ function MilkdownEditor({ content, onChange, readOnly = false, mermaid = null })
             ctx.update(nodeViewCtx, (views) => views.concat([[
               'code_block',
               createMarkdownCodeBlockView(() => propsRef.current.mermaid, diagramRenderersRef.current),
-            ]]));
+            ], ['image', node => imageNodeView(node, () => propsRef.current.imageContext)]]));
 
             ctx.get(listenerCtx).markdownUpdated((_, markdown) => {
               if (cancelled || markdown === markdownRef.current) return;

@@ -80,6 +80,14 @@ export class KnowledgeStore {
     this.db.prepare('INSERT INTO jobs VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload').run(job.id, scopeId, job.requestKey, job.fingerprint, JSON.stringify(job));
   }
   source(path) { return this.db.prepare('SELECT * FROM sources WHERE scope_id=? AND path=?').get(this.scopeId, path); }
+  entryByPath(path) { const row = this.db.prepare('SELECT id FROM documents WHERE scope_id=? AND path=?').get(this.scopeId, path); return row ? this.entry(row.id) : null; }
+  activeDocumentMetadata(limit) {
+    return this.db.prepare("SELECT d.id,d.version,d.path FROM documents d JOIN sources s ON s.scope_id=d.scope_id AND s.path=d.path WHERE d.scope_id=? AND s.status='active' AND d.path NOT LIKE 'conversation://%' ORDER BY d.path LIMIT ?").all(this.scopeId, limit);
+  }
+  entriesInRequirement(path, limit) {
+    const prefix = path + '/';
+    return this.db.prepare("SELECT d.id FROM documents d JOIN sources s ON s.scope_id=d.scope_id AND s.path=d.path WHERE d.scope_id=? AND s.status='active' AND substr(d.path,1,?)=? ORDER BY d.path LIMIT ?").all(this.scopeId, prefix.length, prefix, limit).map(row => this.entry(row.id));
+  }
   markMissing(path) { this.setSourceStatus(path, 'missing'); }
 
   rowEntry(row) {
@@ -126,9 +134,14 @@ export class KnowledgeStore {
     return { ready: count > 0, entryCount: count, sourceCount: count, documentCount, lastBuiltAt: this.db.prepare('SELECT max(updated_at) AS t FROM documents d WHERE (? IS NULL OR d.scope_id=?)').get(...this.scopeArgs()).t,
       activeJobId: jobs.find(j => ACTIVE.has(j.status))?.id || null, latestJobId: jobs[0]?.id || null, ingestionMode: 'full-document' };
   }
-  list(limit = 100, type) {
+  listMetadata(limit = 100, offset = 0, query = '') {
+    return this.db.prepare(`SELECT d.id,d.title,d.version,d.path,s.status FROM documents d JOIN sources s ON s.scope_id=d.scope_id AND s.path=d.path WHERE d.scope_id=? AND (d.title LIKE ? OR d.path LIKE ?) ORDER BY d.path LIMIT ? OFFSET ?`)
+      .all(this.scopeId, '%' + query + '%', '%' + query + '%', limit, offset)
+      .map(row => ({ id: row.id, title: row.title, version: row.version, path: row.path, scopeId: this.scopeId, status: row.status, type: row.path.startsWith('conversation://') ? 'conversation' : 'document' }));
+  }
+  list(limit = 100, type, { activeOnly = false } = {}) {
     const filter = type === 'document' ? "AND d.path NOT LIKE 'conversation://%'" : type === 'conversation' ? "AND d.path LIKE 'conversation://%'" : '';
-    return this.db.prepare(`SELECT d.*,s.hash AS source_hash,s.status AS source_status FROM documents d JOIN sources s ON s.scope_id=d.scope_id AND s.path=d.path WHERE ${this.scopeFilter()} AND ${this.activeWhere()} ${filter} ORDER BY d.updated_at DESC,d.id LIMIT ?`).all(...this.scopeArgs(), limit).map(r => this.rowEntry(r));
+    return this.db.prepare(`SELECT d.*,s.hash AS source_hash,s.status AS source_status FROM documents d JOIN sources s ON s.scope_id=d.scope_id AND s.path=d.path WHERE ${this.scopeFilter()} AND ${this.activeWhere()} ${activeOnly ? "AND s.status='active'" : ''} ${filter} ORDER BY d.updated_at DESC,d.id LIMIT ?`).all(...this.scopeArgs(), limit).map(r => this.rowEntry(r));
   }
   search(text, limit = 20) {
     text = text.trim().slice(0, 1000); limit = Math.max(1, Math.min(100, Number(limit) || 20));

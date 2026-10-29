@@ -33,6 +33,7 @@ beforeEach(() => {
       }
       data = structuredClone(config);
     } else if (url.endsWith('/llm-config')) data = { provider: 'Provider', models: ['model'] };
+    else if (url.includes('/knowledge/enhancements/jobs')) data = { enabled: false, jobs: [], mcpServers: [], mcpAvailable: false };
     else if (url.endsWith('/prompt-registry')) { data = PROMPT_REGISTRY; ok = !failRegistry; }
     else if (url.includes('/skill-content?')) data = { content: '# Skill', description: '' };
     else if (url.includes('/skills?')) data = { skills: [{ name: 'review', description: 'Review skill' }] };
@@ -74,13 +75,13 @@ async function edit(value) {
 
 it('groups every registered prompt by rail feature and supports keyboard tabs', async () => {
   await renderSettings();
-  expect([...document.querySelectorAll('[role="tab"]')].map(el => el.textContent)).toEqual(['同步10', '写作1']);
+  expect([...document.querySelectorAll('[role="tab"]')].map(el => el.textContent)).toEqual(['同步10', '知识库1', '写作1']);
   expect(document.querySelectorAll('.rh-prompt-item')).toHaveLength(10);
   expect(document.querySelectorAll('textarea')).toHaveLength(1);
   expect(document.body.textContent).not.toContain('Prompt 结构说明');
   expect(document.querySelector('.rh-prompt-reference').open).toBe(false);
   expect(save().disabled).toBe(true);
-  await act(async () => tab('同步').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })));
+  await act(async () => tab('同步').dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })));
   expect(document.activeElement).toBe(tab('写作'));
   expect(document.querySelectorAll('.rh-prompt-item')).toHaveLength(1);
   expect(document.querySelector('[role="tabpanel"]').getAttribute('aria-labelledby')).toBe(tab('写作').id);
@@ -164,6 +165,6 @@ it('retries prompt registry failures without losing loaded settings', async () =
   expect(document.querySelector('[role="alert"]').textContent).toContain('Prompt 加载失败');
   failRegistry = false;
   await click([...document.querySelectorAll('button')].find(el => el.textContent === '重试'));
-  expect(document.querySelectorAll('[role="tab"]')).toHaveLength(2);
+  expect(document.querySelectorAll('[role="tab"]')).toHaveLength(3);
   expect(save().disabled).toBe(true);
 });

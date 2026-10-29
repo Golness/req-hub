@@ -1,3 +1,4 @@
+import { freezeKnowledgeContext } from '../knowledge/enhancements/knowledge-context.js';
 import { safeDocumentPath } from '../safe-path.js';
 import taskModel from '../../shared/sync-task.cjs';
 import { SyncLifecycle } from '../sync-lifecycle.js';
@@ -795,12 +796,15 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
             });
 
             await updateStep('init', { status: 'running', text: '根据子代理模型容量检查文档与必读证据，计算分块预算...' });
+            const knowledgeContext = await freezeKnowledgeContext(options.knowledgeService, input.knowledgeScopeIds, input.knowledgeQuery || requirementId, abortController.signal, input.knowledgeReferenceRefs);
             const preparedChunks = await engine.prepareSyncChunks({
-              docType, currentDoc, originalVersion, commits, codeDiff, sourceSnapshots, sessionTurns,
+              docType, currentDoc, originalVersion, commits, codeDiff, sourceSnapshots, sessionTurns, knowledgeContext,
               syncContext: { taskId: syncId, branchName, targetSha: syncTask.commitHash, baseSha: syncTask.baselineCommit, attempt: syncTask.snapshotDir },
               hasUncommitted: uncommittedChanges.hasChanges, syncDir,
               onPreparation: activity => updateStep('init', { activity }),
             });
+            if (knowledgeContext.length) await lifecycle.metadata({ knowledgeRefs: knowledgeContext.map(({text, ...reference}) => reference) });
+            for (const reference of knowledgeContext) await addFile('init', reference.id + '.json', reference.id);
             await addFile('init', 'input-code.diff', 'code.input');
             await addFile('init', 'manifest.json');
             for (const entry of preparedChunks.store.entries.values()) if (entry.file.startsWith('sessions/')) await addFile('init', entry.file.replaceAll('/', '-'), entry.id);

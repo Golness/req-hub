@@ -76,6 +76,7 @@ function RequirementDirModal({ workspaceId, selectedReqId, onSelect, onClose }) 
                     h(Button, {
                       key: req.id,
                       className: (`rh-modal-item${selectedReqId === req.id ? ' selected' : ''}`) + ' ' + css.content,
+                      title: req.path,
                       onClick: () => { onSelect(req); onClose(); },
                     },
                       h('span', { className: 'rh-modal-item-icon' }, h(IconFolderOpen, { size: 14 })),

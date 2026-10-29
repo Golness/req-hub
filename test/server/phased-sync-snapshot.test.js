@@ -20,6 +20,21 @@ async function run(docType, harnessOptions = {}, input = {}) {
 }
 
 describe('v2 frozen evidence and isolated candidates', () => {
+  it('freezes selected knowledge as optional versioned artifacts without adding it to executable code evidence', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'rh-sync-knowledge-'));
+    const harness = createSyncHarness(), engine = new PhasedSyncEngine({ ...harness, config: {}, cwd: dir });
+    try {
+      const text = JSON.stringify({ documentId: 'doc-v3', version: 3, sources: [{ sourceHash: 'frozen-hash' }], body: 'A terminology definition' });
+      const plan = await engine.prepareSyncChunks({ docType: 'requirement', currentDoc: source, commits: [], codeDiff: diff, syncDir: dir,
+        knowledgeContext: [{ id: 'knowledge.0', documentId: 'doc-v3', version: 3, sourceHash: 'frozen-hash', text }] });
+      expect(plan.knowledgeIds).toEqual(['knowledge.0']);
+      expect(plan.code[0].allowed).toContain('knowledge.0'); expect(plan.code[0].required).not.toContain('knowledge.0');
+      expect(JSON.parse(await plan.store.read('knowledge.0')).version).toBe(3);
+      expect(plan.knowledgeContext[0]).not.toHaveProperty('text');
+      const { parseAnalysisChanges } = await import('../../src/server/sync-document-validator.js');
+      expect(() => parseAnalysisChanges(JSON.stringify({ changes: [{ id: 'only-knowledge', action: 'add', blockId: plan.blocks[0].id, reason: 'Definition', proposal: 'New rule', evidenceRefs: ['knowledge.0'] }], pending: [] }), plan.blocks, plan.code[0].allowed.filter(id => /^(code\.|session\.)/.test(id)))).toThrow('CHANGE_EVIDENCE_OR_SCOPE');
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
   it('terminates repeated invalid output writes with their precise cause without cancelling the parent task',async()=>{
     const dir=await mkdtemp(join(tmpdir(),'req-hub-invalid-write-limit-')),owner=new AbortController();
     const harness=createSyncHarness({onStart(){

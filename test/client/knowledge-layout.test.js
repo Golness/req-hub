@@ -43,7 +43,54 @@ async function open() {
   await act(async () => root.render(React.createElement(DocsViewerBody, { workspace: { id: 'ws', title: 'Workspace' }, docsDir: 'docs', workspaces: [], initialReqId: req.id, onConfigChange() {}, onSelectWorkspace() {} })));
   await click([...container.querySelectorAll('.rh-rail-btn')].find(node => node.textContent === '知识库'));
 }
-it('keeps document viewing, ingestion and search in four keyboard-accessible knowledge tabs', async () => {
+it.each(['main', 'master'])('clears the old requirement and opens creation when locating %s', async branch => {
+  const fallback = api();
+  const fetch = vi.fn(async (url, init) => {
+    const path = new URL(String(url), 'http://localhost').pathname;
+    if (path.endsWith('/session-info')) return response({ session: { cwd: '/repo' } });
+    if (path.endsWith('/git-branch')) return response({ branch });
+    if (path.endsWith('/create-status')) return response({ branch, canUpdateMain: true, existingRequirement: null });
+    return fallback(url, init);
+  });
+  vi.stubGlobal('fetch', fetch);
+  window.__DSH_CTX__ = { get: name => name === 'uiWorkspace' ? { selection: { getSnapshot: () => ({ sessionId: 'session' }) } } : null };
+  try {
+    const workspace = { id: 'ws', title: 'Workspace', path: '/repo' };
+    await act(async () => root.render(React.createElement(DocsViewerBody, { workspace, docsDir: 'docs', workspaces: [workspace], initialReqId: req.id, onConfigChange() {}, onSelectWorkspace() {} })));
+    expect(container.querySelector('.rh-topbar').textContent).toContain('Orders');
+    await click(container.querySelector('button[aria-label="定位到当前会话需求"]'));
+    expect(container.querySelector('.rh-topbar').textContent).not.toContain('Orders');
+    expect(container.querySelector('.rh-open-directory')).toBeNull();
+    expect(container.textContent).toContain('创建需求目录');
+    expect(container.querySelector('.rh-file-tree-sidebar')).toBeNull();
+    const writes = fetch.mock.calls.filter(([url, init]) => String(url).endsWith('/config') && init?.method === 'POST');
+    expect(writes.map(([, init]) => JSON.parse(init.body))).toContainEqual({ workspaceId: 'ws', developerName: null, requirementId: null });
+    expect(fetch.mock.calls.some(([url]) => /create-dir|delete/.test(String(url)))).toBe(false);
+  } finally { delete window.__DSH_CTX__; }
+});
+it('keeps creation visibly unavailable and explains it in a modal without leaving the current panel', async () => {
+  const fallback = api();
+  let existing = true;
+  const fetch = vi.fn(async (url, init) => String(url).includes('/create-status')
+    ? response({ branch: 'feature/alice/' + req.id, existingRequirement: existing ? req : null })
+    : fallback(url, init));
+  vi.stubGlobal('fetch', fetch);
+  await open();
+  const create = () => [...container.querySelectorAll('.rh-rail-btn')].find(node => node.textContent === '新建');
+  expect(create().getAttribute('aria-disabled')).toBe('true');
+  await click(create());
+  expect(document.querySelector('[role="dialog"]').textContent).toContain('请先更换工作区');
+  expect(document.querySelector('[role="dialog"]').textContent).toContain(req.path);
+  expect(container.querySelector('[role="tablist"]')).not.toBeNull();
+  expect(container.querySelector('input[name="developer"]')).toBeNull();
+  await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  existing = false;
+  await click(create());
+  expect(create().getAttribute('aria-disabled')).toBeNull();
+  expect(container.textContent).toContain('创建需求目录');
+});
+it('keeps four knowledge tabs and places assistance in the relevant workflows', async () => {
   api(); await open();
   expect([...container.querySelectorAll('.rh-rail-btn')].some(node => node.textContent === '查看')).toBe(false);
   expect([...container.querySelectorAll('[role="tab"]')].map(node => node.textContent)).toEqual(['查看文档', '文档入库', '会话入库', '搜索']);

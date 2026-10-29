@@ -1,0 +1,13 @@
+.bar { container-type: inline-size; }
+.fields:global(.rh-topbar-left) { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 8px; }
+.field { display: flex; flex: 0 1 auto; align-items: center; gap: 8px; min-width: 0; max-width: min(260px, 28cqw); }
+.field :global(.rh-topbar-label) { flex: none; }
+.requirement { max-width: min(420px, 42cqw); }
+.value { flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.field .valueButton { display: flex; justify-content: flex-start; width: auto; min-width: 0; max-width: 100%; }
+.text { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fields :global(.rh-open-directory) { margin-left: 0; }
+@container (max-width: 380px) {
+  .field { max-width: 100%; }
+  .requirement { max-width: calc(100% - 40px); }
+}

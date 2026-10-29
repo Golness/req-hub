@@ -22,4 +22,6 @@ const DocsViewerContext = React.createContext({
   refreshSelectedReq: () => {},
 });
 
-module.exports = { DocsViewerContext };
+// Only the selection getter crosses the component boundary, never the Host ctx.
+const SessionSelectionContext = React.createContext(() => null);
+module.exports = { DocsViewerContext, SessionSelectionContext };

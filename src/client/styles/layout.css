@@ -460,7 +460,7 @@
 .rh-header-back-slot:empty { display: none; }
 
 .rh-right-header-title { flex-shrink: 0; overflow-wrap: anywhere; }
-.rh-right-header .rh-breadcrumb { flex: 1; min-width: 0; max-width: 100%; min-height: 28px; padding: 0; border: 0; background: transparent; font-size: var(--rh-font-size); flex-wrap: nowrap; overflow: hidden; }
+.rh-right-header .rh-breadcrumb { flex: 1 1 180px; min-width: 0; max-width: 100%; min-height: 28px; padding: 0; border: 0; background: transparent; font-size: var(--rh-font-size); flex-wrap: nowrap; overflow: hidden; }
 .rh-right-header .rh-preview-actions { margin-left: auto; }
 
 @container (max-width: 580px) {

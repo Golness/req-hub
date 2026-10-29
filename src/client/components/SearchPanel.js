@@ -11,6 +11,7 @@ const { knowledgeRequest } = require('../hooks/useKnowledge.js');
 const { EmptyState } = require('./shared/EmptyState.js');
 const { Skeleton } = require('./shared/Skeleton.js');
 const { ConversationProvenance } = require('./ConversationProvenance.js');
+const { DocumentAssist } = require('./ContextAssist.js');
 
 function SearchPanel({ onOpenKnowledge, onOpenSource, active = true }) {
   const [query, setQuery] = React.useState('');
@@ -50,6 +51,7 @@ function SearchPanel({ onOpenKnowledge, onOpenSource, active = true }) {
           detailError && h('p', { role: 'alert' }, detailError),
           !detail && !detailError && h(Skeleton, { lines: 3 }),
           detail && h(React.Fragment, null, h('h3', null, detail.title), h('p', null, t("SearchPanel.message009", { value0: detail.workspaceTitle, value1: detail.version, value2: detail.tags.join(' · ') })), h(ConversationProvenance, { conversation: detail.conversation }), h('div', { className: 'rh-knowledge-text' }, detail.body),
+            !detail.conversation && h(DocumentAssist, { key: detail.id, workspaceId: detailId.workspaceId, documentId: detail.id, onOpenSource }),
             h('h4', null, t("SearchPanel.message010")), detail.sources.map((source, i) => h('div', { key: i }, source.conversation ? h('p', null, `${source.conversation.title} · ${formatSourceLocation(source)}`) : h(Button, { className: 'rh-btn rh-btn-ghost rh-btn-sm', onClick: () => onOpenSource?.(source), disabled: ['missing', 'unavailable'].includes(source.status), title: source.relativePath }, `${source.relativePath} · ${formatSourceLocation(source)}`), ['missing', 'unavailable'].includes(source.status) && h('span', null, t("SearchPanel.message011")), source.status === 'stale' && h('span', null, t("SearchPanel.message012")))),
             h('details', null, h('summary', null, t("SearchPanel.message013")), detail.versions?.map(version => h('div', { key: version.version }, h('strong', null, `v${version.version}`), h(ConversationProvenance, { conversation: version.conversation }), h('div', { className: 'rh-knowledge-text' }, version.body))))))
         : search.searched && !search.error && search.knowledgeReady !== false

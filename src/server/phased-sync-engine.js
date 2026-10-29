@@ -132,6 +132,11 @@ export class PhasedSyncEngine {
     await store.put('document.blocks', JSON.stringify(blocks));
     await store.put('commits', JSON.stringify(commits));
     const common = ['document.original', 'document.blocks', 'commits'];
+    const knowledgeIds = [];
+    for (const document of options.knowledgeContext || []) {
+      if (!/^knowledge\.\d+$/.test(document.id)) throw new Error('KNOWLEDGE_REFERENCE_INVALID');
+      await store.put(document.id, document.text); knowledgeIds.push(document.id);
+    }
     await store.put('code.input', codeDiff);
     const byFile = new Map();
     for (const file of parseSyncCodeDiff(codeDiff, { withRanges: true })) {
@@ -261,7 +266,7 @@ export class PhasedSyncEngine {
     const stage = async (source, chunk) => {
       const id = source + '-' + chunk.index, manifestId = 'manifest.' + id;
       const required = [...common, ...chunk.items.flatMap(item => item.required)];
-      const allowed = [...required, ...chunk.items.flatMap(item => item.context)];
+      const allowed = [...required, ...chunk.items.flatMap(item => item.context), ...knowledgeIds];
       chunk.inputBudget = {
         evidenceTokens: await cost(chunk.items.flatMap(item => item.required)), commonTokens: commonCost,
         promptTokens, reservedTokens: fixed - promptTokens + 1024,
@@ -275,9 +280,9 @@ export class PhasedSyncEngine {
     for (const chunk of code) await stage('code', chunk);
     for (const chunk of discussion) await stage('discussion', chunk);
     // Summarize all chunk outputs once; validate their actual combined input in run().
-    const plan = { schemaVersion: 2, task: options.syncContext || {}, store, code, discussion, common, blocks, originalBytes, templates, fixed, commonCost, sessionFiles,
+    const plan = { schemaVersion: 2, task: options.syncContext || {}, knowledgeIds, knowledgeContext: (options.knowledgeContext || []).map(({text, ...reference}) => reference), store, code, discussion, common, blocks, originalBytes, templates, fixed, commonCost, sessionFiles,
       budget: { ...budget, reserve: REQUEST_RESERVE, optionalContextTokens, commonCost, maxAnalysisReadPages: readPageLimit } };
-    await store.manifest({ docType, task: plan.task, blocks, codeChunks: code.map(c => c.id), discussionChunks: discussion.map(c => c.id), budget: plan.budget });
+    await store.manifest({ docType, task: plan.task, knowledgeContext: plan.knowledgeContext, blocks, codeChunks: code.map(c => c.id), discussionChunks: discussion.map(c => c.id), budget: plan.budget });
     await writeFile(this.file(syncDir, docType === 'design' ? 'design.md.prev' : 'requirement.md.prev'), originalBytes);
     this.signal?.throwIfAborted();
     return plan;
@@ -327,6 +332,17 @@ export class PhasedSyncEngine {
           const parsed = parseAnalysisChanges(raw, blocks, evidenceIds);
           if (!mergeInputs) for (const change of parsed.changes) for (const id of change.evidenceRefs) {
             if ((runtime.coverage.get(id) ?? -1) < (await store.read(id)).length) throw new Error('EVIDENCE_REFERENCE_NOT_READ: ' + id);
+          }
+          for (const change of parsed.changes) {
+            const refs = change.supportingKnowledgeRefs || [];
+            if (!Array.isArray(refs) || refs.some(id => !plan.knowledgeIds?.includes(id))) throw new Error('KNOWLEDGE_REFERENCE_INVALID');
+            if (!mergeInputs) { for (const id of refs) {
+              if (!stage.allowed.includes(id) || (runtime.coverage.get(id) ?? -1) < (await store.read(id)).length) throw new Error('KNOWLEDGE_REFERENCE_NOT_READ');
+            }
+            } else {
+              const allowed = new Set(mergeInputs.flatMap(item => item.index.changes.flatMap(change => change.supportingKnowledgeRefs || [])));
+              if (refs.some(id => !allowed.has(id))) throw new Error('KNOWLEDGE_REFERENCE_INVALID');
+            }
           }
           if (mergeInputs) {
             const covered = new Set([...parsed.changes, ...parsed.pending].flatMap(change => [change.id, ...(change.sourceIds || [])]));
@@ -440,7 +456,7 @@ export class PhasedSyncEngine {
       const validation = validateCandidate(originalBytes, candidateBytes, fileName, changes, blocks);
       for (const name of ['document.patch', 'applied-document.diff']) { await writeFile(this.file(syncDir, name), validation.patch, 'utf8'); await emitFile(phase, name); }
       await writeFile(this.file(syncDir, 'validation.json'), JSON.stringify(validation, null, 2)); await emitFile(phase, 'validation.json');
-      await store.manifest({ docType, task: plan.task, validation, blocks, budget: plan.budget });
+      await store.manifest({ docType, task: plan.task, knowledgeContext: plan.knowledgeContext, validation, blocks, budget: plan.budget });
       await progress({ phase, status: 'completed' });
       result.mergedDoc = candidateBytes.toString('utf8'); result.candidateBytes = candidateBytes; result.validation = validation;
       result.originalBytes = originalBytes; result.patchFile = 'document.patch'; result.appliedDiffFile = 'applied-document.diff';

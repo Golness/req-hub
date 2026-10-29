@@ -106,3 +106,19 @@ it('loads no Harness Client runtime packages in source or built output', () => {
   if (existsSync(built) && /(?:require|import)\s*\(\s*['"]@deepseek-ai\/dsh-client-/.test(readFileSync(built, 'utf8'))) violations.push(built);
   expect(violations).toEqual([]);
 });
+it('exposes full long directory and breadcrumb labels on focus without changing navigation', async () => {
+  const { TopBar } = require('../../src/client/components/TopBar.js');
+  const { Breadcrumb } = require('../../src/client/components/shared/Breadcrumb.js');
+  const label = '2026-10-28-' + 'LongRequirementSTAndTPM'.repeat(12), change = vi.fn();
+  await render(React.createElement(React.Fragment, null,
+    React.createElement(TopBar, { docsDir: 'docs', currentWorkspace: { id: 'w', title: 'Work' }, currentReq: { id: label, title: label, date: '2026-10-28' }, onChangeReq: change }),
+    React.createElement(Breadcrumb, { items: [{ label, onClick: change }, { label: 'requirement.md' }] })));
+  const directory = [...container.querySelectorAll('.rh-topbar-value')].find(node => node.textContent.includes(label));
+  await act(async () => directory.focus());
+  expect(document.querySelector('[role=tooltip]').textContent).toBe(label);
+  await act(async () => directory.click()); expect(change).toHaveBeenCalledTimes(1);
+  const breadcrumb = container.querySelector('.rh-breadcrumb-link');
+  await act(async () => breadcrumb.focus());
+  expect([...document.querySelectorAll('[role=tooltip]')].some(node => node.textContent === label)).toBe(true);
+  await act(async () => breadcrumb.click()); expect(change).toHaveBeenCalledTimes(2);
+});

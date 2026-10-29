@@ -4,7 +4,9 @@ const { t } = require('../locale.js');
 const css = require('./CreateDirForm.module.css').default;
 const { cssValue } = require('./shared/presentation.js');
 const { Input } = require('./shared/Input.js');
+const { DatePicker } = require('./shared/DatePicker.js');
 const { Button } = require('./shared/Button.js');
+const { showToast } = require('./shared/ToastContainer.js');
 const { ModalFrame } = require('./shared/ModalFrame.js');
 
 const React = require('react');
@@ -53,7 +55,8 @@ function parseBranchName(branch) {
  * @param {Function} [props.onCreated] - Callback invoked after successful directory creation with requirement info
  * @returns {JSX.Element} A form with developer, date, title fields and branch creation options
  */
-function CreateDirForm({ workspaceId, docsDir, onClose, initialCreateBranch, onCreated }) {
+function CreateDirForm({ workspaceId, docsDir, onClose, initialCreateBranch, onCreated, onExisting }) {
+  const formId = React.useId();
   const [developer, setDeveloper] = useState('');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [title, setTitle] = useState('');
@@ -66,14 +69,26 @@ function CreateDirForm({ workspaceId, docsDir, onClose, initialCreateBranch, onC
   const [createBranch, setCreateBranch] = useState(!!initialCreateBranch);
   const [currentBranch, setCurrentBranch] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
+  const [checking, setChecking] = useState(true), [creation, setCreation] = useState(null), [checkRevision, setCheckRevision] = useState(0);
+  const callbacks = React.useRef({ onClose, onExisting }); callbacks.current = { onClose, onExisting };
+  const pullRef = React.useRef(null);
+  const [updatingMain, setUpdatingMain] = useState(false);
+  useEffect(() => () => pullRef.current?.abort(), []);
 
   // Fetch current git branch and auto-fill form
   useEffect(() => {
+    const controller = new AbortController(); setChecking(true); setCreation(null); setError(null);
     (async () => {
       try {
-        const res = await fetch(`${ROUTE}/git-branch?workspaceId=${encodeURIComponent(workspaceId)}`);
-        if (!res.ok) return;
+        const res = await fetch(`${ROUTE}/create-status?workspaceId=${encodeURIComponent(workspaceId)}`, { signal: controller.signal });
+        if (!res.ok) throw new Error('CREATE_FAILED');
         const data = await res.json();
+        if (controller.signal.aborted) return;
+        if (data.existingRequirement) {
+          if (!callbacks.current.onExisting) showToast({ tone: 'info', text: t('create.alreadyExists', { branch: data.branch, path: data.existingRequirement.path }), holdMs: 6000 });
+          await callbacks.current.onExisting?.(data.existingRequirement, data.branch); callbacks.current.onClose?.(); return;
+        }
+        setCreation(data);
         if (!data.branch) return;
 
         setCurrentBranch(data.branch);
@@ -85,13 +100,26 @@ function CreateDirForm({ workspaceId, docsDir, onClose, initialCreateBranch, onC
           setDate(parsed.date);
           setTitle(parsed.title);
         }
-      } catch { /* ignore */ }
+      } catch { if (!controller.signal.aborted) setError(t('create.statusFailed')); }
+      finally { if (!controller.signal.aborted) setChecking(false); }
     })();
-  }, [workspaceId]);
+    return () => controller.abort();
+  }, [workspaceId, checkRevision]);
+
+  const updateMain = async () => {
+    const controller = new AbortController(); pullRef.current = controller; setLoading(true); setUpdatingMain(true); setError(null);
+    try {
+      const response = await fetch(`${ROUTE}/update-main`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ workspaceId, expectedHead: creation.head, branch: creation.branch }), signal: controller.signal });
+      const result = await response.json(); if (controller.signal.aborted) return;
+      if (!response.ok) { const codes = { CREATE_MAIN_CHANGED: 'create.mainChanged', CREATE_MAIN_REMOTE_MISSING: 'create.remoteMissing', CREATE_MAIN_FETCH_FAILED: 'create.fetchFailed', CREATE_MAIN_MERGE_FAILED: 'create.mergeFailed' }; throw new Error(t(codes[result.error] || 'create.updateFailed', { branch: creation.branch })); }
+      showToast({ tone: 'success', text: t(result.updated ? 'create.mainUpdated' : 'create.mainCurrent', { branch: result.branch || creation.branch }) }); setCheckRevision(value => value + 1);
+    } catch (error) { if (!controller.signal.aborted) setError(error.message); }
+    finally { if (!controller.signal.aborted) { setLoading(false); setUpdatingMain(false); } }
+  };
 
   // 根据表单字段自动生成分支名（只读，不允许用户修改）
   const generatedBranchName = (developer && date && title)
-    ? `feature/${developer}/${date}-${title.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9\u4e00-\u9fa5\-_]/g, '').toLowerCase()}`
+    ? `feature/${developer}/${date}-${title.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9\u4e00-\u9fa5\-_]/g, '')}`
     : '';
 
   const previewPath = developer && date && title
@@ -130,7 +158,7 @@ function CreateDirForm({ workspaceId, docsDir, onClose, initialCreateBranch, onC
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || t("CreateDirForm.message002"));
+        setError(data.error === 'CREATE_ALREADY_EXISTS' ? t('create.alreadyExists', { branch: data.branch, path: data.requirement.path }) : data.error || t("CreateDirForm.message002"));
       } else {
         let msg = t("CreateDirForm.message003", { value0: data.path });
         if (data.branch && data.branch.created) {
@@ -139,11 +167,12 @@ function CreateDirForm({ workspaceId, docsDir, onClose, initialCreateBranch, onC
           setCurrentBranch(data.branch.branchName);
         }
         setSuccess(msg);
+        showToast({ tone: 'success', text: msg });
         refreshTree();
         // 通知父组件创建成功，传递新创建的需求信息
-        if (onCreated) {
-          onCreated({ developer, date, title, requirementId: `${date}-${title}`, branchName: createBranch ? generatedBranchName : null });
-        }
+        try { await onCreated?.({ developer, date, title, requirementId: `${date}-${title}`, branchName: createBranch ? generatedBranchName : null }); }
+        catch { showToast({ tone: 'warning', text: t('create.selectionRefreshFailed') }); }
+        finally { onClose?.(); }
       }
     } catch (e) {
       setError(String(e));
@@ -152,15 +181,19 @@ function CreateDirForm({ workspaceId, docsDir, onClose, initialCreateBranch, onC
     }
   };
 
+  if (checking) return h('div', { className: 'rh-op-panel', role: 'status' }, t('common.loading'));
+  if (!creation) return h('div', { className: 'rh-op-panel' }, h('p', { role: 'alert' }, error), h(Button, { onClick: () => setCheckRevision(value => value + 1) }, t('create.retry')));
   return h('div', { className: ('rh-op-panel') + ' ' + css.pane },
     h('div', { className: 'rh-op-hint' }, t("CreateDirForm.message005")),
+    creation.canUpdateMain && h('div', { className: css.mainActions }, h(Button, { disabled: loading, onClick: updateMain }, t(updatingMain ? 'create.updatingMain' : 'create.updateMain', { branch: creation.branch })), h('small', null, t('create.updateMainHint', { branch: creation.branch }))),
 
     // 表单网格：开发者 + 日期 并排，需求简述 跨两列
     h('div', { className: css.spacing },
       // 开发者
       h('div', { className: css.size },
-        h('label', { className: ('rh-form-label') + ' ' + css.spacing2 }, t("CreateDirForm.message006")),
+        h('label', { htmlFor: `${formId}-developer`, className: ('rh-form-label') + ' ' + css.spacing2 }, t("CreateDirForm.message006")),
         h(Input, {
+          id: `${formId}-developer`,
           className: 'rh-form-input',
           type: 'text',
           placeholder: t("create.developerExample"),
@@ -170,18 +203,19 @@ function CreateDirForm({ workspaceId, docsDir, onClose, initialCreateBranch, onC
       ),
       // 日期
       h('div', { className: css.size },
-        h('label', { className: ('rh-form-label') + ' ' + css.spacing2 }, t("CreateDirForm.message007")),
-        h('input', {
-          className: 'rh-form-input',
-          type: 'date',
+        h('label', { htmlFor: `${formId}-date`, className: ('rh-form-label') + ' ' + css.spacing2 }, t("CreateDirForm.message007")),
+        h(DatePicker, {
+          id: `${formId}-date`,
+          label: t("CreateDirForm.message007"),
           value: date,
           onChange: e => setDate(e.target.value),
         })
       ),
       // 需求简述（跨两列）
       h('div', { className: css.size2 },
-        h('label', { className: ('rh-form-label') + ' ' + css.spacing2 }, t("CreateDirForm.message008")),
+        h('label', { htmlFor: `${formId}-title`, className: ('rh-form-label') + ' ' + css.spacing2 }, t("CreateDirForm.message008")),
         h(Input, {
+          id: `${formId}-title`,
           className: 'rh-form-input',
           type: 'text',
           placeholder: t("CreateDirForm.message009"),
@@ -214,11 +248,13 @@ function CreateDirForm({ workspaceId, docsDir, onClose, initialCreateBranch, onC
 
         h('span', null, createBranch ? t("CreateDirForm.message012") : t("CreateDirForm.message013")),
         h('code', {
+          title: generatedBranchName,
           className: css.pane2, style: { "--rh-color-1": cssValue(createBranch ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-primary)') }
         }, generatedBranchName)
       ),
       // 目录预览
       previewPath && h('div', {
+        title: previewPath,
         className: css.row3
       },
 

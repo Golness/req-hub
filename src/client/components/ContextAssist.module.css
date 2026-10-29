@@ -1,0 +1,18 @@
+.assist, .settings { border-top: 0.5px solid var(--dsw-alias-border-l1); padding: 12px; font-size: var(--rh-font-size); line-height: var(--rh-line-height); min-width: 0; }
+.assist > summary { cursor: pointer; }
+.assist > .stack, .assist details > .stack { margin-top: 12px; }
+.stack, .settings { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.stack p, .settings p, .settings h3 { margin: 0; }
+.settings h3 { font-size: var(--rh-font-size); font-weight: 500; line-height: var(--rh-line-height); }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 12px; }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; max-width: 520px; }
+.field :global(.rh-select), .field :global(.rh-select-trigger) { width: 100%; min-width: 0; }
+.field input[type="number"] { width: 88px; }
+.related, .task { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; padding: 8px 0; border-bottom: 0.5px solid var(--dsw-alias-border-l1); }
+.related button { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hint, .assist small, .settings small { color: var(--dsw-alias-label-secondary); }
+.assist pre, .settings pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; width: 100%; margin: 0; }
+.task progress { width: 100%; }
+.history { max-height: 240px; overflow: auto; margin-top: 12px; }
+.history button { max-width: 100%; height: auto; min-height: 28px; padding-block: 4px; white-space: normal; text-align: start; overflow-wrap: anywhere; }

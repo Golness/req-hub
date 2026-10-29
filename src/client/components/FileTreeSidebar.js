@@ -4,6 +4,9 @@ const { t } = require('../locale.js');
 const css = require('./FileTreeSidebar.module.css').default;
 const { cssValue } = require('./shared/presentation.js');
 const { Button } = require('./shared/Button.js');
+const { Menu } = require('./shared/controls.js');
+const { showToast } = require('./shared/ToastContainer.js');
+const { writeClipboard } = require('../utils/clipboard.js');
 
 const React = require('react');
 const { Select } = require('./shared/Select.js');
@@ -62,6 +65,7 @@ function TreeCheckbox({ paths, selectedPaths, onTogglePaths, label }) {
 }
 
 function TreeNode({ node, depth, expandedDirs, toggleDir, activeFilePath, onFileClick, selection }) {
+  const [contextMenu, setContextMenu] = useState(null);
   if (node.type === 'directory') {
     const isExpanded = expandedDirs.has(node.path);
     return h('div', { className: 'rh-tree-node' },
@@ -102,12 +106,17 @@ function TreeNode({ node, depth, expandedDirs, toggleDir, activeFilePath, onFile
   // File node
   const isActive = activeFilePath === node.path;
   const docType = inferDocType(node.name);
-  return h('div', {
+  const fileRow = h('div', {
     className: (`rh-tree-file${isActive ? ' active' : ''}`) + ' ' + css.row2,
     style: { "--rh-padding-3": cssValue(`4px 8px 4px ${depth * 14 + 22}px`), "--rh-background-7": cssValue(isActive ? 'var(--rh-accent-bg)' : 'transparent'), "--rh-color-8": cssValue(isActive ? 'var(--rh-accent)' : 'var(--dsw-alias-label-primary)') },
     onClick: () => onFileClick(node),
-    role: 'treeitem', tabIndex: 0, 'aria-selected': isActive,
-    onKeyDown: event => { if (event.target === event.currentTarget && event.key === 'Enter') { event.preventDefault(); onFileClick(node); } },
+    role: 'treeitem', tabIndex: 0, 'aria-selected': isActive, 'aria-haspopup': 'menu', 'aria-expanded': !!contextMenu,
+    onContextMenu: event => { event.preventDefault(); event.stopPropagation(); event.currentTarget.focus(); setContextMenu({ x: event.clientX, y: event.clientY }); },
+    onKeyDown: event => {
+      if (event.target !== event.currentTarget) return;
+      if (event.key === 'ContextMenu' || event.shiftKey && event.key === 'F10') { event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); setContextMenu({ x: rect.left, y: rect.bottom }); }
+      else if (event.key === 'Enter') { event.preventDefault(); onFileClick(node); }
+    },
     title: node.path,
   },
     selection && h(TreeCheckbox, { paths: [node.path], ...selection, label: t("FileTreeSidebar.message003", { value0: node.path }) }),
@@ -120,6 +129,16 @@ function TreeNode({ node, depth, expandedDirs, toggleDir, activeFilePath, onFile
       className: ('rh-doctype-tag') + ' ' + css.content,
     }, docTypeLabels[docType] || t("documents.document"))
   );
+  return h(Menu, { containerTag: 'div', anchor: fileRow, anchorPoint: contextMenu, open: !!contextMenu, items: [{ id: 'copy-path', label: t('files.copyPath') }], onClose: () => setContextMenu(null),
+    onSelect: async () => {
+      setContextMenu(null);
+      try {
+        if (!node.absolutePath) throw new Error('FILE_PATH_MISSING');
+        await writeClipboard(node.absolutePath);
+        showToast({ tone: 'success', text: t('files.pathCopied') });
+      } catch { showToast({ tone: 'error', text: t('files.pathCopyFailed') }); }
+    },
+  });
 }
 
 /**

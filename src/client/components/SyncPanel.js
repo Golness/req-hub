@@ -1,4 +1,6 @@
 'use strict';
+const { KnowledgeContextPicker } = require('./KnowledgeContextPicker.js');
+const { DocumentAssist } = require('./ContextAssist.js');
 const { Checkbox } = require('./shared/controls.js');
 const { t } = require('../locale.js');
 const css = require('./SyncPanel.module.css').default;
@@ -585,7 +587,7 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
  * @param {Function} [props.onSyncAborted] - Callback invoked after a sync is successfully aborted
  * @returns {JSX.Element}
  */
-function SyncProgressView({ sync, onBack, onViewFile, workspaceId, requirementId, onSyncAborted }) {
+function SyncProgressView({ sync, onBack, onViewFile, workspaceId, requirementId, requirementPath, onSyncAborted }) {
   const [showAbortConfirm, setShowAbortConfirm] = useState(false);
   const [aborting, setAborting] = useState(false);
 
@@ -678,7 +680,8 @@ function SyncProgressView({ sync, onBack, onViewFile, workspaceId, requirementId
         workspaceId: sync.workspaceId,
         requirementId: sync.requirementId,
         onViewFile: onViewFile,
-      })
+      }),
+      requirementPath && !syncTaskModel.isSyncActive(sync) && h(DocumentAssist, { workspaceId, requirementPath, mode: 'sync', revision: sync.completedAt || sync.status })
     ),
     // Abort button — only shown when sync is running
     sync.status === 'running' && sync.id && h('div', {
@@ -885,6 +888,7 @@ function SyncDetailView({ sync: initialSync, onBack, workspaceId, requirementPat
     sync: displaySync,
     workspaceId: sync.workspaceId,
     requirementId: sync.requirementId,
+    requirementPath,
     onBack,
     onViewFile: (fileName) => setViewingFile(fileName),
     onSyncAborted: () => {
@@ -939,6 +943,11 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
   const [commitSearch, setCommitSearch] = useState('');
   const [commitRevision, setCommitRevision] = useState(0);
   const [includeWorkingChanges, setIncludeWorkingChanges] = useState(true);
+  const [knowledgeScopeIds, setKnowledgeScopeIds] = useState([]);
+  const [knowledgeReferenceRefs, setKnowledgeReferenceRefs] = useState([]);
+  useEffect(() => setKnowledgeReferenceRefs([]), [workspaceId, selectedReq?.path]);
+  const [knowledgeQuery, setKnowledgeQuery] = useState('');
+  useEffect(() => { setKnowledgeScopeIds([]); setKnowledgeQuery(''); }, [workspaceId]);
 
   const docTypeName = activeTab === 'requirement' ? t("DocsViewerBody.message073") : t("documents.design");
 
@@ -1100,6 +1109,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
           branchTip: commitState.data.branchTip,
           baseCommit: commitState.data.baseline,
           includeWorkingChanges,
+          knowledgeScopeIds, knowledgeReferenceRefs, knowledgeQuery: knowledgeQuery || selectedReq.id,
           sessionIds: selectedSessionIds,
           sessionVersions: Object.fromEntries(selectedSessionIds.map(id => [id, sessionVersions()[id]])),
         }),
@@ -1249,6 +1259,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
   if (view === 'detail' && selectedHistorySync) {
     return h(SyncDetailView, {
       sync: selectedHistorySync,
+      workspaceId, requirementPath: selectedReq.path,
       onBack: () => {
         setView('history');
         setSelectedHistorySync(null);
@@ -1262,6 +1273,7 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
       sync: currentSync.status==='preparing'?{...currentSync,status:'running'}:currentSync,
       workspaceId,
       requirementId: selectedReq.id,
+      requirementPath: selectedReq.path,
       onBack: () => {
         setView('select');
       },
@@ -1284,6 +1296,8 @@ function PhasedSyncUI({ workspaceId, selectedReq, activeTab, syncing, setSyncing
   return h('div', { className: 'rh-op-panel' },
     // Back button
     h(HeaderBack, { onBack: onClose, label: t("common.back") }),
+    h(KnowledgeContextPicker, { key: workspaceId, workspaceId, scopeIds: knowledgeScopeIds, onChange: setKnowledgeScopeIds, query: knowledgeQuery, onQueryChange: setKnowledgeQuery, disabled: syncing }),
+    selectedReq && h(DocumentAssist, { key: selectedReq.path, workspaceId, requirementPath: selectedReq.path, mode: 'sync', references: knowledgeReferenceRefs, onReferencesChange: setKnowledgeReferenceRefs, disabled: syncing }),
     isLiveSync(currentSync) && h(ActiveSyncSummary, {task:currentSync, onOpen:()=>setView('progress')}),
 
     h('div', { className: ('rh-op-info') + ' ' + css.spacing2 },

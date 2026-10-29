@@ -1,0 +1,9 @@
+.notice { padding: 10px 12px; background: var(--dsw-alias-bg-layer-1); border: 0.5px solid var(--dsw-alias-border-l1); border-radius: var(--dsw-radius-sm); }
+.formStack { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.formStack > p { margin: 0; }
+.contextBody { margin-top: 12px; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.muted { color: var(--dsw-alias-label-secondary); font-size: var(--rh-font-size-sm); line-height: var(--rh-line-height); }
+.list { display: flex; flex-direction: column; gap: 8px; max-height: 460px; overflow: auto; }
+.row { padding: 10px 0; border-bottom: 0.5px solid var(--dsw-alias-border-l1); overflow-wrap: anywhere; }
+.error { color: var(--dsw-alias-state-error-primary); }

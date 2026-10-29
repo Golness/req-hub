@@ -5,4 +5,6 @@
 .heading { font-weight: 500; }
 .indicator { transform: var(--rh-transform-0); transition: transform 0.15s; }
 .content { padding-left: 32px; }
+.content :global(.rh-modal-item-name) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.content :global(.rh-modal-item-count) { flex-shrink: 0; }
 .row2 { display: inline-flex; align-items: center; gap: 2px; }

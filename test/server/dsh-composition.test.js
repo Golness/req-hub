@@ -1,3 +1,6 @@
+import { EnhancementRuntime, installEnhancementTools, ENHANCEMENT_TOOLS } from '../../src/server/knowledge/enhancements/runtime.js';
+import { DEFAULTS as ENHANCEMENT_DEFAULTS } from '../../src/server/knowledge/enhancements/contracts.js';
+import { CodeProvider } from '../../src/server/knowledge/enhancements/code-provider.js';
 import { expect, it, vi } from 'vitest';
 import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
@@ -55,6 +58,30 @@ it.skipIf(!available)('composes ReqHub with real DSH Cordis, WebServer, Connecti
     const cookie = headers['set-cookie'].split(';')[0];
     const authenticated = { cookie };
     expect((await fetch(base + '/req-hub/config', { headers: authenticated })).status).toBe(200);
+    const directoryTree = await fetch(base + '/req-hub/tree?workspaceId=fixture', { headers: authenticated });
+    expect(directoryTree.status).toBe(200); expect((await directoryTree.json()).caseSensitivePaths).toBe(process.platform !== 'win32');
+    const fileDirectory = join(root, 'docs/alice/2026-10-28-files');
+    await mkdir(fileDirectory, { recursive: true }); await writeFile(join(fileDirectory, 'requirement.md'), '# Fixture');
+    const fileTree = await fetch(base + '/req-hub/file-tree?workspaceId=fixture&requirementId=2026-10-28-files&requirementPath=alice%2F2026-10-28-files', { headers: authenticated });
+    expect(fileTree.status).toBe(200); expect((await fileTree.json()).tree[0].absolutePath).toBe(join(fileDirectory, 'requirement.md'));
+    const enhancements = await fetch(base + '/req-hub/knowledge/enhancements/jobs?workspaceId=fixture', { headers: authenticated });
+    expect(enhancements.status).toBe(200); expect((await enhancements.json()).enabled).toBe(false);
+    const codeRefresh = await fetch(base + '/req-hub/knowledge/enhancements/jobs', {
+      method: 'POST', headers: { ...authenticated, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspaceId: 'fixture', kind: 'code-refresh', mode: null, useCode: true, requestKey: 'http-refresh', documentRefs: [], scopeIds: [] }),
+    });
+    expect(codeRefresh.status, await codeRefresh.clone().text()).toBe(202);
+    const refreshJob = await codeRefresh.json(); expect(refreshJob.kind).toBe('code-refresh');
+    expect((await fetch(base + '/req-hub/knowledge/enhancements/jobs?workspaceId=fixture')).status).toBe(401);
+    const { createMcpToolDefinition } = await load(join(dsh, 'packages/mcp/mcp-client/lib/index.js'));
+    const repositoryPage = { repositories: [{ name: 'fixture', path: root }], pagination: { total: 1, offset: 0, returned: 1, hasMore: false } };
+    const mcpCall = vi.fn(async () => ({ content: [{ type: 'text', text: JSON.stringify(repositoryPage) + '\n\n---\nNext' }] }));
+    ctx.tools.register(createMcpToolDefinition(ctx, { name: 'mcp__gitnexus__list_repos', rawName: 'list_repos', description: 'Fixture MCP repository list', inputSchema: { type: 'object', properties: {} }, call: mcpCall }));
+    const codeProvider = new CodeProvider(ctx);
+    expect(await codeProvider.repositories('gitnexus', new AbortController().signal)).toEqual(repositoryPage.repositories);
+    const denyMcp = ctx.tools.guard(exec => exec.name === 'mcp__gitnexus__list_repos' ? 'Fixture policy denial' : undefined);
+    await expect(codeProvider.call('gitnexus', 'list_repos', {}, new AbortController().signal)).rejects.toThrow('UNAVAILABLE');
+    expect(mcpCall).toHaveBeenCalledTimes(1); denyMcp();
     const conversations = await fetch(base + '/req-hub/conversations-list?workspaceId=fixture', { headers: authenticated });
     expect(conversations.status).toBe(200); expect((await conversations.json()).sessions).toEqual([]);
     expect((await fetch(base + '/req-hub/conversations-list?workspaceId=fixture')).status).toBe(401);
@@ -209,4 +236,106 @@ it.skipIf(!available).each([[false, false], [true, false], [false, true], [false
       } finally { await knowledge.close(); }
     } finally { await library.close(); await store.close(); await rm(libraryRoot, { recursive: true, force: true }); }
   } finally { installation?.dispose(); await ctx.fiber.dispose(); if (outputRoot) await rm(outputRoot, { recursive: true, force: true }); }
+}, 30000);
+
+it.skipIf(!available)('runs enhancement evidence tools through a real isolated DSH spawn child', async () => {
+  const requireHost = createRequire(join(dsh, 'packages/test-support/agent-loop-testkit/package.json'));
+  const requireSpawn = createRequire(join(dsh, 'packages/subagent/subagent-spawn-in-process/package.json'));
+  const { Context } = await load(requireHost.resolve('@deepseek-ai/cordis'));
+  const { LlmAdapter } = await load(requireHost.resolve('@deepseek-ai/dsh-llm'));
+  const { mountAgentLoopTestDependencies } = await load(join(dsh, 'packages/test-support/agent-loop-testkit/lib/index.js'));
+  const { default: AgentLoop } = await load(requireHost.resolve('@deepseek-ai/dsh-agent-loop'));
+  const { default: Subagents } = await load(requireSpawn.resolve('@deepseek-ai/dsh-subagent'));
+  const Spawn = await load(join(dsh, 'packages/subagent/subagent-spawn-in-process/lib/index.js'));
+  let count = 0, installation;
+  class Adapter extends LlmAdapter {
+    async *stream() {
+      count++;
+      if (count <= 2) {
+        const block = { type: 'tool-call', id: 'enhancement-' + count, name: count === 1 ? ENHANCEMENT_TOOLS[0] : ENHANCEMENT_TOOLS[1],
+          arguments: JSON.stringify(count === 1 ? { documentId: 'd' } : { result: { findings: [], patterns: [] } }) };
+        yield { type: 'block-start', index: 0, blockType: 'tool-call' };
+        yield { type: 'tool-call-delta', index: 0, id: block.id, name: block.name, argumentsDelta: block.arguments };
+        yield { type: 'block-end', index: 0, block }; yield { type: 'finish', reason: { kind: 'tool-calls' } };
+      } else {
+        yield { type: 'block-start', index: 0, blockType: 'text' }; yield { type: 'text-delta', index: 0, text: 'complete' };
+        yield { type: 'block-end', index: 0, block: { type: 'text', text: 'complete' } }; yield { type: 'finish', reason: { kind: 'stop' } };
+      }
+    }
+  }
+  const ctx = new Context();
+  try {
+    await mountAgentLoopTestDependencies(ctx); await ctx.plugin(AgentLoop, { agents: [] }); await ctx.plugin(Subagents); await ctx.plugin(Spawn, { providerName: 'spawn' });
+    ctx.llm.registerAdapter(['mock'], new Adapter());
+    const parent = await ctx.agentLoop.create('enhancement-parent', { provider: 'mock', model: 'mock' }, { cwd: process.cwd() });
+    const signal = new AbortController().signal;
+    const runtime = new EnhancementRuntime([{ id: 'd', version: 1, body: '# Frozen\nSelected business evidence', sources: [] }], { limit: 150000 }, ENHANCEMENT_DEFAULTS, signal);
+    installation = installEnhancementTools(ctx); installation.add(runtime);
+    const denied = await ctx.tools.execute({ callId: 'outside-child', name: ENHANCEMENT_TOOLS[0], arguments: { documentId: 'd' }, agent: parent, signal });
+    expect(denied.isError).toBe(true);
+    const result = await executeTask(ctx, ctx.llm, {}, { parentAgent: parent, cwd: process.cwd(), promptKey: 'knowledge-enhancement', variables: { runtimeId: runtime.id, kind: 'consistency-check', documents: '[{"id":"d","version":1}]' }, runtime, signal, toolFilter: { allow: ENHANCEMENT_TOOLS } });
+    expect(result.isError, result.diagnostic).toBe(false); expect(runtime.result.coverage.fullyReadDocuments).toBe(1); expect(count).toBe(3);
+    installation.close(runtime);
+  } finally { await installation?.dispose(); await ctx.fiber.dispose(); }
+}, 30000);
+
+it.skipIf(!available).each(['native', 'repair-text', 'never-submits'])('runs writing with real DSH output validation and bounded completion repair: %s', async mode => {
+  const { WritingRuntime, installWritingTools, WRITING_TOOLS } = await import('../../src/server/writing-runtime.js');
+  const requireHost = createRequire(join(dsh, 'packages/test-support/agent-loop-testkit/package.json'));
+  const requireSpawn = createRequire(join(dsh, 'packages/subagent/subagent-spawn-in-process/package.json'));
+  const { Context } = await load(requireHost.resolve('@deepseek-ai/cordis'));
+  const { LlmAdapter } = await load(requireHost.resolve('@deepseek-ai/dsh-llm'));
+  const { mountAgentLoopTestDependencies } = await load(join(dsh, 'packages/test-support/agent-loop-testkit/lib/index.js'));
+  const { default: AgentLoop } = await load(requireHost.resolve('@deepseek-ai/dsh-agent-loop'));
+  const { default: Subagents } = await load(requireSpawn.resolve('@deepseek-ai/dsh-subagent'));
+  const Spawn = await load(join(dsh, 'packages/subagent/subagent-spawn-in-process/lib/index.js'));
+  let count = 0, installation, runtime;
+  class Adapter extends LlmAdapter {
+    async *stream(request) {
+      count++;
+      if (count > 1) expect(JSON.stringify(request.messages)).not.toContain('INVALID_TOOL_OUTPUT');
+      if (mode === 'repair-text' && [3, 5].includes(count)) expect(JSON.stringify(request.messages)).toContain('does NOT execute tools');
+      const phase = mode === 'native' ? count - 1 : mode === 'repair-text' ? ({ 1: 0, 3: 1, 5: 2 })[count] : undefined;
+      if (phase !== undefined && phase <= 2) {
+        const args = [{ scopeId: 'exact-scope', query: 'rule' }, { id: 'exact-doc' }, { content: '# Improved', evidenceIds: ['exact-doc'] }][phase];
+        const block = { type: 'tool-call', id: 'writing-' + count, name: WRITING_TOOLS[phase], arguments: JSON.stringify(args) };
+        yield { type: 'block-start', index: 0, blockType: 'tool-call' };
+        yield { type: 'tool-call-delta', index: 0, id: block.id, name: block.name, argumentsDelta: block.arguments };
+        yield { type: 'block-end', index: 0, block }; yield { type: 'finish', reason: { kind: 'tool-calls' } };
+      } else {
+        const fake = mode === 'never-submits' || mode === 'repair-text' && [2, 4].includes(count);
+        const text = fake ? '<function=req_hub_writing_read><parameter=id>exact-doc</parameter></function> Claimed submitted.' : 'done';
+        if (fake && count <= 2) expect(runtime.activity.read).toBe(0);
+        yield { type: 'block-start', index: 0, blockType: 'text' };
+        yield { type: 'text-delta', index: 0, text };
+        yield { type: 'block-end', index: 0, block: { type: 'text', text } };
+        yield { type: 'finish', reason: { kind: 'stop' } };
+      }
+    }
+  }
+  const ctx = new Context();
+  try {
+    await mountAgentLoopTestDependencies(ctx); await ctx.plugin(AgentLoop, { agents: [] }); await ctx.plugin(Subagents); await ctx.plugin(Spawn, { providerName: 'spawn' });
+    ctx.llm.registerAdapter(['mock'], new Adapter());
+    const parent = await ctx.agentLoop.create('writing-parent', { provider: 'mock', model: 'mock' }, { cwd: process.cwd() });
+    ctx.tools.register({ name: 'writing_wrong_contract', description: 'Regression: previously declared object but returned array', parameters: { type: 'object', properties: {} },
+      output: { schema: { type: 'object' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] }, execute: () => [] });
+    const wrong = await ctx.tools.execute({ callId: 'wrong-contract', name: 'writing_wrong_contract', arguments: {}, agent: parent, signal: new AbortController().signal });
+    expect(wrong.error).toMatchObject({ info: { code: 'INVALID_TOOL_OUTPUT' } });
+    installation = installWritingTools(ctx);
+    runtime = new WritingRuntime([{ id: 'exact-scope', title: 'Selected' }], [{ id: 'exact-doc', scopeId: 'exact-scope', title: 'Rule', tags: [], version: 1, body: 'Complete business rule', sources: [{ relativePath: 'alice/2026-10-29-rule/requirement.md' }] }]);
+    installation.add(runtime);
+    const controller = new AbortController(); runtime.signal = controller.signal; runtime.onFatal = error => controller.abort(error);
+    const result = await executeTask(ctx, ctx.llm, {}, { signal: controller.signal, parentAgent: parent, cwd: process.cwd(), promptKey: 'writing', variables: { runtimeId: runtime.id, docTypeName: 'Requirement', scopes: '[{"id":"exact-scope"}]', content: '# Original', instruction: 'Improve' }, runtime, toolFilter: { allow: WRITING_TOOLS }, liveness: { enabled: false } });
+    if (mode === 'never-submits') {
+      expect(result.isError).toBe(true); expect(count).toBe(4);
+      expect(runtime.failure.message).toBe('WRITING_RESULT_INCOMPLETE'); expect(runtime.result).toBeUndefined(); expect(runtime.activity.read).toBe(0);
+    } else {
+      expect(result.isError, result.diagnostic).toBe(false); expect(count).toBe(mode === 'native' ? 4 : 6);
+      expect(runtime.result.content).toBe('# Improved'); expect(runtime.result.evidence[0].id).toBe('exact-doc');
+      expect(runtime.activity.toolErrors).toBe(0); expect(runtime.activity.read).toBe(1);
+    }
+    expect(runtime.completionReminders || 0).toBe(mode === 'native' ? 0 : mode === 'repair-text' ? 2 : 3);
+    installation.close(runtime);
+  } finally { await installation?.dispose(); await ctx.fiber.dispose(); }
 }, 30000);

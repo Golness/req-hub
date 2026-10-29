@@ -13,6 +13,7 @@ const CATEGORIES = [
   { id: 'sync', label: t("DocsViewerBody.message052") },
   { id: 'view', label: t("DocsViewerBody.message053") },
   { id: 'trace', label: t("PromptManager.message001") },
+  { id: 'knowledge', label: t('enhancement.promptCategory') },
   { id: 'writing', label: t("DocsViewerBody.message056") },
   { id: 'other', label: t("FileTreeSidebar.message021") },
 ];

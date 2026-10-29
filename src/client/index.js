@@ -15,6 +15,7 @@ const { t, installLocale } = require('./locale.js');
 
 const React = require('react');
 const h = React.createElement;
+const { SessionSelectionContext } = require('./context.js');
 
 // CSS（由 Rolldown 插件处理，构建时注入）
 require('./styles/tokens.css');
@@ -63,9 +64,10 @@ module.exports = {
       title: () => t("common.brand"),
     }));
 
+    const currentSessionId = () => { try { return ctx.get?.('uiWorkspace')?.selection?.getSnapshot?.()?.sessionId || null; } catch { return null; } };
     function LocalizedTabBody() {
       React.useSyncExternalStore(listener => ctx.locale.subscribe(listener), () => ctx.locale.getSnapshot());
-      return h(TabBodyWrapper);
+      return h(SessionSelectionContext.Provider, { value: currentSessionId }, h(require('./components/shared/DiffReviewPage.js').DiffReviewProvider, null, h(TabBodyWrapper)));
     }
 
     // 注册 Tab 内容

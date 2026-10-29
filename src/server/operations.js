@@ -7,13 +7,18 @@ export function createOperations(routes) {
   const byAction = new Map(catalog.map(route => [route.path.slice('/req-hub/'.length), route]));
   // Prefix APIs have explicit operation paths; never let a tool select an arbitrary URL.
   for (const [action, path] of [
+    ['knowledge-document-context', '/req-hub/knowledge/enhancements/context'],
+    ['knowledge-enhancement-start', '/req-hub/knowledge/enhancements/jobs'], ['knowledge-enhancement-job', '/req-hub/knowledge/enhancements/jobs/:id'],
+    ['knowledge-enhancement-cancel', '/req-hub/knowledge/enhancements/jobs/:id/cancel'], ['knowledge-enhancement-review', '/req-hub/knowledge/enhancements/reviews'],
+    ['knowledge-graph-entities', '/req-hub/knowledge/graph/entities'], ['knowledge-graph-relations', '/req-hub/knowledge/graph/relations'], ['knowledge-graph-impact', '/req-hub/knowledge/graph/impact'],
     ['knowledge-search', '/req-hub/knowledge/search'], ['knowledge-search-status', '/req-hub/knowledge/search/status'],
     ['knowledge-status', '/req-hub/knowledge/status'], ['knowledge-entries', '/req-hub/knowledge/entries'],
     ['knowledge-source', '/req-hub/knowledge/source'],
     ['knowledge-entry', '/req-hub/knowledge/entries/:id'], ['knowledge-build', '/req-hub/knowledge/builds'],
     ['knowledge-job', '/req-hub/knowledge/builds/:id'], ['knowledge-cancel', '/req-hub/knowledge/builds/:id/cancel'],
     ['writing-options', '/req-hub/writing/options'], ['writing-optimize', '/req-hub/writing/optimize'],
-    ['writing-job', '/req-hub/writing/jobs/:id'], ['writing-cancel', '/req-hub/writing/jobs/:id/cancel'],
+    ['writing-assets', '/req-hub/writing/assets'], ['writing-save', '/req-hub/writing/save'],
+    ['writing-jobs', '/req-hub/writing/jobs'], ['writing-job', '/req-hub/writing/jobs/:id'], ['writing-cancel', '/req-hub/writing/jobs/:id/cancel'],
   ]) {
     const route = routes.find(item => item.kind === 'prefix' && path.startsWith(item.path + '/'));
     if (route) byAction.set(action, { ...route, operationPath: path });
@@ -33,6 +38,7 @@ export function createOperations(routes) {
       const path = route.operationPath || route.path;
       if (path.includes(':id') && (typeof id !== 'string' || !/^[a-zA-Z0-9-]+$/.test(id))) throw new Error('INVALID_OPERATION_ID');
       const request = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))]);
+      request.operationExec = exec;
       request.method = method; request.url = path.replace(':id', encodeURIComponent(id || '')) + '?' + new URLSearchParams(Object.entries(params).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)]));
       request.headers = { 'content-type': 'application/json', ...(sessionId ? { 'x-session-id': sessionId } : {}) };
       let bytes = 0; const chunks = [];

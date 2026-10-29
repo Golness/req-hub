@@ -1,6 +1,8 @@
 /* Component presentation; runtime geometry uses local CSS variables. */
 .pane { max-width: 100%; overflow: hidden; }
-.spacing { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.mainActions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.mainActions small { color: var(--dsw-alias-label-secondary); font-size: var(--rh-font-size-sm); line-height: 20px; }
+.spacing { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
 .size { min-width: 0; }
 .spacing2 { display: block; margin-bottom: 4px; }
 .size2 { grid-column: 1 / -1; min-width: 0; }

@@ -1,6 +1,7 @@
 'use strict';
 const { t } = require('../locale.js');
 const { Button } = require('./shared/Button.js');
+const { EnhancementSettings } = require('./ContextAssist.js');
 
 const React = require('react');
 const { Select } = require('./shared/Select.js');
@@ -240,6 +241,7 @@ function SettingsPanel({ workspaceId, onClose }) {
                 h('span', { className: 'rh-settings-provider', title: t("common.provider") }, llmConfig.provider)
               )
       ),
+      h(EnhancementSettings, { key: workspaceId, workspaceId }),
       h(PromptManager, {
         key: workspaceId,
         registry: promptRegistry, error: promptError, onRetry: loadPromptRegistry,

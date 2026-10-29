@@ -2,6 +2,8 @@
 const { showToast } = require('./shared/ToastContainer.js');
 const { t } = require('../locale.js');
 const { Button } = require('./shared/Button.js');
+const { Tooltip } = require('./shared/controls.js');
+const css = require('./TopBar.module.css').default;
 
 const React = require('react');
 const h = React.createElement;
@@ -30,6 +32,12 @@ const { IconFolderExternal, IconTarget } = createIconComponents(h);
  */
 function TopBar({ docsDir, currentWorkspace, currentReq, onEditDocsDir, onChangeWorkspace, onChangeReq, onLocateSessionReq }) {
   const [showPathModal, setShowPathModal] = useState(false);
+  const field = (label, value, onClick, selected, className = '', fullText = value) => h('div', { className: `${css.field} ${className}` },
+    h('span', { className: 'rh-topbar-label' }, label),
+    h(Tooltip, { label: fullText, className: css.value }, h(Button, {
+      type: 'button', className: `rh-btn rh-btn-sm rh-topbar-value ${css.valueButton} ${selected ? 'selected' : 'unselected'}`,
+      onClick, 'aria-label': `${label} ${fullText}`,
+    }, h('span', { className: css.text }, value))));
 
   const handlePathConfirm = async (newDir) => {
     if (!newDir) return;
@@ -66,7 +74,7 @@ function TopBar({ docsDir, currentWorkspace, currentReq, onEditDocsDir, onChange
     }
   };
 
-  return h('div', { className: 'rh-topbar' },
+  return h('div', { className: `rh-topbar ${css.bar}` },
     h('div', { className: 'rh-topbar-locate' },
       // 定位到当前会话需求目录按钮
       h('button', {
@@ -80,35 +88,15 @@ function TopBar({ docsDir, currentWorkspace, currentReq, onEditDocsDir, onChange
         h('span', { className: 'rh-rail-label' }, t("TopBar.message005"))
       )
     ),
-    h('div', { className: 'rh-topbar-left' },
+    h('div', { className: `rh-topbar-left ${css.fields}` },
       // 工作区
-      h('span', { className: 'rh-topbar-label' }, t("TopBar.message006")),
-      h(Button, {
-          type: 'button',
-          className: `rh-btn rh-btn-sm rh-topbar-value${currentWorkspace ? ' selected' : ' unselected'}`,
-          onClick: onChangeWorkspace,
-          title: t("TopBar.message007"),
-          'aria-label': t("TopBar.message009", { value0: currentWorkspace?.title || currentWorkspace?.id || t("TopBar.message008") }),
-        }, currentWorkspace?.title || currentWorkspace?.id || t("TopBar.message010")),
+      field(t("TopBar.message006"), currentWorkspace?.title || currentWorkspace?.id || t("TopBar.message010"), onChangeWorkspace, !!currentWorkspace),
 
       // 项目路径
-      h('span', { className: 'rh-topbar-label' }, t("TopBar.message011")),
-      h(Button, {
-          type: 'button',
-          className: 'rh-btn rh-btn-sm rh-topbar-value selected',
-          onClick: () => setShowPathModal(true),
-          title: t("TopBar.message012"),
-          'aria-label': t("TopBar.message013", { value0: docsDir }),
-        }, docsDir),
+      field(t("TopBar.message011"), docsDir, () => setShowPathModal(true), true),
 
       // 需求目录
-      h('span', { className: 'rh-topbar-label' }, t("TopBar.message014")),
-      h(Button, {
-          type: 'button',
-          className: `rh-btn rh-btn-sm rh-topbar-value${currentReq ? ' selected' : ' unselected'}`,
-          onClick: onChangeReq,
-          title: t("TopBar.message015"),
-        }, currentReq ? [currentReq.date?.slice(5), currentReq.title || currentReq.id].filter(Boolean).join(' ') : t("TopBar.message010")),
+      field(t("TopBar.message014"), currentReq ? [currentReq.date?.slice(5), currentReq.title || currentReq.id].filter(Boolean).join(' ') : t("TopBar.message010"), onChangeReq, !!currentReq, css.requirement, currentReq?.path || currentReq?.id || t("TopBar.message010")),
 
       // 在文件资源管理器中打开按钮
       currentReq && h(Button, {

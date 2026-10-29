@@ -1,5 +1,6 @@
 import { safeDocumentPath } from '../safe-path.js';
 import { withDocumentLock } from '../sync-document-validator.js';
+import { creationStatus } from '../creation.js';
 /**
  * Document tree routes module.
  * Handles document tree and workspace-related HTTP endpoints.
@@ -256,14 +257,14 @@ export function createTreeRoutes(registry) {
         try {
           await stat(docsRoot);
         } catch {
-          json(res, { tree: { developers: [] }, totalRequirements: 0, docsDir: config.docsDir, exists: false });
+          json(res, { tree: { developers: [] }, totalRequirements: 0, docsDir: config.docsDir, exists: false, caseSensitivePaths: process.platform !== 'win32' });
           return;
         }
 
         const tree = await buildTree(docsRoot);
         const totalRequirements = countRequirements(tree);
 
-        json(res, { tree, totalRequirements, docsDir: config.docsDir, exists: true });
+        json(res, { tree, totalRequirements, docsDir: config.docsDir, exists: true, caseSensitivePaths: process.platform !== 'win32' });
       }
     },
 
@@ -476,6 +477,25 @@ export function createTreeRoutes(registry) {
             return;
           }
 
+          const config = await loadConfig();
+          const current = await creationStatus(workspace, config);
+          if (current.existingRequirement) {
+            json(res, { error: 'CREATE_ALREADY_EXISTS', branch: current.branch, requirement: current.existingRequirement }, 409);
+            return;
+          }
+          const docsRoot = resolve(workspace.path, config.docsDir);
+          const dirName = `${date}-${title}`;
+          if (docsRoot !== resolve(workspace.path)) await safeDocumentPath(workspace.path, config.docsDir, { allowMissing: true });
+          const targetPath = await safeDocumentPath(docsRoot, join(developer, dirName), { allowMissing: true });
+          if (!isInside(docsRoot, targetPath)) {
+            json(res, { error: 'path outside docs' }, 400);
+            return;
+          }
+          if (existsSync(targetPath)) {
+            json(res, { error: 'directory already exists' }, 409);
+            return;
+          }
+
           // ── 新建 Git 分支（在创建目录之前）──
           let branchResult = null;
           if (createBranch && branchName) {
@@ -522,22 +542,7 @@ export function createTreeRoutes(registry) {
           }
 
           // ── 创建需求目录 ──
-          const config = await loadConfig();
-          const docsRoot = resolve(workspace.path, config.docsDir);
-          const dirName = `${date}-${title}`;
-          if (docsRoot !== resolve(workspace.path)) await safeDocumentPath(workspace.path, config.docsDir, { allowMissing: true });
-          const targetPath = await safeDocumentPath(docsRoot, join(developer, dirName), { allowMissing: true });
-
-          if (!isInside(docsRoot, targetPath)) {
-            json(res, { error: 'path outside docs' }, 400);
-            return;
-          }
-
-          if (existsSync(targetPath)) {
-            json(res, { error: 'directory already exists' }, 409);
-            return;
-          }
-
+          await safeDocumentPath(docsRoot, join(developer, dirName), { allowMissing: true });
           await mkdir(targetPath, { recursive: true });
           log.tree.info(`创建目录: ${developer}/${dirName}`);
           json(res, {
@@ -647,6 +652,7 @@ export function createTreeRoutes(registry) {
                   result.push({
                     type: 'file',
                     name: entry.name,
+                    absolutePath: fullPath,
                     path: relPath,
                     mtime: stats.mtime.toISOString(),
                     size: stats.size
@@ -655,6 +661,7 @@ export function createTreeRoutes(registry) {
                   result.push({
                     type: 'file',
                     name: entry.name,
+                    absolutePath: fullPath,
                     path: relPath,
                     mtime: null,
                     size: null

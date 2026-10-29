@@ -3,6 +3,8 @@ const { t } = require('../locale.js');
 const css = require('./DocsViewerBody.module.css').default;
 const { cssValue } = require('./shared/presentation.js');
 const { Button } = require('./shared/Button.js');
+const { ModalFrame } = require('./shared/ModalFrame.js');
+const { Tooltip } = require('./shared/controls.js');
 
 const React = require('react');
 const h = React.createElement;
@@ -15,10 +17,12 @@ const { createIconComponents } = require('../icons.js');
 const { IconPlus, IconSync, IconBooks, IconEdit, IconLog, IconSettings } = createIconComponents(h);
 
 const { parseBranchName } = require('../utils/parseBranchName.js');
+const { findBranchRequirement } = require('../utils/findBranchRequirement.js');
 const { TopBar } = require('./TopBar.js');
 const { CreateDirForm } = require('./CreateDirForm.js');
 const { FilePreview } = require('./FilePreview.js');
 const { FileKnowledgeAction } = require('./FileKnowledgeAction.js');
+const { DocumentAssist } = require('./ContextAssist.js');
 const { SyncPanel } = require('./SyncPanel.js');
 const { SyncStatusBar } = require('./SyncStatusBar.js');
 const { useSyncMonitor } = require('../hooks/useSyncMonitor.js');
@@ -91,9 +95,36 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
     pendingSyncNavigation.current = null;
   }, [focusedSync, workspace.id]);
   useEffect(() => { setSelectedFile(null); setFileDirty(false); setShowFileTree(activePanel === 'knowledge' && hasKnowledgeTree); }, [workspace.id]);
+  const [writingToolbarTarget, setWritingToolbarTarget] = useState(null);
   const [previewToolbarTarget, setPreviewToolbarTarget] = useState(null);
   const [headerBackTarget, setHeaderBackTarget] = useState(null);
   const [selectedReq, setSelectedReq] = useState(null);
+  const [creationStatus, setCreationStatus] = useState(null);
+  const [creationNotice, setCreationNotice] = useState(null);
+  const createRequest = useRef(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    setCreationStatus(null); setCreationNotice(null);
+    fetch(`${ROUTE}/create-status?workspaceId=${encodeURIComponent(workspace.id)}`, { signal: controller.signal })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (!controller.signal.aborted) setCreationStatus(data); }).catch(() => {});
+    return () => { controller.abort(); createRequest.current?.abort(); };
+  }, [workspace.id, docsDir, selectedReq?.id]);
+  const openCreation = async () => {
+    createRequest.current?.abort();
+    const controller = new AbortController(); createRequest.current = controller;
+    try {
+      const res = await fetch(`${ROUTE}/create-status?workspaceId=${encodeURIComponent(workspace.id)}`, { signal: controller.signal });
+      if (!res.ok) throw new Error('CREATE_FAILED');
+      const data = await res.json();
+      if (controller.signal.aborted) return;
+      setCreationStatus(data);
+      if (data.existingRequirement) { setCreationNotice(data); return; }
+      setShowFileTree(false); setActivePanel('create');
+    } catch {
+      if (!controller.signal.aborted) showToast({ tone: 'error', text: t('create.statusFailed') });
+    }
+  };
   const [selectedFile, setSelectedFile] = useState(null);
   const [syncHint, setSyncHint] = useState(null);
   const [totalReqs, setTotalReqs] = useState(0);
@@ -194,7 +225,7 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
         setShowFileTree(false);
         setExpandedGroup(null);
       },
-      createDir: () => { setActivePanel('create'); setShowFileTree(false); },
+      createDir: openCreation,
       sync: selectedFile && (!activePanel || activePanel === 'knowledge' && knowledgeTab === 'documents') ? undefined : () => { setActivePanel('sync'); setShowFileTree(false); },
       toggleFileTree: () => {
         if (activePanel !== 'knowledge' || !hasKnowledgeTree) { setActivePanel('knowledge'); setKnowledgeTab('documents'); setShowFileTree(true); }
@@ -210,7 +241,7 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
       },
     });
     return cleanup;
-  }, [activePanel, showFileTree, knowledgeTab, selectedFile?.path]);
+  }, [activePanel, showFileTree, knowledgeTab, selectedFile?.path, workspace.id]);
 
   const handleSelectReq = async (req) => {
     selectionRevision.current++; pendingSyncNavigation.current = null; setFocusedSync(null);
@@ -244,7 +275,7 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
       // Find the updated requirement
       for (const dev of data.tree.developers) {
         for (const req of dev.requirements) {
-          if (req.id === selectedReq.id) {
+          if (req.id === selectedReq.id && (!selectedReq.path || req.path.replaceAll('\\', '/') === selectedReq.path.replaceAll('\\', '/'))) {
             setSelectedReq({ ...req, developer: dev.name });
             return;
           }
@@ -464,6 +495,26 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
       if (!isValidBranch) {
         // 分支名不符合规范 → 跳转到新建功能，默认勾选新建分支
         console.warn(t("DocsViewerBody.message033"), branch);
+        selectionRevision.current++;
+        isInitialMount.current = false;
+        pendingSyncNavigation.current = null;
+        setFocusedSync(null);
+        setSelectedReq(null);
+        setSelectedFile(null);
+        setFileDirty(false);
+        setShowFileTree(false);
+        setPendingCreateReq(null);
+        setShowCreateConfirm(false);
+        try {
+          const cleared = await fetch(`${ROUTE}/config`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ workspaceId: targetWorkspace.id, developerName: null, requirementId: null }),
+          });
+          if (!cleared.ok) throw new Error('CONFIG_SAVE_FAILED');
+        } catch (e) {
+          console.error(t("DocsViewerBody.message047"), e);
+        }
         if (targetWorkspace.id !== workspace.id) {
           // 等待工作区切换完成
           await new Promise(resolve => setTimeout(resolve, 200));
@@ -494,26 +545,8 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
       console.log(t("DocsViewerBody.message042"), treeData);
 
       // 7. 查找需求目录
-      let existingReq = null;
-      if (treeData.tree?.developers) {
-        // 如果 developer 为 null（格式 3），在所有开发者中查找
-        const devsToSearch = developer
-          ? treeData.tree.developers.filter(dev => dev.name === developer)
-          : treeData.tree.developers;
-
-        for (const dev of devsToSearch) {
-          console.log(t("DocsViewerBody.message043"), dev.name);
-          for (const req of dev.requirements) {
-            console.log(t("DocsViewerBody.message044"), req.id, 'vs', requirementId);
-            if (req.id === requirementId) {
-              existingReq = { ...req, developer: dev.name };
-              console.log(t("DocsViewerBody.message045"), existingReq);
-              break;
-            }
-          }
-          if (existingReq) break;
-        }
-      }
+      const { match: existingReq, ambiguous } = findBranchRequirement(treeData.tree, parsed, treeData.caseSensitivePaths !== false);
+      if (ambiguous) { showToast({ tone: 'warning', text: t('locate.ambiguous'), holdMs: 5000 }); return; }
 
       if (existingReq) {
         console.log(t("DocsViewerBody.message046"), existingReq);
@@ -580,6 +613,8 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
         onSaved: () => { setFileRevision(value => value + 1); knowledge.refresh(); },
         onDirtyChange: setFileDirty,
         active: !activePanel || activePanel === 'knowledge' && knowledgeTab === 'documents',
+        assist: h(DocumentAssist, { key: `${selectedFile.workspaceId || workspace.id}:${selectedFile.path}`, workspaceId: selectedFile.workspaceId || workspace.id, path: selectedFile.path, revision: `${fileRevision}:${knowledge.job?.updatedAt || ''}`, dirty: fileDirty,
+          onOpenSource: source => setSelectedFile({ path: source.relativePath, name: source.relativePath.split('/').at(-1), workspaceId: source.workspaceId, requirement: selectedFile.requirement }) }),
       });
   };
 
@@ -591,6 +626,7 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
         docsDir,
         onClose: handlePanelClose,
         initialCreateBranch,
+        onExisting: (req, branch) => { const data = { branch, existingRequirement: req }; setCreationStatus(data); setCreationNotice(data); },
         onCreated: async (info) => {
           // 创建成功后：自动选中新需求、保存配置、刷新分支显示
           setInitialCreateBranch(false);
@@ -742,8 +778,10 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
             // Regular button
             return h('button', {
               key: btn.id,
-              className: `rh-rail-btn${activePanel === btn.id ? ' active' : ''}`,
+              className: `rh-rail-btn${activePanel === btn.id ? ' active' : ''}${btn.id === 'create' && creationStatus?.existingRequirement ? ` ${css.creationUnavailable}` : ''}`,
+              'aria-disabled': btn.id === 'create' && !!creationStatus?.existingRequirement || undefined,
               onClick: () => {
+                if (btn.id === 'create') { openCreation(); return; }
                 setExpandedGroup(null);
                 if (activePanel === btn.id) { setSelectedFile(null); setActivePanel(null); setShowFileTree(false); }
                 else { setShowFileTree(btn.id === 'knowledge' && hasKnowledgeTree); setActivePanel(btn.id); }
@@ -803,9 +841,10 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
             h('div', { className: 'rh-right-header-main' },
               filePreviewBreadcrumb
                 ? h(Breadcrumb, { items: filePreviewBreadcrumb })
-                : h('span', { className: 'rh-right-header-title' }, rightHeaderTitle || t("DocsViewerBody.message073")),
+                : activePanel !== 'writing' && h('span', { className: 'rh-right-header-title' }, rightHeaderTitle || t("DocsViewerBody.message073")),
               filePreviewBreadcrumb && /\.(md|txt|text|html?|json|pdf|docx|xlsx)$/i.test(selectedFile.name) && h(FileKnowledgeAction, {
                 key: `${selectedFile.workspaceId || workspace.id}:${selectedFile.path}`, workspaceId: selectedFile.workspaceId || workspace.id, path: selectedFile.path, revision: fileRevision, dirty: fileDirty, onChanged: knowledge.refresh }),
+              activePanel === 'writing' && h('div', { className: css.writingToolbarSlot, ref: setWritingToolbarTarget }),
               filePreviewBreadcrumb && h('div', { className: 'rh-preview-actions', ref: setPreviewToolbarTarget }),
               activePanel === 'knowledge' && knowledgeTab === 'files' && h(Button, { className: 'rh-btn rh-btn-primary',
                 disabled: !knowledge.selected.length || knowledge.running,
@@ -826,7 +865,7 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
                 setSelectedFile({ path: source.relativePath, name: parts.at(-1), workspaceId: source.workspaceId, workspaceTitle: source.workspaceTitle, requirement, returnPanel: 'knowledge', returnKnowledgeTab: 'search' });
                 setKnowledgeTab('documents'); setActivePanel('knowledge'); setShowFileTree(local);
               } })),
-          writingMounted.current && h('div', { key: `writing:${workspace.id}`, className: css.size, style: { "--rh-display-0": cssValue(activePanel === 'writing' ? 'flex' : 'none') } }, h(WritingPanel, { workspaceId: workspace.id })),
+          writingMounted.current && h('div', { key: `writing:${workspace.id}`, className: css.size, style: { "--rh-display-0": cssValue(activePanel === 'writing' ? 'flex' : 'none') } }, h(WritingPanel, { active: activePanel === 'writing', toolbarTarget: activePanel === 'writing' ? writingToolbarTarget : null, docsDir, workspaceId: workspace.id, requirement: selectedReq, onSaved: () => refreshSelectedReqRef.current() })),
           activePanel !== 'writing' && (selectedFile && !activePanel
             ? renderRightContent()
             : h('div', { className: `rh-right-body${isKnowledgeSearch ? ' ' + css.inactive : ''}` }, renderRightContent()))
@@ -842,6 +881,17 @@ function DocsViewerBody({ workspace, docsDir, onConfigChange, workspaces, onSele
           h('span', { className: css.heading }, t("shell.requirementCount", { value0: totalReqs }))
         )
       ),
+
+      creationNotice && h(ModalFrame, { 'aria-label': t('create.existingTitle'), onClick: () => setCreationNotice(null) },
+        h('div', { className: 'rh-confirm-dialog', onClick: event => event.stopPropagation() },
+          h('div', { className: 'rh-confirm-header' }, h('h3', { className: 'rh-confirm-title' }, t('create.existingTitle'))),
+          h('div', { className: `rh-confirm-body ${css.creationNoticeBody}` },
+            h('dl', { className: css.creationDetails },
+              [[t('create.existingBranch'), creationNotice.branch], [t('create.existingDirectory'), creationNotice.existingRequirement.path]].map(([label, value]) => h(React.Fragment, { key: label },
+                h('dt', null, label),
+                h('dd', null, h(Tooltip, { label: value, className: css.creationDetailTooltip }, h('span', { className: css.creationDetailValue, tabIndex: 0 }, value)))))),
+            h('p', { className: css.creationNoticeHint }, t('create.existingHint'))),
+          h('div', { className: 'rh-confirm-footer' }, h(Button, { onClick: () => setCreationNotice(null) }, t('common.confirm'))))),
 
       // ── Workspace modal ──
       showWorkspaceModal && h(WorkspaceModal, {

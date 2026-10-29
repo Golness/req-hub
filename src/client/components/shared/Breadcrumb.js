@@ -1,6 +1,8 @@
 'use strict';
 const { t } = require('../../locale.js');
 const { Button } = require('./Button.js');
+const { Tooltip } = require('./controls.js');
+const css = require('./Breadcrumb.module.css').default;
 const React = require('react');
 const h = React.createElement;
 
@@ -28,23 +30,24 @@ function Breadcrumb({ items, onNavigate }) {
     }
     // 链接或当前项
     if (i < items.length - 1) {
-      elements.push(h(Button, {
+      elements.push(h(Tooltip, { key: `link-${i}`, label: item.label, className: css.item }, h(Button, {
         key: `link-${i}`,
-        className: 'rh-btn rh-btn-ghost rh-btn-sm rh-breadcrumb-link',
+        className: `rh-btn rh-btn-ghost rh-btn-sm rh-breadcrumb-link ${css.link}`,
         onClick: () => onNavigate ? onNavigate(item) : (item.onClick && item.onClick()),
         'aria-label': t("Breadcrumb.message001", { value0: item.label }),
-      }, item.label));
+      }, h('span', { className: css.text }, item.label))));
     } else {
-      elements.push(h('span', {
+      elements.push(h(Tooltip, { key: `current-${i}`, label: item.label, className: `${css.item} ${css.current}` }, h('span', {
         key: `current-${i}`,
-        className: 'rh-breadcrumb-current',
+        className: `rh-breadcrumb-current ${css.text}`,
         'aria-current': 'page',
-      }, item.label));
+        tabIndex: 0,
+      }, item.label)));
     }
   });
 
   return h('nav', {
-    className: 'rh-breadcrumb',
+    className: `rh-breadcrumb ${css.nav}`,
     'aria-label': t("Breadcrumb.message002"),
   }, ...elements);
 }
