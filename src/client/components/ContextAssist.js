@@ -1,4 +1,5 @@
 'use strict';
+const { Disclosure } = require('./shared/Disclosure.js');
 const React = require('react');
 const { t } = require('../locale.js');
 const { ROUTE } = require('../constants.js');
@@ -219,9 +220,8 @@ function TaskResult({ api }) {
       h('small', null, t('enhancement.indexCheckPending')),
     job.result?.findings?.map((item) =>
       h(
-        'details',
-        { key: item.id },
-        h('summary', null, item.reason || t(`enhancement.finding.${item.kind}`)),
+        Disclosure,
+        { key: item.id, title: item.reason || t(`enhancement.finding.${item.kind}`) },
         item.question && h('p', null, item.question),
         item.proposal &&
           h(DiffViewer, {
@@ -236,9 +236,8 @@ function TaskResult({ api }) {
     ),
     job.result?.patterns?.map((item) =>
       h(
-        'details',
-        { key: item.id },
-        h('summary', null, t('enhancement.patterns')),
+        Disclosure,
+        { key: item.id, title: t('enhancement.patterns') },
         h('pre', null, item.content),
         h(
           'div',
@@ -269,9 +268,8 @@ function TaskResult({ api }) {
     ),
     job.indexLogs?.length > 0 &&
       h(
-        'details',
-        { open: active(job) },
-        h('summary', null, t('enhancement.indexLogs')),
+        Disclosure,
+        { defaultOpen: active(job), title: t('enhancement.indexLogs') },
         h('pre', null, job.indexLogs.join('\n')),
       ),
   );
@@ -311,9 +309,8 @@ function TaskHistory({ api }) {
     return null;
   }
   return h(
-    'details',
-    null,
-    h('summary', null, t('enhancement.history')),
+    Disclosure,
+    { title: t('enhancement.history') },
     h(
       'div',
       { className: `${css.stack} ${css.history}` },
@@ -428,6 +425,7 @@ function DocumentAssist({
   references = [],
   onReferencesChange,
   disabled,
+  compact = false,
 }) {
   const context = {
     ...(path ? { path } : {}),
@@ -477,14 +475,13 @@ function DocumentAssist({
     promptKey = 'assist.document';
   }
   return h(
-    'details',
-    { className: css.assist },
-    h(
-      'summary',
-      null,
-      t(promptKey),
-      api.locked ? ` · ${state(api.job?.status || 'preparing')}` : '',
-    ),
+    compact ? 'section' : Disclosure,
+    {
+      className: compact ? css.compact : css.assist,
+      title: compact
+        ? undefined
+        : t(promptKey) + (api.locked ? ` · ${state(api.job?.status || 'preparing')}` : ''),
+    },
     h(
       'div',
       { className: css.stack },
@@ -506,50 +503,52 @@ function DocumentAssist({
             ((mode === 'document' && !data.indexed) ||
               (mode === 'sync' && !data.documentRefs?.length)) &&
               h('p', null, t('assist.importFirst')),
-            h(
-              'p',
-              { className: css.hint },
-              t(mode === 'sync' ? 'assist.syncHelp' : 'assist.referenceHelp'),
-            ),
+            !compact &&
+              h(
+                'p',
+                { className: css.hint },
+                t(mode === 'sync' ? 'assist.syncHelp' : 'assist.referenceHelp'),
+              ),
             onReferencesChange &&
               h(
                 'p',
                 { className: css.hint },
                 t('assist.selectedReferences', { count: references.length }),
               ),
-            data.related?.map((doc) =>
-              h(
-                'div',
-                { key: doc.id, className: css.related },
-                onReferencesChange &&
-                  h(Checkbox, {
-                    disabled:
-                      locked ||
-                      (references.length >= 30 && !references.some((item) => item.id === doc.id)),
-                    checked: references.some((item) => item.id === doc.id),
-                    label: doc.title,
-                    onChange: (checked) => choose(doc, checked),
-                  }),
+            !compact &&
+              data.related?.map((doc) =>
                 h(
-                  Button,
-                  {
-                    size: 'sm',
-                    disabled: !onOpenSource,
-                    title: doc.path,
-                    onClick: () =>
-                      onOpenSource?.({ relativePath: doc.path, workspaceId, title: doc.title }),
-                  },
-                  doc.path,
-                ),
-                h(
-                  'small',
-                  null,
-                  doc.reasons.map((reason) => t(`assist.reason.${reason}`)).join(' · '),
-                  doc.confirmed ? ` · ${state('confirmed')}` : '',
+                  'div',
+                  { key: doc.id, className: css.related },
+                  onReferencesChange &&
+                    h(Checkbox, {
+                      disabled:
+                        locked ||
+                        (references.length >= 30 && !references.some((item) => item.id === doc.id)),
+                      checked: references.some((item) => item.id === doc.id),
+                      label: doc.title,
+                      onChange: (checked) => choose(doc, checked),
+                    }),
+                  h(
+                    Button,
+                    {
+                      size: 'sm',
+                      disabled: !onOpenSource,
+                      title: doc.path,
+                      onClick: () =>
+                        onOpenSource?.({ relativePath: doc.path, workspaceId, title: doc.title }),
+                    },
+                    doc.path,
+                  ),
+                  h(
+                    'small',
+                    null,
+                    doc.reasons.map((reason) => t(`assist.reason.${reason}`)).join(' · '),
+                    doc.confirmed ? ` · ${state('confirmed')}` : '',
+                  ),
                 ),
               ),
-            ),
-            !data.related?.length && h('p', null, t('assist.noRelated')),
+            !compact && !data.related?.length && h('p', null, t('assist.noRelated')),
             h(
               'div',
               { className: css.actions },
@@ -585,12 +584,12 @@ function DocumentAssist({
               ),
             ),
             h(TaskResult, { api }),
-            h(TaskHistory, { api }),
-            graph?.relations?.length > 0 &&
+            !compact && h(TaskHistory, { api }),
+            !compact &&
+              graph?.relations?.length > 0 &&
               h(
-                'details',
-                null,
-                h('summary', null, t('assist.review')),
+                Disclosure,
+                { title: t('assist.review') },
                 h(
                   'div',
                   { className: css.stack },
@@ -610,9 +609,8 @@ function DocumentAssist({
                         ` · ${state(relation.reviewState)}`,
                       ),
                       h(
-                        'details',
-                        null,
-                        h('summary', null, t('enhancement.evidence')),
+                        Disclosure,
+                        { title: t('enhancement.evidence') },
                         h('pre', null, JSON.stringify(relation.evidence, null, 2)),
                       ),
                       h(
@@ -635,176 +633,177 @@ function DocumentAssist({
                   ),
                 ),
               ),
-            h(
-              'details',
-              null,
-              h('summary', null, t('assist.advanced')),
+            !compact &&
               h(
-                'div',
-                { className: css.stack },
-                h(CodeStatus, { api }),
+                Disclosure,
+                { title: t('assist.advanced') },
                 h(
-                  Button,
-                  {
-                    size: 'sm',
-                    disabled: locked || !data.enabled || !data.documentRefs?.length || data.limited,
-                    onClick: () => api.start('graph-build'),
-                  },
-                  t('assist.refreshRelations'),
-                ),
-                graph &&
+                  'div',
+                  { className: css.stack },
+                  h(CodeStatus, { api }),
                   h(
-                    React.Fragment,
-                    null,
+                    Button,
+                    {
+                      size: 'sm',
+                      disabled:
+                        locked || !data.enabled || !data.documentRefs?.length || data.limited,
+                      onClick: () => api.start('graph-build'),
+                    },
+                    t('assist.refreshRelations'),
+                  ),
+                  graph &&
                     h(
-                      'label',
-                      { className: css.field },
-                      t('enhancement.depth'),
-                      h(Input, {
-                        type: 'number',
-                        min: 1,
-                        max: data.limits?.maxDepth || 5,
-                        value: depth,
-                        onChange: (event) => setDepth(Number(event.target.value)),
-                      }),
-                    ),
-                    h(
-                      'div',
-                      { className: css.actions },
-                      graph.entities
-                        .filter((entity) =>
-                          entity.documents.some((doc) =>
-                            data.documentRefs.some((ref) => ref.id === doc.id),
-                          ),
-                        )
-                        .map((entity) =>
-                          h(
-                            Button,
-                            {
-                              key: entity.id,
-                              size: 'sm',
-                              disabled: locked || graph.stale,
-                              onClick: () =>
-                                api.perform(async (signal) =>
-                                  setImpact(
-                                    await api.request(
-                                      `../graph/impact?entityId=${entity.id}&revision=${graph.id}&reviewSeq=${graph.reviewSeq}&direction=dependents&depth=${depth}`,
-                                      null,
-                                      signal,
-                                    ),
-                                  ),
-                                ),
-                            },
-                            t('enhancement.impact'),
-                          ),
-                        ),
-                    ),
-                    impact &&
+                      React.Fragment,
+                      null,
+                      h(
+                        'label',
+                        { className: css.field },
+                        t('enhancement.depth'),
+                        h(Input, {
+                          type: 'number',
+                          min: 1,
+                          max: data.limits?.maxDepth || 5,
+                          value: depth,
+                          onChange: (event) => setDepth(Number(event.target.value)),
+                        }),
+                      ),
                       h(
                         'div',
-                        { className: css.stack },
-                        impact.results.map((item) =>
-                          h(
-                            'div',
-                            { key: item.id },
-                            h(
-                              'p',
-                              null,
-                              graph.entities.find((entity) => entity.id === item.id)?.key ||
-                                item.id,
+                        { className: css.actions },
+                        graph.entities
+                          .filter((entity) =>
+                            entity.documents.some((doc) =>
+                              data.documentRefs.some((ref) => ref.id === doc.id),
                             ),
-                            (
-                              graph.entities.find((entity) => entity.id === item.id)?.documents ||
-                              []
-                            ).map((doc) =>
+                          )
+                          .map((entity) =>
+                            h(
+                              Button,
+                              {
+                                key: entity.id,
+                                size: 'sm',
+                                disabled: locked || graph.stale,
+                                onClick: () =>
+                                  api.perform(async (signal) =>
+                                    setImpact(
+                                      await api.request(
+                                        `../graph/impact?entityId=${entity.id}&revision=${graph.id}&reviewSeq=${graph.reviewSeq}&direction=dependents&depth=${depth}`,
+                                        null,
+                                        signal,
+                                      ),
+                                    ),
+                                  ),
+                              },
+                              t('enhancement.impact'),
+                            ),
+                          ),
+                      ),
+                      impact &&
+                        h(
+                          'div',
+                          { className: css.stack },
+                          impact.results.map((item) =>
+                            h(
+                              'div',
+                              { key: item.id },
                               h(
-                                Button,
-                                {
-                                  key: doc.id,
-                                  size: 'sm',
-                                  disabled: !onOpenSource,
-                                  title: doc.path,
-                                  onClick: () =>
-                                    onOpenSource?.({ relativePath: doc.path, workspaceId }),
-                                },
-                                doc.path,
+                                'p',
+                                null,
+                                graph.entities.find((entity) => entity.id === item.id)?.key ||
+                                  item.id,
+                              ),
+                              (
+                                graph.entities.find((entity) => entity.id === item.id)?.documents ||
+                                []
+                              ).map((doc) =>
+                                h(
+                                  Button,
+                                  {
+                                    key: doc.id,
+                                    size: 'sm',
+                                    disabled: !onOpenSource,
+                                    title: doc.path,
+                                    onClick: () =>
+                                      onOpenSource?.({ relativePath: doc.path, workspaceId }),
+                                  },
+                                  doc.path,
+                                ),
+                              ),
+                            ),
+                          ),
+                          impact.truncated && h('p', null, t('enhancement.truncated')),
+                        ),
+                      h(
+                        'div',
+                        { className: css.fields },
+                        [
+                          [sourceId, setSourceId, 'enhancement.from'],
+                          [targetId, setTargetId, 'enhancement.to'],
+                        ].map(([value, update, label]) =>
+                          h(
+                            'label',
+                            { key: label, className: css.field },
+                            t(label),
+                            h(
+                              Select,
+                              {
+                                disabled: locked,
+                                value,
+                                onChange: (event) => update(event.target.value),
+                              },
+                              h('option', { value: '' }, t(label)),
+                              graph.entities.map((entity) =>
+                                h('option', { key: entity.id, value: entity.id }, entity.key),
                               ),
                             ),
                           ),
                         ),
-                        impact.truncated && h('p', null, t('enhancement.truncated')),
                       ),
-                    h(
-                      'div',
-                      { className: css.fields },
-                      [
-                        [sourceId, setSourceId, 'enhancement.from'],
-                        [targetId, setTargetId, 'enhancement.to'],
-                      ].map(([value, update, label]) =>
+                      h(Input, {
+                        'aria-label': t('enhancement.note'),
+                        placeholder: t('enhancement.note'),
+                        value: note,
+                        maxLength: 1000,
+                        disabled: locked,
+                        onChange: (event) => setNote(event.target.value),
+                      }),
+                      h(
+                        'div',
+                        { className: css.actions },
                         h(
-                          'label',
-                          { key: label, className: css.field },
-                          t(label),
-                          h(
-                            Select,
-                            {
-                              disabled: locked,
-                              value,
-                              onChange: (event) => update(event.target.value),
-                            },
-                            h('option', { value: '' }, t(label)),
-                            graph.entities.map((entity) =>
-                              h('option', { key: entity.id, value: entity.id }, entity.key),
-                            ),
-                          ),
+                          Button,
+                          {
+                            size: 'sm',
+                            disabled:
+                              locked ||
+                              graph.stale ||
+                              !sourceId ||
+                              !targetId ||
+                              sourceId === targetId ||
+                              !note.trim(),
+                            onClick: () =>
+                              api.perform(async (signal) => {
+                                await api.request(
+                                  'reviews',
+                                  {
+                                    expectedRevision: graph.id,
+                                    expectedReviewSeq: graph.reviewSeq,
+                                    sourceId,
+                                    targetId,
+                                    note,
+                                  },
+                                  signal,
+                                );
+                                setNote('');
+                                api.refresh();
+                              }),
+                          },
+                          t('enhancement.addManual'),
                         ),
                       ),
                     ),
-                    h(Input, {
-                      'aria-label': t('enhancement.note'),
-                      placeholder: t('enhancement.note'),
-                      value: note,
-                      maxLength: 1000,
-                      disabled: locked,
-                      onChange: (event) => setNote(event.target.value),
-                    }),
-                    h(
-                      'div',
-                      { className: css.actions },
-                      h(
-                        Button,
-                        {
-                          size: 'sm',
-                          disabled:
-                            locked ||
-                            graph.stale ||
-                            !sourceId ||
-                            !targetId ||
-                            sourceId === targetId ||
-                            !note.trim(),
-                          onClick: () =>
-                            api.perform(async (signal) => {
-                              await api.request(
-                                'reviews',
-                                {
-                                  expectedRevision: graph.id,
-                                  expectedReviewSeq: graph.reviewSeq,
-                                  sourceId,
-                                  targetId,
-                                  note,
-                                },
-                                signal,
-                              );
-                              setNote('');
-                              api.refresh();
-                            }),
-                        },
-                        t('enhancement.addManual'),
-                      ),
-                    ),
-                  ),
+                ),
               ),
-            ),
           ),
     ),
   );

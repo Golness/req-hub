@@ -1,4 +1,5 @@
 'use strict';
+const disclosureCss = require('./shared/Disclosure.module.css').default;
 const { DOCUMENT_NAME_HINTS } = require('../document-name-hints.js');
 const { t } = require('../locale.js');
 const css = require('./FileTreeSidebar.module.css').default;
@@ -16,7 +17,7 @@ const { ROUTE } = require('../constants.js');
 const { getDocIcon } = require('../utils/getDocIcon.js');
 const { createIconComponents } = require('../icons.js');
 
-const { IconFolder, IconFolderOpen, IconChevronRight, IconChevronDown } = createIconComponents(h);
+const { IconFolder, IconFolderOpen, IconChevronRight } = createIconComponents(h);
 
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 400;
@@ -660,15 +661,16 @@ function FileTreeSidebar({
             Button,
             {
               type: 'button',
-              className: 'rh-btn rh-btn-ghost rh-btn-sm rh-filter-toggle',
+              className: `rh-btn rh-btn-ghost rh-btn-sm rh-filter-toggle ${disclosureCss.trigger}`,
               onClick: () => setShowFilters(!showFilters),
               'aria-expanded': showFilters,
             },
             h('span', null, t('FileTreeSidebar.message014')),
-            h(IconChevronDown, {
-              size: 16,
-              className: `rh-filter-arrow${showFilters ? ' expanded' : ''}`,
-            }),
+            h(
+              'span',
+              { className: disclosureCss.action, 'aria-hidden': true },
+              t(showFilters ? 'disclosure.collapse' : 'disclosure.expand'),
+            ),
           ),
           showFilters &&
             h(

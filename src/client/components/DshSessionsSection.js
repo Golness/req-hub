@@ -1,4 +1,5 @@
 'use strict';
+const { Disclosure } = require('./shared/Disclosure.js');
 const React = require('react');
 const { ROUTE } = require('../constants.js');
 const { t } = require('../locale.js');
@@ -179,9 +180,11 @@ function DshSessionsSection({
     error && h('p', { className: 'rh-error', role: 'alert' }, error),
     warnings.length > 0 &&
       h(
-        'details',
-        { className: 'rh-codex-warnings' },
-        h('summary', null, t('conversationSources.warnings', { count: warnings.length })),
+        Disclosure,
+        {
+          className: 'rh-codex-warnings',
+          title: t('conversationSources.warnings', { count: warnings.length }),
+        },
         h(
           'ul',
           null,

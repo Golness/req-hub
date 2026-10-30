@@ -6,12 +6,17 @@
   line-height: var(--rh-line-height);
   min-width: 0;
 }
-.assist > summary {
+.assist > :global([data-rh-disclosure-trigger]) {
   cursor: pointer;
 }
-.assist > .stack,
-.assist details > .stack {
+.assist :global([data-rh-disclosure-content]) > .stack {
   margin-top: 12px;
+}
+.compact {
+  min-width: 0;
+}
+.compact > .stack {
+  margin-top: 0;
 }
 .stack,
 .settings {

@@ -1,4 +1,5 @@
 'use strict';
+const { Disclosure } = require('./Disclosure.js');
 const React = require('react');
 const { diffLines } = require('diff');
 const { Button } = require('./Button.js');
@@ -115,9 +116,8 @@ function DiffReviewPage({
         h('p', null, overview || t(onComplete ? 'review.editHelp' : 'review.readHelp')),
         evidence?.length > 0 &&
           h(
-            'details',
-            null,
-            h('summary', null, t('review.sources')),
+            Disclosure,
+            { title: t('review.sources') },
             evidence.map((item, index) =>
               h(
                 'p',

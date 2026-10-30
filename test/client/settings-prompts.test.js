@@ -79,7 +79,7 @@ it('groups every registered prompt by rail feature and supports keyboard tabs', 
   expect(document.querySelectorAll('.rh-prompt-item')).toHaveLength(10);
   expect(document.querySelectorAll('textarea')).toHaveLength(1);
   expect(document.body.textContent).not.toContain('Prompt 结构说明');
-  expect(document.querySelector('.rh-prompt-reference').open).toBe(false);
+  expect(document.querySelector('.rh-prompt-reference [data-rh-disclosure-trigger]').getAttribute('aria-expanded')).toBe('false');
   expect(save().disabled).toBe(true);
   await act(async () => tab('同步').dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })));
   expect(document.activeElement).toBe(tab('写作'));
@@ -104,7 +104,7 @@ it('retains drafts and selections across categories, inserts variables, and save
   expect(document.querySelector('textarea').value).toContain('分析草稿');
   await edit('');
   expect(document.querySelector('textarea').value).toBe('');
-  await click(document.querySelector('.rh-prompt-reference summary'));
+  await click(document.querySelector('.rh-prompt-reference [data-rh-disclosure-trigger]'));
   await click(document.querySelector('.rh-prompt-variable'));
   expect(document.querySelector('textarea').value).toBe('{runtimeId}');
   await edit('分析草稿 {runtimeId} {manifestId}');

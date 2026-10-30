@@ -61,9 +61,21 @@ export class WritingRuntime {
     }
     this.searched.add(scopeId);
     const hits = this.documents
-      .filter((d) => d.scopeId === scopeId)
+      .filter(
+        (d) =>
+          d.scopeId === scopeId &&
+          (d.kind !== 'source' ||
+            d.wikiFallback ||
+            d.explicitReference ||
+            this.documents.some(
+              (page) =>
+                page.kind === 'wiki' &&
+                page.linkedSourceIds.includes(d.id) &&
+                this.coverage.get(page.id) === page.body.length,
+            )),
+      )
       .map((d) => ({ ...d, score: relevanceScore(d, query) }))
-      .sort((a, b) => b.score - a.score)
+      .sort((a, b) => Number(b.kind === 'index') - Number(a.kind === 'index') || b.score - a.score)
       .slice(0, 8);
     for (const hit of hits) {
       this.available.add(hit.id);
@@ -75,6 +87,7 @@ export class WritingRuntime {
         scopeId,
         title: hit.title,
         version: hit.version,
+        kind: hit.kind,
         snippet: hit.body.slice(0, 240),
         sources: hit.sources.map((source) => ({
           relativePath: source.relativePath,
@@ -100,6 +113,12 @@ export class WritingRuntime {
             instruction: 'Read an exact hits[].id returned by search; do not invent IDs.',
           }),
       );
+    }
+    const index = this.documents.find(
+      (item) => item.scopeId === doc.scopeId && item.kind === 'index',
+    );
+    if (doc.kind !== 'index' && index && this.coverage.get(index.id) !== index.body.length) {
+      throw new Error('WRITING_INDEX_REQUIRED: ' + index.id);
     }
     if (
       !Number.isSafeInteger(offset) ||
@@ -140,7 +159,7 @@ export class WritingRuntime {
     const missingEvidence = this.scopes.filter(
       (scope) =>
         this.documents.some((doc) => doc.scopeId === scope.id) &&
-        !fullyRead.some((doc) => doc.scopeId === scope.id),
+        !fullyRead.some((doc) => doc.scopeId === scope.id && doc.kind !== 'index'),
     );
     const nextReads = missingEvidence
       .map((scope) =>
@@ -174,13 +193,26 @@ export class WritingRuntime {
     }
     const evidence = [...new Set(evidenceIds)].map((id) => {
       const doc = this.documents.find((d) => d.id === id);
-      if (!doc || !this.available.has(id) || this.coverage.get(id) !== doc.body.length) {
+      if (
+        !doc ||
+        doc.kind === 'index' ||
+        !this.available.has(id) ||
+        this.coverage.get(id) !== doc.body.length
+      ) {
         throw new Error('引用正文必须完整读取');
       }
       const { body, ...source } = doc;
       return source;
     });
     for (const scope of this.scopes) {
+      const index = this.documents.find((doc) => doc.scopeId === scope.id && doc.kind === 'index');
+      if (
+        index &&
+        (this.coverage.get(index.id) !== index.body.length ||
+          !evidence.some((doc) => doc.scopeId === scope.id && doc.kind === 'wiki'))
+      ) {
+        throw new Error('WRITING_WIKI_REQUIRED');
+      }
       if (
         this.documents.some((d) => d.scopeId === scope.id) &&
         !evidence.some((d) => d.scopeId === scope.id)
@@ -226,8 +258,8 @@ export function installWritingTools(ctx) {
       ctx.tools.register({
         name,
         description: [
-          'Search one exact selected scopeId. Returns {scopeId,hits:[{id,title,version,snippet,sources}]}. Read hits[].id before citing; an empty hits array means no records.',
-          'Read frozen knowledge; follow nextOffset until eof before citing.',
+          'Search one selected scopeId. Read the index before Wiki pages. Read Wiki pages before their linked sources. Use exact hits[].id values.',
+          'Read frozen knowledge. Follow nextOffset until eof. The index provides navigation, not evidence.',
           'Submit the complete optimized Markdown and IDs of fully read evidence.',
         ][i],
         parameters: {

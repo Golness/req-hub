@@ -1,4 +1,5 @@
 'use strict';
+const { Disclosure } = require('./shared/Disclosure.js');
 const { Input } = require('./shared/Input.js');
 const { t } = require('../locale.js');
 const { Button } = require('./shared/Button.js');
@@ -133,9 +134,8 @@ function SearchPanel({ onOpenKnowledge, onOpenSource, active = true }) {
               ),
             ),
             h(
-              'details',
-              null,
-              h('summary', null, t('SearchPanel.message013')),
+              Disclosure,
+              { title: t('SearchPanel.message013') },
               detail.versions?.map((version) =>
                 h(
                   'div',

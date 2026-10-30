@@ -1,4 +1,5 @@
 'use strict';
+const { Disclosure } = require('./shared/Disclosure.js');
 const React = require('react');
 const { t } = require('../locale.js');
 const { ROUTE } = require('../constants.js');
@@ -80,9 +81,8 @@ function KnowledgeContextPicker({
     }
   };
   return h(
-    'details',
-    { className: css.notice },
-    h('summary', null, t('enhancement.contextTitle', { count: scopeIds.length })),
+    Disclosure,
+    { className: css.notice, title: t('enhancement.contextTitle', { count: scopeIds.length }) },
     h(
       'div',
       { className: `${css.formStack} ${css.contextBody}` },

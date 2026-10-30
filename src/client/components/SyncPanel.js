@@ -1,4 +1,5 @@
 'use strict';
+const disclosureCss = require('./shared/Disclosure.module.css').default;
 const { KnowledgeContextPicker } = require('./KnowledgeContextPicker.js');
 const { DocumentAssist } = require('./ContextAssist.js');
 const { Checkbox } = require('./shared/controls.js');
@@ -508,6 +509,7 @@ function SessionTurnsView({ workspaceId, sessionId, sessionTitle, snapshotVersio
  * @returns {JSX.Element}
  */
 function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onViewFile }) {
+  const disclosureId = React.useId();
   const [expandedSteps, setExpandedSteps] = useState({});
   const [expandedChunks, setExpandedChunks] = useState({});
 
@@ -637,9 +639,13 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
         },
         // Step header (clickable to expand)
         h(
-          'div',
+          Button,
           {
-            className: 'rh-sync-step-header',
+            variant: 'ghost',
+            size: 'sm',
+            className: `rh-sync-step-header ${disclosureCss.trigger}`,
+            'aria-expanded': !!isStepExpanded,
+            'aria-controls': `${disclosureId}-step-${idx}`,
             onClick: () => toggleStep(step.phase),
           },
           getStepIcon(step.status),
@@ -669,10 +675,6 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
             h(
               'span',
               {
-                onClick: (e) => {
-                  e.stopPropagation();
-                  toggleChunks(step.phase);
-                },
                 className: css.section5,
               },
               t('SyncPanel.message016', { value0: step.chunks.length }),
@@ -686,8 +688,11 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
               },
               t('sync.budget.label', { tokens: formatTokens(step.totalTokens) }),
             ),
-          // Expand arrow
-          h('span', { className: `rh-sync-step-arrow${isStepExpanded ? ' expanded' : ''}` }, '▾'),
+          h(
+            'span',
+            { className: disclosureCss.action, 'aria-hidden': true },
+            t(isStepExpanded ? 'disclosure.collapse' : 'disclosure.expand'),
+          ),
         ),
         // Step text (always visible)
         (step.text || step.activity) &&
@@ -710,267 +715,282 @@ function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onVie
           ),
 
         // Expanded detail section
-        isStepExpanded &&
-          h(
-            'div',
-            { className: 'rh-sync-step-detail' },
-            // Files section
-            phaseFiles.length > 0 &&
-              h(
-                'div',
-                { className: 'rh-sync-step-files' },
-                h('div', { className: css.heading4 }, t('SyncPanel.message017')),
-                phaseFiles.map((fileName, fi) =>
-                  h(
-                    'a',
-                    {
-                      key: fi,
-                      className: 'rh-sync-step-file-link',
-                      href: '#',
-                      onClick: (e) => {
-                        e.preventDefault();
-                        onViewFile && fileName.artifactId && onViewFile(fileName);
-                      },
+        h(
+          'div',
+          {
+            id: `${disclosureId}-step-${idx}`,
+            hidden: !isStepExpanded,
+            className: 'rh-sync-step-detail',
+          },
+          // Files section
+          phaseFiles.length > 0 &&
+            h(
+              'div',
+              { className: 'rh-sync-step-files' },
+              h('div', { className: css.heading4 }, t('SyncPanel.message017')),
+              phaseFiles.map((fileName, fi) =>
+                h(
+                  'a',
+                  {
+                    key: fi,
+                    className: 'rh-sync-step-file-link',
+                    href: '#',
+                    onClick: (e) => {
+                      e.preventDefault();
+                      onViewFile && fileName.artifactId && onViewFile(fileName);
                     },
-                    fileName.fileName,
-                  ),
+                  },
+                  fileName.fileName,
+                ),
+              ),
+            ),
+
+          hasChunks &&
+            h(
+              'div',
+              { className: css.spacing4 },
+              h(
+                Button,
+                {
+                  variant: 'ghost',
+                  size: 'sm',
+                  className: disclosureCss.trigger,
+                  'aria-expanded': !!isChunksExpanded,
+                  'aria-controls': `${disclosureId}-chunks-${idx}`,
+                  onClick: () => toggleChunks(step.phase),
+                },
+                t('SyncPanel.message018', {
+                  value0: step.chunks.length,
+                  value1: '',
+                }),
+                h(
+                  'span',
+                  { className: disclosureCss.action, 'aria-hidden': true },
+                  t(isChunksExpanded ? 'disclosure.collapse' : 'disclosure.expand'),
                 ),
               ),
 
-            hasChunks &&
               h(
                 'div',
-                { className: css.spacing4 },
+                {
+                  id: `${disclosureId}-chunks-${idx}`,
+                  hidden: !isChunksExpanded,
+                  className: css.column3,
+                },
+
                 h(
                   'div',
-                  {
-                    className: css.heading5,
-                    onClick: () => toggleChunks(step.phase),
-                  },
-                  t('SyncPanel.message018', {
+                  { className: css.mutedText8 },
+                  t('SyncPanel.message019', {
                     value0: step.chunks.length,
-                    value1: isChunksExpanded ? '▾' : '▸',
+                    value1: formatTokens(step.totalTokens),
                   }),
                 ),
+                budget && h('div', { className: css.mutedText8 }, budgetText(budget)),
+                h('div', { className: css.mutedText8 }, t('sync.budget.notice')),
 
-                isChunksExpanded &&
-                  h(
+                step.chunks.map((chunk, ci) => {
+                  let chunkBorder;
+                  if (chunk.status === 'running') {
+                    chunkBorder = '2px solid var(--rh-accent)';
+                  } else if (chunk.status === 'failed') {
+                    chunkBorder = '2px solid var(--dsw-alias-state-error-primary)';
+                  } else if (chunk.status === 'aborted') {
+                    chunkBorder = '2px solid var(--dsw-alias-state-warning-primary)';
+                  } else if (chunk.status === 'completed') {
+                    chunkBorder = '2px solid var(--dsw-alias-state-success-primary)';
+                  } else {
+                    chunkBorder = '2px solid transparent';
+                  }
+                  let chunkColor;
+                  if (chunk.status === 'running') {
+                    chunkColor = 'var(--rh-accent)';
+                  } else if (chunk.status === 'failed') {
+                    chunkColor = 'var(--dsw-alias-state-error-primary)';
+                  } else if (chunk.status === 'aborted') {
+                    chunkColor = 'var(--dsw-alias-state-warning-primary)';
+                  } else {
+                    chunkColor = 'var(--dsw-alias-label-secondary)';
+                  }
+                  let chunkStatusLabel;
+                  if (chunk.status === 'queued') {
+                    chunkStatusLabel = t('KnowledgePanel.message010');
+                  } else if (chunk.status === 'running') {
+                    chunkStatusLabel = t('SyncPanel.message021');
+                  } else if (chunk.status === 'failed') {
+                    chunkStatusLabel = t('KnowledgePanel.message005');
+                  } else if (chunk.status === 'aborted') {
+                    chunkStatusLabel = t('SyncPanel.message022');
+                  } else {
+                    chunkStatusLabel = '';
+                  }
+                  return h(
                     'div',
-                    { className: css.column3 },
+                    {
+                      key: ci,
+                      className: css.section6,
+                      style: {
+                        '--rh-border-left-4': cssValue(chunkBorder),
+                      },
+                    },
 
                     h(
                       'div',
-                      { className: css.mutedText8 },
-                      t('SyncPanel.message019', {
-                        value0: step.chunks.length,
-                        value1: formatTokens(step.totalTokens),
-                      }),
-                    ),
-                    budget && h('div', { className: css.mutedText8 }, budgetText(budget)),
-                    h('div', { className: css.mutedText8 }, t('sync.budget.notice')),
+                      {
+                        className: css.row9,
+                        style: { '--rh-margin-bottom-3': cssValue(chunk.sessionId ? 3 : 4) },
+                      },
 
-                    step.chunks.map((chunk, ci) => {
-                      let chunkBorder;
-                      if (chunk.status === 'running') {
-                        chunkBorder = '2px solid var(--rh-accent)';
-                      } else if (chunk.status === 'failed') {
-                        chunkBorder = '2px solid var(--dsw-alias-state-error-primary)';
-                      } else if (chunk.status === 'aborted') {
-                        chunkBorder = '2px solid var(--dsw-alias-state-warning-primary)';
-                      } else if (chunk.status === 'completed') {
-                        chunkBorder = '2px solid var(--dsw-alias-state-success-primary)';
-                      } else {
-                        chunkBorder = '2px solid transparent';
-                      }
-                      let chunkColor;
-                      if (chunk.status === 'running') {
-                        chunkColor = 'var(--rh-accent)';
-                      } else if (chunk.status === 'failed') {
-                        chunkColor = 'var(--dsw-alias-state-error-primary)';
-                      } else if (chunk.status === 'aborted') {
-                        chunkColor = 'var(--dsw-alias-state-warning-primary)';
-                      } else {
-                        chunkColor = 'var(--dsw-alias-label-secondary)';
-                      }
-                      let chunkStatusLabel;
-                      if (chunk.status === 'queued') {
-                        chunkStatusLabel = t('KnowledgePanel.message010');
-                      } else if (chunk.status === 'running') {
-                        chunkStatusLabel = t('SyncPanel.message021');
-                      } else if (chunk.status === 'failed') {
-                        chunkStatusLabel = t('KnowledgePanel.message005');
-                      } else if (chunk.status === 'aborted') {
-                        chunkStatusLabel = t('SyncPanel.message022');
-                      } else {
-                        chunkStatusLabel = '';
-                      }
-                      return h(
+                      chunk.status === 'queued' &&
+                        h(IconHourglass, {
+                          size: 12,
+                          color: 'var(--dsw-alias-label-secondary)',
+                        }),
+                      chunk.status === 'running' &&
+                        h(IconSync, {
+                          size: 12,
+                          color: 'var(--rh-accent)',
+                          className: 'rh-spin',
+                        }),
+                      chunk.status === 'completed' &&
+                        h(IconCheck, {
+                          size: 12,
+                          color: 'var(--dsw-alias-state-success-primary)',
+                        }),
+                      chunk.status === 'failed' &&
+                        h(IconError, {
+                          size: 12,
+                          color: 'var(--dsw-alias-state-error-primary)',
+                        }),
+                      chunk.status === 'aborted' &&
+                        h(IconCancel, {
+                          size: 12,
+                          color: 'var(--dsw-alias-state-warning-primary)',
+                        }),
+
+                      h(
+                        'span',
+                        { className: css.heading6 },
+                        t('SyncPanel.message020', { value0: ci + 1 }),
+                        chunk.status && chunk.status !== 'completed'
+                          ? h(
+                              'span',
+                              {
+                                className: css.heading7,
+                                style: {
+                                  '--rh-color-1': cssValue(chunkColor),
+                                },
+                              },
+                              chunkStatusLabel,
+                            )
+                          : null,
+                      ),
+
+                      h(
+                        'span',
+                        {
+                          className: css.mutedText9,
+                          title: chunk.inputBudget ? budgetText(chunk.inputBudget) : undefined,
+                        },
+                        t('sync.budget.label', { tokens: formatTokens(chunk.tokens) }),
+                      ),
+                    ),
+
+                    chunk.sessionId &&
+                      h(
                         'div',
                         {
-                          key: ci,
-                          className: css.section6,
-                          style: {
-                            '--rh-border-left-4': cssValue(chunkBorder),
-                          },
+                          className: css.spacing5,
+                          title: `Subagent Session: ${chunk.sessionId}`,
                         },
+                        t('SyncPanel.message023', { value0: chunk.sessionId.slice(0, 20) }),
+                      ),
 
-                        h(
-                          'div',
-                          {
-                            className: css.row9,
-                            style: { '--rh-margin-bottom-3': cssValue(chunk.sessionId ? 3 : 4) },
-                          },
+                    chunk.status === 'failed' &&
+                      chunk.error &&
+                      h(
+                        'div',
+                        {
+                          className: css.spacing6,
+                        },
+                        syncErrorText(chunk.error),
+                      ),
 
-                          chunk.status === 'queued' &&
-                            h(IconHourglass, {
-                              size: 12,
-                              color: 'var(--dsw-alias-label-secondary)',
-                            }),
-                          chunk.status === 'running' &&
-                            h(IconSync, {
-                              size: 12,
-                              color: 'var(--rh-accent)',
-                              className: 'rh-spin',
-                            }),
-                          chunk.status === 'completed' &&
-                            h(IconCheck, {
-                              size: 12,
-                              color: 'var(--dsw-alias-state-success-primary)',
-                            }),
-                          chunk.status === 'failed' &&
-                            h(IconError, {
-                              size: 12,
-                              color: 'var(--dsw-alias-state-error-primary)',
-                            }),
-                          chunk.status === 'aborted' &&
-                            h(IconCancel, {
-                              size: 12,
-                              color: 'var(--dsw-alias-state-warning-primary)',
-                            }),
-
-                          h(
-                            'span',
-                            { className: css.heading6 },
-                            t('SyncPanel.message020', { value0: ci + 1 }),
-                            chunk.status && chunk.status !== 'completed'
-                              ? h(
-                                  'span',
-                                  {
-                                    className: css.heading7,
-                                    style: {
-                                      '--rh-color-1': cssValue(chunkColor),
-                                    },
-                                  },
-                                  chunkStatusLabel,
-                                )
-                              : null,
-                          ),
-
+                    chunk.files &&
+                      h(
+                        'div',
+                        { className: css.row10 },
+                        chunk.files.slice(0, 5).map((f, fi) =>
                           h(
                             'span',
                             {
-                              className: css.mutedText9,
-                              title: chunk.inputBudget ? budgetText(chunk.inputBudget) : undefined,
+                              key: fi,
+                              className: css.section7,
                             },
-                            t('sync.budget.label', { tokens: formatTokens(chunk.tokens) }),
+                            f.file || f,
                           ),
                         ),
+                        chunk.files.length > 5 &&
+                          h(
+                            'span',
+                            {
+                              className: css.mutedText3,
+                            },
+                            t('SyncPanel.message024', { value0: chunk.files.length - 5 }),
+                          ),
+                      ),
 
-                        chunk.sessionId &&
+                    chunk.messages &&
+                      h(
+                        'div',
+                        { className: css.column4 },
+                        chunk.messages.slice(0, 3).map((m, mi) =>
                           h(
                             'div',
                             {
-                              className: css.spacing5,
-                              title: `Subagent Session: ${chunk.sessionId}`,
-                            },
-                            t('SyncPanel.message023', { value0: chunk.sessionId.slice(0, 20) }),
-                          ),
-
-                        chunk.status === 'failed' &&
-                          chunk.error &&
-                          h(
-                            'div',
-                            {
-                              className: css.spacing6,
-                            },
-                            syncErrorText(chunk.error),
-                          ),
-
-                        chunk.files &&
-                          h(
-                            'div',
-                            { className: css.row10 },
-                            chunk.files.slice(0, 5).map((f, fi) =>
-                              h(
-                                'span',
-                                {
-                                  key: fi,
-                                  className: css.section7,
-                                },
-                                f.file || f,
-                              ),
-                            ),
-                            chunk.files.length > 5 &&
-                              h(
-                                'span',
-                                {
-                                  className: css.mutedText3,
-                                },
-                                t('SyncPanel.message024', { value0: chunk.files.length - 5 }),
-                              ),
-                          ),
-
-                        chunk.messages &&
-                          h(
-                            'div',
-                            { className: css.column4 },
-                            chunk.messages.slice(0, 3).map((m, mi) =>
-                              h(
-                                'div',
-                                {
-                                  key: mi,
-                                  className: css.content3,
-                                  style: {
-                                    '--rh-color-0': cssValue(
-                                      m.role === 'user'
-                                        ? 'var(--dsw-alias-state-info-primary)'
-                                        : 'var(--rh-accent)',
-                                    ),
-                                  },
-                                },
-                                h(
-                                  'span',
-                                  { className: css.row11 },
+                              key: mi,
+                              className: css.content3,
+                              style: {
+                                '--rh-color-0': cssValue(
                                   m.role === 'user'
-                                    ? t('SyncPanel.message025')
-                                    : t('SyncPanel.message026'),
-                                  ` ${m.preview?.substring(0, 30) || ''}...`,
+                                    ? 'var(--dsw-alias-state-info-primary)'
+                                    : 'var(--rh-accent)',
                                 ),
-                              ),
+                              },
+                            },
+                            h(
+                              'span',
+                              { className: css.row11 },
+                              m.role === 'user'
+                                ? t('SyncPanel.message025')
+                                : t('SyncPanel.message026'),
+                              ` ${m.preview?.substring(0, 30) || ''}...`,
                             ),
-                            chunk.messages.length > 3 &&
-                              h(
-                                'span',
-                                {
-                                  className: css.mutedText3,
-                                },
-                                t('SyncPanel.message027', { value0: chunk.messages.length - 3 }),
-                              ),
                           ),
-                      );
-                    }),
-                  ),
+                        ),
+                        chunk.messages.length > 3 &&
+                          h(
+                            'span',
+                            {
+                              className: css.mutedText3,
+                            },
+                            t('SyncPanel.message027', { value0: chunk.messages.length - 3 }),
+                          ),
+                      ),
+                  );
+                }),
               ),
+            ),
 
-            // Log section (if available)
-            step.log &&
-              h(
-                'div',
-                { className: css.spacing4 },
-                h('div', { className: css.heading4 }, t('SyncPanel.message028')),
-                h('pre', { className: 'rh-sync-step-log' }, step.log),
-              ),
-          ),
+          // Log section (if available)
+          step.log &&
+            h(
+              'div',
+              { className: css.spacing4 },
+              h('div', { className: css.heading4 }, t('SyncPanel.message028')),
+              h('pre', { className: 'rh-sync-step-log' }, step.log),
+            ),
+        ),
       );
     }),
   );

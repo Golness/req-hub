@@ -1,4 +1,5 @@
 'use strict';
+const { Disclosure } = require('./shared/Disclosure.js');
 const React = require('react');
 const { t } = require('../locale.js');
 const { ROUTE } = require('../constants.js');
@@ -87,9 +88,16 @@ function WikiSettings({ workspaceId }) {
     }
   };
   return h(
-    'details',
-    { className: css.card, onToggle: (event) => setOpen(event.currentTarget.open) },
-    h('summary', null, t('wiki.settings')),
+    Disclosure,
+    {
+      className: css.card,
+      onOpenChange: (expanded) => {
+        if (expanded) {
+          setOpen(true);
+        }
+      },
+      title: t('wiki.settings'),
+    },
     error && h('p', { role: 'alert' }, t('wiki.error', { code: error })),
     data &&
       h(

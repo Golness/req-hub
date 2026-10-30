@@ -1,4 +1,5 @@
 'use strict';
+const { Disclosure } = require('./shared/Disclosure.js');
 const React = require('react');
 const { t } = require('../locale.js');
 const { ROUTE } = require('../constants.js');
@@ -254,9 +255,8 @@ function ConversationKnowledgeImport({
             label: `${t('conversationImport.turn', { number: item.number })} · ${knowledgeStateLabel}${!item.turn.syncable ? ' · ' + t('conversationImport.unfinished') : ''}`,
           }),
           h(
-            'details',
-            null,
-            h('summary', null, t('conversationImport.previewTurn')),
+            Disclosure,
+            { title: t('conversationImport.previewTurn') },
             h(
               'div',
               { className: css.transcript },
@@ -400,9 +400,8 @@ function ConversationKnowledgeImport({
       h('span', { className: css.hint }, t('conversationImport.frozen')),
       Object.keys(selection).length > 0 &&
         h(
-          'details',
-          null,
-          h('summary', null, t('conversationImport.selectionSummary')),
+          Disclosure,
+          { title: t('conversationImport.selectionSummary') },
           Object.values(selection).map((item) =>
             h(
               'div',

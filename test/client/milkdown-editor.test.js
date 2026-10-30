@@ -127,7 +127,13 @@ describe('Milkdown editor integration', () => {
     const mermaid = { render: vi.fn(async (_id, code) => ({ svg: `<svg><text>${code}</text></svg>` })) };
     await render({ content, onChange, mermaid });
     await vi.waitFor(() => expect(container.querySelector('.rh-mermaid-preview svg')).not.toBeNull());
-    expect(container.querySelector('.rh-editable-mermaid details').open).toBe(false);
+    const trigger = container.querySelector('.rh-editable-mermaid [data-rh-disclosure-trigger]');
+    const source = container.querySelector('.rh-editable-mermaid [data-rh-disclosure-content]');
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(source.hidden).toBe(true);
+    await act(async () => trigger.click());
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    expect(source.hidden).toBe(false);
     expect(container.querySelector('.rh-editable-mermaid code').textContent).toContain('A-->B');
 
     await act(async () => {

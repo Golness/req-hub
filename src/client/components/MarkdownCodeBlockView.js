@@ -1,5 +1,7 @@
 'use strict';
 const { t } = require('../locale.js');
+const disclosureCss = require('./shared/Disclosure.module.css').default;
+const buttonCss = require('./shared/controls.module.css').default;
 
 let diagramId = 0;
 
@@ -34,11 +36,35 @@ function createMarkdownCodeBlockView(getMermaid, renderers) {
     const preview = document.createElement('div');
     preview.className = 'rh-mermaid-preview';
     preview.contentEditable = 'false';
-    const source = document.createElement('details');
-    const summary = document.createElement('summary');
-    summary.contentEditable = 'false';
-    summary.textContent = t('MarkdownCodeBlockView.message001');
-    source.append(summary, pre);
+    const source = document.createElement('section');
+    source.className = disclosureCss.section;
+    source.dataset.rhDisclosure = '';
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.contentEditable = 'false';
+    trigger.className = `${buttonCss.button} ${buttonCss.ghost} ${buttonCss.sm} ${disclosureCss.trigger}`;
+    trigger.dataset.rhDisclosureTrigger = '';
+    const title = document.createElement('span');
+    title.className = disclosureCss.title;
+    title.textContent = t('MarkdownCodeBlockView.message001');
+    const action = document.createElement('span');
+    action.className = disclosureCss.action;
+    action.setAttribute('aria-hidden', 'true');
+    const content = document.createElement('div');
+    content.id = `rh-mermaid-source-${++diagramId}`;
+    content.className = disclosureCss.content;
+    content.dataset.rhDisclosureContent = '';
+    trigger.setAttribute('aria-controls', content.id);
+    const setOpen = (open) => {
+      content.hidden = !open;
+      trigger.setAttribute('aria-expanded', String(open));
+      action.textContent = t(open ? 'disclosure.collapse' : 'disclosure.expand');
+    };
+    setOpen(false);
+    trigger.onclick = () => setOpen(content.hidden);
+    trigger.append(title, action);
+    content.append(pre);
+    source.append(trigger, content);
     dom.append(preview, source);
 
     const render = async () => {
@@ -62,7 +88,7 @@ function createMarkdownCodeBlockView(getMermaid, renderers) {
           return;
         }
         preview.textContent = t('MarkdownCodeBlockView.message003');
-        source.open = true;
+        setOpen(true);
       }
     };
     renderers.add(render);
@@ -86,7 +112,7 @@ function createMarkdownCodeBlockView(getMermaid, renderers) {
         return true;
       },
       stopEvent(event) {
-        return summary.contains(event.target) || preview.contains(event.target);
+        return trigger.contains(event.target) || preview.contains(event.target);
       },
       ignoreMutation(mutation) {
         if (mutation.type === 'selection') {
@@ -99,6 +125,7 @@ function createMarkdownCodeBlockView(getMermaid, renderers) {
         revision++;
         clearTimeout(timer);
         renderers.delete(render);
+        trigger.onclick = null;
       },
     };
   };

@@ -3,6 +3,7 @@ const React = require('react');
 const { t } = require('../locale.js');
 const css = require('./KnowledgeTabs.module.css').default;
 const h = React.createElement;
+const { knowledgeSection } = require('./knowledge-navigation.js');
 
 /**
  * Select a knowledge view while retaining the current scope.
@@ -17,14 +18,10 @@ function KnowledgeTabs({ tab, onTabChange }) {
       'div',
       { className: 'rh-workbench-tabs', role: 'tablist', 'aria-label': t('knowledgeLayout.tabs') },
       [
-        ['documents', t('knowledgeLayout.documents')],
-        ['files', t('knowledgeLayout.files')],
-        ['sessions', t('knowledgeLayout.sessions')],
-        ['search', t('DocsViewerBody.message055')],
-        ...['index', 'wiki', 'query', 'lint', 'rules', 'changes'].map((id) => [
-          id,
-          t(`wiki.tab.${id}`),
-        ]),
+        ['wiki', t('knowledge.wiki')],
+        ['files', t('knowledge.sources')],
+        ['review', t('knowledge.review')],
+        ['lint', t('knowledge.maintenance')],
       ].map(([id, text], index, tabs) =>
         h(
           'button',
@@ -34,9 +31,9 @@ function KnowledgeTabs({ tab, onTabChange }) {
             type: 'button',
             role: 'tab',
             className: 'rh-workbench-tab',
-            'aria-selected': tab === id,
+            'aria-selected': knowledgeSection(tab) === knowledgeSection(id),
             'aria-controls': 'knowledge-content',
-            tabIndex: tab === id ? 0 : -1,
+            tabIndex: knowledgeSection(tab) === knowledgeSection(id) ? 0 : -1,
             onClick: () => onTabChange(id),
             onKeyDown: (event) => {
               let next;

@@ -75,3 +75,10 @@
   flex: 1 1 520px;
   min-width: 0;
 }
+
+.writingHeader,
+.writingHeader :global([data-rh-button]) {
+  font-size: var(--rh-font-size);
+  line-height: var(--rh-line-height);
+  font-weight: 400;
+}

@@ -1,4 +1,5 @@
 'use strict';
+const { Disclosure } = require('./shared/Disclosure.js');
 const { t } = require('../locale.js');
 const { Button } = require('./shared/Button.js');
 
@@ -290,14 +291,17 @@ function PromptManager({
                   }),
                 ),
               h(
-                'details',
-                { className: 'rh-prompt-reference', key: `${key}-reference` },
-                h(
-                  'summary',
-                  null,
-                  t('PromptManager.message019'),
-                  meta.outputFormat ? ` · ${meta.outputFormat}` : '',
-                ),
+                Disclosure,
+                {
+                  className: 'rh-prompt-reference',
+                  key: `${key}-reference`,
+                  title: h(
+                    'span',
+                    null,
+                    t('PromptManager.message019'),
+                    meta.outputFormat ? ` · ${meta.outputFormat}` : '',
+                  ),
+                },
                 h(
                   'div',
                   { className: 'rh-prompt-variables' },

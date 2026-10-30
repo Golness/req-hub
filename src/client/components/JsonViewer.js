@@ -5,7 +5,7 @@ const { cssValue } = require('./shared/presentation.js');
 
 const React = require('react');
 const h = React.createElement;
-const { IconChevronRight } = require('../icons.js').createIconComponents(h);
+const { Disclosure } = require('./shared/Disclosure.js');
 const { useState, useCallback } = React;
 
 /**
@@ -58,40 +58,27 @@ function JsonViewer({ data, initialExpandLevel = 2 }) {
 
       const expanded = isExpanded(path);
       return h(
-        'div',
-        null,
+        Disclosure,
+        {
+          lazy: true,
+          open: expanded,
+          onOpenChange: () => togglePath(path),
+          title: ` Array(${value.length}) [`,
+        },
         h(
-          'button',
-          {
-            type: 'button',
-            className: 'rh-json-toggle',
-            'aria-label': expanded ? t('JsonViewer.message001') : t('JsonViewer.message002'),
-            'aria-expanded': expanded,
-            onClick: () => togglePath(path),
-          },
-          h(IconChevronRight, {
-            size: 12,
-            className: css.indicator,
-            style: { '--rh-transform-0': cssValue(expanded ? 'rotate(90deg)' : 'none') },
-          }),
-        ),
-        h('span', { className: 'rh-json-punctuation' }, ` Array(${value.length}) [`),
-        expanded &&
-          h(
-            'div',
-            { className: css.spacing, style: { '--rh-margin-left-0': cssValue(indent * 20) } },
-            value.map((item, index) =>
-              h(
-                'div',
-                { key: `${path}-${index}` },
-                h('span', { className: 'rh-json-muted' }, ' '.repeat(indent * 2)),
-                renderValue(item, `${path}-${index}`, indent + 1),
-                index < value.length - 1 && h('span', { className: 'rh-json-punctuation' }, ','),
-              ),
+          'div',
+          { className: css.spacing, style: { '--rh-margin-left-0': cssValue(indent * 20) } },
+          value.map((item, index) =>
+            h(
+              'div',
+              { key: `${path}-${index}` },
+              h('span', { className: 'rh-json-muted' }, ' '.repeat(indent * 2)),
+              renderValue(item, `${path}-${index}`, indent + 1),
+              index < value.length - 1 && h('span', { className: 'rh-json-punctuation' }, ','),
             ),
           ),
-        expanded && h('span', { className: 'rh-json-punctuation' }, ']'),
-        !expanded && h('span', { className: 'rh-json-muted' }, '...]'),
+        ),
+        h('span', { className: 'rh-json-punctuation' }, ']'),
       );
     }
 
@@ -103,42 +90,24 @@ function JsonViewer({ data, initialExpandLevel = 2 }) {
 
       const expanded = isExpanded(path);
       return h(
-        'div',
-        null,
+        Disclosure,
+        { lazy: true, open: expanded, onOpenChange: () => togglePath(path), title: ` Object {` },
         h(
-          'button',
-          {
-            type: 'button',
-            className: 'rh-json-toggle',
-            'aria-label': expanded ? t('JsonViewer.message001') : t('JsonViewer.message002'),
-            'aria-expanded': expanded,
-            onClick: () => togglePath(path),
-          },
-          h(IconChevronRight, {
-            size: 12,
-            className: css.indicator,
-            style: { '--rh-transform-0': cssValue(expanded ? 'rotate(90deg)' : 'none') },
-          }),
-        ),
-        h('span', { className: 'rh-json-punctuation' }, ` Object {`),
-        expanded &&
-          h(
-            'div',
-            { className: css.spacing, style: { '--rh-margin-left-0': cssValue(indent * 20) } },
-            keys.map((key, index) =>
-              h(
-                'div',
-                { key: `${path}-${key}` },
-                h('span', { className: 'rh-json-muted' }, ' '.repeat(indent * 2)),
-                h('span', { className: 'rh-json-key' }, `"${key}"`),
-                h('span', { className: 'rh-json-punctuation' }, ': '),
-                renderValue(value[key], `${path}-${key}`, indent + 1),
-                index < keys.length - 1 && h('span', { className: 'rh-json-punctuation' }, ','),
-              ),
+          'div',
+          { className: css.spacing, style: { '--rh-margin-left-0': cssValue(indent * 20) } },
+          keys.map((key, index) =>
+            h(
+              'div',
+              { key: `${path}-${key}` },
+              h('span', { className: 'rh-json-muted' }, ' '.repeat(indent * 2)),
+              h('span', { className: 'rh-json-key' }, `"${key}"`),
+              h('span', { className: 'rh-json-punctuation' }, ': '),
+              renderValue(value[key], `${path}-${key}`, indent + 1),
+              index < keys.length - 1 && h('span', { className: 'rh-json-punctuation' }, ','),
             ),
           ),
-        expanded && h('span', { className: 'rh-json-punctuation' }, '}'),
-        !expanded && h('span', { className: 'rh-json-muted' }, '...}'),
+        ),
+        h('span', { className: 'rh-json-punctuation' }, '}'),
       );
     }
 

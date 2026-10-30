@@ -1,7 +1,4 @@
 /* Component presentation; runtime geometry uses local CSS variables. */
-.indicator {
-  transform: var(--rh-transform-0);
-}
 .spacing {
   margin-left: var(--rh-margin-left-0);
 }

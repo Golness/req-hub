@@ -1,4 +1,5 @@
 'use strict';
+const { Disclosure } = require('./shared/Disclosure.js');
 const { t } = require('../locale.js');
 const { Button } = require('./shared/Button.js');
 const React = require('react');
@@ -11,6 +12,9 @@ const { knowledgeRequest } = require('../hooks/useKnowledge.js');
 const { ConversationKnowledgeImport } = require('./ConversationKnowledgeImport.js');
 const { ConversationProvenance } = require('./ConversationProvenance.js');
 const { WikiPanel } = require('./WikiPanel.js');
+const { EnhancementSettings } = require('./ContextAssist.js');
+const { WikiSettings } = require('./WikiSettings.js');
+const { GROUPS, knowledgeSection } = require('./knowledge-navigation.js');
 
 const LABELS = {
   pending: t('KnowledgePanel.message001'),
@@ -31,7 +35,14 @@ const LABELS = {
  * @param props - Data, state and callbacks supplied by the owning surface.
  * @returns The rendered component content.
  */
-function KnowledgePanel({ workspaceId, knowledge, tab, documentView, selectedFile }) {
+function KnowledgeContent({
+  workspaceId,
+  knowledge,
+  tab,
+  documentView,
+  selectedFile,
+  viewHidden = false,
+}) {
   const [data, setData] = React.useState(null);
   const [error, setError] = React.useState(null);
   const [revision, setRevision] = React.useState(0);
@@ -54,7 +65,15 @@ function KnowledgePanel({ workspaceId, knowledge, tab, documentView, selectedFil
     knowledge.job?.files
       .filter((f) => ['failed', 'stale', 'cancelled', 'interrupted'].includes(f.status))
       .map((f) => f.relativePath) || [];
-  if (['index', 'wiki', 'query', 'lint', 'rules', 'changes'].includes(tab)) {
+  if (tab === 'code') {
+    return h(
+      'div',
+      { className: css.maintenance },
+      h(EnhancementSettings, { workspaceId }),
+      h(WikiSettings, { workspaceId }),
+    );
+  }
+  if (['index', 'wiki', 'query', 'review', 'lint', 'rules', 'changes'].includes(tab)) {
     return h(WikiPanel, { key: workspaceId + ':' + tab, workspaceId, tab });
   }
   return h(
@@ -84,9 +103,9 @@ function KnowledgePanel({ workspaceId, knowledge, tab, documentView, selectedFil
       'div',
       {
         className: css.body,
-        id: tab === 'search' ? undefined : 'knowledge-content',
+        id: viewHidden || tab === 'search' ? undefined : 'knowledge-content',
         role: tab === 'search' ? undefined : 'tabpanel',
-        'aria-labelledby': tab === 'search' ? undefined : `knowledge-tab-${tab}`,
+        'aria-labelledby': tab === 'search' ? undefined : 'knowledge-tab-files',
       },
       h(
         'div',
@@ -126,13 +145,8 @@ function KnowledgePanel({ workspaceId, knowledge, tab, documentView, selectedFil
               ),
               knowledge.selected.length > 0 &&
                 h(
-                  'details',
-                  null,
-                  h(
-                    'summary',
-                    null,
-                    t('KnowledgePanel.message020', { value0: knowledge.selected.length }),
-                  ),
+                  Disclosure,
+                  { title: t('KnowledgePanel.message020', { value0: knowledge.selected.length }) },
                   h(
                     'ul',
                     null,
@@ -209,9 +223,12 @@ function KnowledgePanel({ workspaceId, knowledge, tab, documentView, selectedFil
                       .filter((entry) => !entry.conversation)
                       .map((entry) =>
                         h(
-                          'details',
-                          { className: 'rh-result-card', key: entry.id },
-                          h('summary', null, entry.title, ` · v${entry.version}`),
+                          Disclosure,
+                          {
+                            className: 'rh-result-card',
+                            key: entry.id,
+                            title: h('span', null, entry.title, ` · v${entry.version}`),
+                          },
                           h(ConversationProvenance, { conversation: entry.conversation }),
                           h('div', { className: 'rh-knowledge-text' }, entry.body),
                           entry.sources.map((source, i) =>
@@ -231,6 +248,101 @@ function KnowledgePanel({ workspaceId, knowledge, tab, documentView, selectedFil
                       description: t('KnowledgePanel.message029'),
                     }),
             ),
+    ),
+  );
+}
+/**
+ * Group browsing, source ingestion, review and maintenance without losing leaf routes.
+ * @param props - Workspace state and the leaf navigation callback.
+ * @returns The knowledge workspace with contextual secondary navigation.
+ */
+function KnowledgePanel(props) {
+  const [asking, setAsking] = React.useState(false);
+  const sourceMounted = React.useRef(false);
+  const section = knowledgeSection(props.tab);
+  if (section === 'sources') {
+    sourceMounted.current = true;
+  }
+  const labels = {
+    files: 'knowledgeLayout.files',
+    sessions: 'knowledgeLayout.sessions',
+    index: 'wiki.tab.index',
+    documents: 'knowledgeLayout.documents',
+    search: 'DocsViewerBody.message055',
+    lint: 'wiki.tab.lint',
+    rules: 'wiki.tab.rules',
+    changes: 'wiki.tab.changes',
+    code: 'knowledge.code',
+  };
+  const navigation =
+    ['sources', 'maintenance'].includes(section) &&
+    h(
+      'nav',
+      {
+        className: css.navigation,
+        'aria-label': t('knowledge.navigation'),
+      },
+      GROUPS[section].map((id) =>
+        h(
+          Button,
+          {
+            key: id,
+            size: 'sm',
+            'aria-current': props.tab === id ? 'page' : undefined,
+            onClick: () => props.onTabChange?.(id),
+          },
+          t(labels[id]),
+        ),
+      ),
+    );
+  return h(
+    'div',
+    { className: css.workspace },
+    navigation,
+    section === 'wiki' &&
+      h(
+        'div',
+        { className: css.navigation },
+        h(
+          Button,
+          {
+            size: 'sm',
+            'aria-expanded': asking,
+            onClick: () => setAsking(!asking),
+          },
+          t(asking ? 'knowledge.closeAsk' : 'knowledge.ask'),
+        ),
+      ),
+    h(
+      'div',
+      { className: css.columns },
+      h(
+        'div',
+        { className: css.primary },
+        sourceMounted.current &&
+          h(
+            'div',
+            { className: css.sourceView, hidden: section !== 'sources' },
+            h(KnowledgeContent, {
+              ...props,
+              tab: section === 'sources' ? props.tab : 'documents',
+              viewHidden: section !== 'sources',
+            }),
+          ),
+        section !== 'sources' && h(KnowledgeContent, props),
+      ),
+      asking &&
+        section === 'wiki' &&
+        h(
+          'aside',
+          { className: css.questions, 'aria-label': t('knowledge.ask') },
+          h(WikiPanel, {
+            key: props.workspaceId + ':questions',
+            workspaceId: props.workspaceId,
+            tab: 'query',
+            embedded: true,
+          }),
+        ),
     ),
   );
 }

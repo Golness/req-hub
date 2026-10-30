@@ -1,4 +1,5 @@
 'use strict';
+const { Disclosure } = require('./shared/Disclosure.js');
 const React = require('react');
 const { t } = require('../locale.js');
 const h = React.createElement;
@@ -27,9 +28,8 @@ function ConversationProvenance({ conversation }) {
       h('p', null, conversation.sourceWorkspacePaths.join(' · ')),
     h('p', null, t('conversationImport.frozen')),
     h(
-      'details',
-      null,
-      h('summary', null, t('conversationImport.provenance')),
+      Disclosure,
+      { title: t('conversationImport.provenance') },
       h('p', null, conversation.nativeSessionId),
       conversation.turns.map((turn) =>
         h(

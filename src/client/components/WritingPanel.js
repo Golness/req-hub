@@ -1,6 +1,6 @@
 'use strict';
-const { Checkbox } = require('./shared/controls.js');
-const { DocumentAssist } = require('./ContextAssist.js');
+const { Disclosure } = require('./shared/Disclosure.js');
+const { WritingKnowledge } = require('./WritingKnowledge.js');
 const { t } = require('../locale.js');
 const css = require('./WritingPanel.module.css').default;
 const { Button } = require('./shared/Button.js');
@@ -28,6 +28,12 @@ function loadScopeSelection(key) {
   }
 }
 function writingError(code, details) {
+  if (code === 'WRITING_KNOWLEDGE_BUDGET') {
+    return t('writing.wikiBudget');
+  }
+  if (code === 'WRITING_SCOPE_DENIED') {
+    return t('writing.scopeDenied');
+  }
   if (code === 'ENHANCEMENT_INPUT_CHANGED' || code === 'WRITING_KNOWLEDGE_STALE') {
     const sources = details?.sources
       ?.map((source) => source.relativePath)
@@ -161,10 +167,13 @@ function WritingPanelBody({
   const [jobId, setJobId] = React.useState(null);
   const [proposal, setProposal] = React.useState(null);
   const [starter, setStarter] = React.useState('');
+  const [assistantOpen, setAssistantOpen] = React.useState(false);
+  const [assistantHidden, setAssistantHidden] = React.useState(false);
   const [imagesPending, setImagesPending] = React.useState(false);
   const [imagesError, setImagesError] = React.useState('');
   const [imageRetry, retryImages] = React.useReducer((value) => value + 1, 0);
   const [saving, setSaving] = React.useState(false);
+  const [savedSnapshots, setSavedSnapshots] = React.useState({});
   const [pendingSave, setPendingSave] = React.useState(null);
   const saveRef = React.useRef(null);
   const jobRef = React.useRef(null);
@@ -448,6 +457,7 @@ function WritingPanelBody({
         return;
       }
       setPendingSave(null);
+      setSavedSnapshots((previous) => ({ ...previous, [payload.docType]: payload.content }));
       showToast({ tone: 'success', text: t('writing.saved', { path: result.path }) });
       onSaved?.();
       if (result.wiki?.state === 'failed') {
@@ -495,6 +505,11 @@ function WritingPanelBody({
     'div',
     { className: `${css.toolbar}${toolbarTarget ? ` ${css.inHeader}` : ''}` },
     h(
+      'span',
+      { className: css.saveStatus, role: 'status' },
+      t(savedSnapshots[docType] === content ? 'writing.documentSaved' : 'writing.documentDraft'),
+    ),
+    h(
       'label',
       null,
       t('WritingPanel.message005'),
@@ -512,29 +527,45 @@ function WritingPanelBody({
         h('option', { value: 'design' }, t('documents.design')),
       ),
     ),
-    h(
-      'label',
-      null,
-      t('WritingPanel.message006'),
+    !content.trim() &&
       h(
-        Select,
-        { value: starter, disabled: locked, onChange: (e) => setStarter(e.target.value) },
-        h('option', { value: '' }, t('WritingPanel.message007')),
+        React.Fragment,
+        null,
         h(
-          'option',
-          { value: docType },
-          options?.starters?.[docType]?.label || t('WritingPanel.message008'),
+          'label',
+          null,
+          t('WritingPanel.message006'),
+          h(
+            Select,
+            { value: starter, disabled: locked, onChange: (e) => setStarter(e.target.value) },
+            h('option', { value: '' }, t('WritingPanel.message007')),
+            h(
+              'option',
+              { value: docType },
+              options?.starters?.[docType]?.label || t('WritingPanel.message008'),
+            ),
+          ),
+        ),
+        h(
+          Button,
+          {
+            className: 'rh-btn rh-btn-ghost',
+            disabled: locked || !!content.trim() || !options,
+            onClick: () => setContent(starter ? options.starters[starter].content : ''),
+          },
+          t('WritingPanel.message009'),
         ),
       ),
-    ),
     h(
       Button,
       {
-        className: 'rh-btn rh-btn-ghost',
-        disabled: locked || !!content.trim() || !options,
-        onClick: () => setContent(starter ? options.starters[starter].content : ''),
+        size: 'sm',
+        onClick: () => {
+          setAssistantHidden(false);
+          setAssistantOpen(true);
+        },
       },
-      t('WritingPanel.message009'),
+      t('writing.wikiAssistant'),
     ),
     h(
       Button,
@@ -557,96 +588,53 @@ function WritingPanelBody({
       'div',
       { className: css.content },
       h(
-        'details',
-        { className: 'rh-writing-sources', open: true },
-        h('summary', null, t('WritingPanel.message011', { value0: scopeIds.length })),
+        'div',
+        { className: css.draft },
         h(
-          Button,
-          { className: 'rh-btn rh-btn-ghost rh-btn-sm', onClick: refresh, disabled: running },
-          t('WritingPanel.message012'),
+          'div',
+          { className: css.editor },
+
+          h(MilkdownEditor, {
+            content,
+            onChange: setContent,
+            imageContext: { workspaceId, requirementPath },
+            readOnly: saving || !!pendingSave,
+          }),
         ),
-        options?.scopes.map((scope) =>
+        proposal &&
           h(
             'div',
-            { key: scope.id, className: 'rh-writing-scope', title: scope.docsRoot },
-            h(Checkbox, {
-              disabled: locked,
-              checked: scopeIds.includes(scope.id),
-              onChange: (checked) =>
-                selectScopes(
-                  checked ? [...scopeIds, scope.id] : scopeIds.filter((id) => id !== scope.id),
-                ),
-              label: t('WritingPanel.message013', {
-                value0: scope.title,
-                value1: scope.entryCount,
-              }),
-            }),
-          ),
-        ),
-        options?.scopes.length === 0 && h('p', null, t('WritingPanel.message014')),
-        options &&
-          scopeIds.some((id) => !options.scopes.some((scope) => scope.id === id)) &&
-          h(
-            'p',
-            { role: 'status' },
-            t('writing.missingScopes'),
+            { className: 'rh-knowledge-toolbar' },
+            h(Button, { onClick: () => openProposal(proposal) }, t('review.resume')),
             h(
               Button,
               {
-                disabled: locked,
-                onClick: () =>
-                  selectScopes(
-                    scopeIds.filter((id) => options.scopes.some((scope) => scope.id === id)),
-                  ),
+                onClick: () => {
+                  dismiss(proposal.jobId);
+                  setProposal(null);
+                },
               },
-              t('writing.removeMissingScopes'),
+              t('review.discard'),
             ),
           ),
-        h(
-          'small',
-          null,
-          scopeIds.length || referenceRefs.length
-            ? t('WritingPanel.message015')
-            : t('WritingPanel.message016'),
-        ),
       ),
-      h(DocumentAssist, {
-        key: requirement?.path || workspaceId,
-        workspaceId,
-        requirementPath: requirement?.path,
-        mode: 'writing',
-        draft: content,
-        references: referenceRefs,
-        onReferencesChange: setReferenceRefs,
-        disabled: locked,
-      }),
-      h(
-        'div',
-        { className: css.editor },
-        h('div', { className: css.editorHint }, t('writing.editorHint')),
-        h(MilkdownEditor, {
-          content,
-          onChange: setContent,
-          imageContext: { workspaceId, requirementPath },
-          readOnly: saving || !!pendingSave,
+      (!assistantHidden || assistantOpen) &&
+        h(WritingKnowledge, {
+          workspaceId,
+          requirementPath,
+          scopes: options?.scopes || [],
+          selected: scopeIds,
+          onSelect: selectScopes,
+          draft: content,
+          evidence: task?.result?.evidence || [],
+          overview: task?.result?.overview,
+          locked,
+          open: assistantOpen,
+          onClose: () => {
+            setAssistantOpen(false);
+            setAssistantHidden(true);
+          },
         }),
-      ),
-      proposal &&
-        h(
-          'div',
-          { className: 'rh-knowledge-toolbar' },
-          h(Button, { onClick: () => openProposal(proposal) }, t('review.resume')),
-          h(
-            Button,
-            {
-              onClick: () => {
-                dismiss(proposal.jobId);
-                setProposal(null);
-              },
-            },
-            t('review.discard'),
-          ),
-        ),
     ),
     h(
       'div',
@@ -666,9 +654,8 @@ function WritingPanelBody({
       !running &&
         task?.excludedSourceCount > 0 &&
         h(
-          'details',
-          { className: css.notice },
-          h('summary', null, t('writing.sourceNotice')),
+          Disclosure,
+          { className: css.notice, title: t('writing.sourceNotice') },
           h('small', null, t('writing.excludedSources', { count: task.excludedSourceCount })),
         ),
       running &&

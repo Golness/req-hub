@@ -1,4 +1,5 @@
 'use strict';
+const { Disclosure } = require('./shared/Disclosure.js');
 const { t } = require('../locale.js');
 const { ModalFrame } = require('./shared/ModalFrame.js');
 const { Input } = require('./shared/Input.js');
@@ -14,9 +15,11 @@ const EMPTY = { ids: [], versions: {} };
 function ImportWarnings({ warnings = [] }) {
   return warnings.length
     ? h(
-        'details',
-        { className: 'rh-codex-warnings' },
-        h('summary', null, t('CodexSessionsSection.message001', { value0: warnings.length })),
+        Disclosure,
+        {
+          className: 'rh-codex-warnings',
+          title: t('CodexSessionsSection.message001', { value0: warnings.length }),
+        },
         h(
           'ul',
           null,

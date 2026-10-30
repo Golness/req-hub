@@ -1,4 +1,5 @@
 'use strict';
+const { Disclosure } = require('./shared/Disclosure.js');
 const React = require('react');
 const { t } = require('../locale.js');
 const { ROUTE } = require('../constants.js');
@@ -15,7 +16,7 @@ const ACTIVE = ['queued', 'running', 'cancelling'];
  * @param props - Data, state and callbacks supplied by the owning surface.
  * @returns The rendered component content.
  */
-function WikiPanel({ workspaceId, tab }) {
+function WikiPanel({ workspaceId, tab, embedded = false }) {
   const session = React.useContext(SessionSelectionContext);
   const [data, setData] = React.useState({ items: [] });
   const [jobs, setJobs] = React.useState([]);
@@ -26,6 +27,7 @@ function WikiPanel({ workspaceId, tab }) {
   const [instruction, setInstruction] = React.useState('');
   const [detail, setDetail] = React.useState(null);
   const [body, setBody] = React.useState('');
+  const [editing, setEditing] = React.useState(false);
   const [summary, setSummary] = React.useState('');
   const [classification, setClassification] = React.useState('other');
   const [tags, setTags] = React.useState({ entities: '[]', concepts: '[]', decisions: '[]' });
@@ -43,8 +45,25 @@ function WikiPanel({ workspaceId, tab }) {
   const [candidateDrafts, setCandidateDrafts] = React.useState({});
   const [jobCursor, setJobCursor] = React.useState(null);
   const [candidateCursor, setCandidateCursor] = React.useState(null);
+  const candidateValue = (candidate) =>
+    candidateDrafts[candidate.id] || {
+      pages: candidate.pages.map(({ title, body }) => ({ title, body })),
+      rules: candidate.rules,
+    };
+  const editCandidate = (candidate, index, key, value) => {
+    const draft = candidateValue(candidate);
+    const next =
+      index === null
+        ? { ...draft, rules: value }
+        : {
+            ...draft,
+            pages: draft.pages.map((page, at) => (at === index ? { ...page, [key]: value } : page)),
+          };
+    setCandidateDrafts((old) => ({ ...old, [candidate.id]: next }));
+  };
   const rulesVersion = React.useRef(null);
   const owner = React.useRef(null);
+  const searchQuery = React.useRef(null);
   const request = async (path, method = 'GET', input, signal = owner.current?.signal) => {
     const response = await fetch(
       `${ROUTE}/knowledge/wiki${path}${method === 'GET' ? (path.includes('?') ? '&' : '?') + 'workspaceId=' + encodeURIComponent(workspaceId) : ''}`,
@@ -122,7 +141,10 @@ function WikiPanel({ workspaceId, tab }) {
         if (tab === 'index') {
           path = '/index';
         } else if (tab === 'wiki') {
-          path = '/pages';
+          path =
+            searchQuery.current === null
+              ? '/pages'
+              : '/search?q=' + encodeURIComponent(searchQuery.current);
         } else if (tab === 'rules') {
           path = '/rules';
         } else if (tab === 'changes') {
@@ -185,11 +207,16 @@ function WikiPanel({ workspaceId, tab }) {
       if (tab === 'index') {
         path = '/index';
       } else if (tab === 'wiki') {
-        path = '/pages';
+        path =
+          searchQuery.current === null
+            ? '/pages'
+            : '/search?q=' + encodeURIComponent(searchQuery.current);
       } else {
         path = '/changelog';
       }
-      const next = await request(path + '?cursor=' + encodeURIComponent(data.nextCursor));
+      const next = await request(
+        path + (path.includes('?') ? '&' : '?') + 'cursor=' + encodeURIComponent(data.nextCursor),
+      );
       setData({ ...next, items: [...(data.items || []), ...next.items] });
     }, false);
   const sourceDetail = async (id) => {
@@ -212,6 +239,7 @@ function WikiPanel({ workspaceId, tab }) {
     );
     setDetail({ kind: 'wiki', historical: !!revision, ...page });
     setBody(page.body);
+    setEditing(false);
     setHistory(null);
   };
   const exportWiki = async () => {
@@ -258,41 +286,41 @@ function WikiPanel({ workspaceId, tab }) {
     'section',
     {
       className: css.panel,
-      id: 'knowledge-content',
-      role: 'tabpanel',
-      'aria-labelledby': 'knowledge-tab-' + tab,
+      id: embedded ? undefined : 'knowledge-content',
+      role: embedded ? 'region' : 'tabpanel',
+      'aria-label': t(`wiki.tab.${tab}`),
     },
     h(
       'div',
       { className: css.toolbar },
       h('strong', null, t(`wiki.tab.${tab}`)),
       button('refresh', async () => {}),
-      button('export', exportWiki),
+      tab === 'changes' && button('export', exportWiki),
     ),
-    h(
-      'details',
-      null,
-      h('summary', null, label('restore')),
-      h('p', null, label('restoreHint')),
-      h('input', {
-        type: 'file',
-        accept: '.json,application/json',
-        'aria-label': label('restore'),
-        disabled: busy,
-        onChange: (event) => {
-          const file = event.target.files?.[0];
-          if (file) {
-            perform(async () => {
-              if (file.size > 20000000) {
-                throw new Error('WIKI_BUDGET_EXCEEDED');
-              }
-              await restoreWiki(JSON.parse(await file.text()));
-            });
-          }
-        },
-      }),
-      restoreCursor !== null && button('restoreMore', () => restoreWiki(backup, restoreCursor)),
-    ),
+    tab === 'changes' &&
+      h(
+        Disclosure,
+        { title: label('restore') },
+        h('p', null, label('restoreHint')),
+        h('input', {
+          type: 'file',
+          accept: '.json,application/json',
+          'aria-label': label('restore'),
+          disabled: busy,
+          onChange: (event) => {
+            const file = event.target.files?.[0];
+            if (file) {
+              perform(async () => {
+                if (file.size > 20000000) {
+                  throw new Error('WIKI_BUDGET_EXCEEDED');
+                }
+                await restoreWiki(JSON.parse(await file.text()));
+              });
+            }
+          },
+        }),
+        restoreCursor !== null && button('restoreMore', () => restoreWiki(backup, restoreCursor)),
+      ),
     error &&
       h(
         'div',
@@ -353,6 +381,7 @@ function WikiPanel({ workspaceId, tab }) {
         ),
       ),
     tab === 'wiki' &&
+      !detail &&
       h(
         React.Fragment,
         null,
@@ -369,10 +398,10 @@ function WikiPanel({ workspaceId, tab }) {
             type: 'button',
             disabled: busy,
             onClick: () =>
-              perform(
-                async () => setData(await request('/search?q=' + encodeURIComponent(instruction))),
-                false,
-              ),
+              perform(async () => {
+                searchQuery.current = instruction;
+                setData(await request('/search?q=' + encodeURIComponent(instruction)));
+              }, false),
           },
           label('search'),
         ),
@@ -558,12 +587,15 @@ function WikiPanel({ workspaceId, tab }) {
           h(
             React.Fragment,
             null,
-            h('textarea', {
-              className: css.editor,
-              'aria-label': label('pageBody'),
-              value: body,
-              onChange: (event) => setBody(event.target.value),
-            }),
+            !editing && h('pre', { className: css.body }, body),
+            !detail.historical && button('editPage', async () => setEditing(!editing)),
+            editing &&
+              h('textarea', {
+                className: css.editor,
+                'aria-label': label('pageBody'),
+                value: body,
+                onChange: (event) => setBody(event.target.value),
+              }),
             detail.historical &&
               h(
                 'p',
@@ -574,12 +606,14 @@ function WikiPanel({ workspaceId, tab }) {
               'div',
               { className: css.toolbar },
               !detail.historical &&
+                editing &&
                 button('save', async () => {
                   const updated = await request('/pages/' + detail.id, 'PUT', {
                     body,
                     expectedVersion: detail.version,
                   });
                   setDetail({ kind: 'wiki', ...updated });
+                  setEditing(false);
                 }),
               button('regenerate', () =>
                 request('/pages/' + detail.id + '/regenerate', 'POST', {}),
@@ -679,142 +713,159 @@ function WikiPanel({ workspaceId, tab }) {
             ),
           ),
       ),
-    h(
-      'details',
-      null,
-      h('summary', null, label('candidates')),
-      candidateCursor !== null &&
-        h(
-          'button',
-          {
-            type: 'button',
-            disabled: busy,
-            onClick: () =>
-              perform(async () => {
-                const next = await request('/candidates?cursor=' + candidateCursor);
-                setCandidates((old) => [...old, ...next.items]);
-                setCandidateCursor(next.nextCursor);
-              }, false),
-          },
-          label('more'),
-        ),
-      candidates.map((candidate) =>
-        h(
-          'article',
-          { className: css.card, key: candidate.id },
+    tab === 'review' &&
+      h(
+        Disclosure,
+        { defaultOpen: true, title: label('candidates') },
+        candidateCursor !== null &&
           h(
-            'pre',
-            { className: css.body },
-            JSON.stringify(
-              { pages: candidate.pages, summaries: candidate.summaries, rules: candidate.rules },
-              null,
-              2,
+            'button',
+            {
+              type: 'button',
+              disabled: busy,
+              onClick: () =>
+                perform(async () => {
+                  const next = await request('/candidates?cursor=' + candidateCursor);
+                  setCandidates((old) => [...old, ...next.items]);
+                  setCandidateCursor(next.nextCursor);
+                }, false),
+            },
+            label('more'),
+          ),
+        candidates.map((candidate) =>
+          h(
+            'article',
+            { className: css.card, key: candidate.id },
+            candidate.pages.map((page, index) =>
+              h(
+                'section',
+                { key: index },
+                h('h3', null, page.title),
+                page.baseBody &&
+                  h(
+                    Disclosure,
+                    { title: label('currentBody') },
+                    h('pre', { className: css.body }, page.baseBody),
+                  ),
+                h('p', { className: css.muted }, label('proposedBody')),
+                h('pre', { className: css.body }, page.body),
+              ),
             ),
-          ),
-          h(
-            'details',
-            null,
-            h('summary', null, label('editCandidate')),
-            h('textarea', {
-              className: css.editor,
-              'aria-label': label('candidateContent'),
-              value:
-                candidateDrafts[candidate.id] ??
-                JSON.stringify(
-                  {
-                    pages: candidate.pages.map(({ title, body }) => ({ title, body })),
-                    rules: candidate.rules,
-                  },
-                  null,
-                  2,
+            candidate.summaries.map((summary) =>
+              h('p', { key: summary.documentId }, summary.summary),
+            ),
+            candidate.rules && h('pre', { className: css.body }, candidate.rules),
+            h(
+              Disclosure,
+              { title: label('editCandidate') },
+              candidateValue(candidate).pages.map((page, index) =>
+                h(
+                  'section',
+                  { key: index, className: css.field },
+                  h(Input, {
+                    value: page.title,
+                    'aria-label': label('title'),
+                    onChange: (event) =>
+                      editCandidate(candidate, index, 'title', event.target.value),
+                  }),
+                  h('textarea', {
+                    className: css.editor,
+                    value: page.body,
+                    'aria-label': label('candidateContent'),
+                    onChange: (event) =>
+                      editCandidate(candidate, index, 'body', event.target.value),
+                  }),
                 ),
-              onChange: (event) =>
-                setCandidateDrafts((old) => ({ ...old, [candidate.id]: event.target.value })),
-            }),
-            button('saveCandidate', async () => {
-              await request('/candidates/' + candidate.id, 'PUT', {
-                ...JSON.parse(
-                  candidateDrafts[candidate.id] ||
-                    JSON.stringify({ pages: candidate.pages, rules: candidate.rules }),
-                ),
-                expectedVersion: candidate.version,
-              });
-              setCandidateDrafts((old) => {
-                const next = { ...old };
-                delete next[candidate.id];
-                return next;
-              });
-            }),
-          ),
-          h(
-            'div',
-            { className: css.toolbar },
-            button(
-              'publish',
-              () =>
-                request('/candidates/' + candidate.id + '/publish', 'POST', {
-                  expectedVersion: candidate.version,
-                  inputHash: candidate.inputHash,
+              ),
+              candidate.rules !== undefined &&
+                h('textarea', {
+                  className: css.editor,
+                  value: candidateValue(candidate).rules,
+                  'aria-label': label('rulesBody'),
+                  onChange: (event) => editCandidate(candidate, null, 'rules', event.target.value),
                 }),
-              busy || candidateDrafts[candidate.id] !== undefined,
-            ),
-            button('reject', () =>
-              request('/candidates/' + candidate.id + '/reject', 'POST', {
-                expectedVersion: candidate.version,
+              button('saveCandidate', async () => {
+                await request('/candidates/' + candidate.id, 'PUT', {
+                  ...candidateValue(candidate),
+                  expectedVersion: candidate.version,
+                });
+                setCandidateDrafts((old) => {
+                  const next = { ...old };
+                  delete next[candidate.id];
+                  return next;
+                });
               }),
             ),
+            h(
+              'div',
+              { className: css.toolbar },
+              button(
+                'publish',
+                () =>
+                  request('/candidates/' + candidate.id + '/publish', 'POST', {
+                    expectedVersion: candidate.version,
+                    inputHash: candidate.inputHash,
+                  }),
+                busy || candidateDrafts[candidate.id] !== undefined,
+              ),
+              button('reject', () =>
+                request('/candidates/' + candidate.id + '/reject', 'POST', {
+                  expectedVersion: candidate.version,
+                }),
+              ),
+            ),
           ),
         ),
       ),
-    ),
-    h(
-      'details',
-      null,
-      h('summary', null, label('jobs')),
-      jobCursor !== null &&
-        h(
-          'button',
-          {
-            type: 'button',
-            disabled: busy,
-            onClick: () =>
-              perform(async () => {
-                const next = await request('/jobs?cursor=' + jobCursor);
-                setJobs((old) => [...old, ...next.items]);
-                setJobCursor(next.nextCursor);
-              }, false),
-          },
-          label('more'),
-        ),
-      jobs.map((job) =>
-        h(
-          'article',
-          { className: css.card, key: job.id },
-          h('p', null, job.kind, ' · ', t(`wiki.status.${job.status}`)),
+    ['lint', 'changes'].includes(tab) &&
+      h(
+        Disclosure,
+        { title: label('jobs') },
+        jobCursor !== null &&
           h(
-            'p',
-            null,
-            label('skill') +
-              ': ' +
-              (job.skillName || '—') +
-              ' · ' +
-              t(`wiki.skill.${job.skillStatus || 'not_bound'}`),
+            'button',
+            {
+              type: 'button',
+              disabled: busy,
+              onClick: () =>
+                perform(async () => {
+                  const next = await request('/jobs?cursor=' + jobCursor);
+                  setJobs((old) => [...old, ...next.items]);
+                  setJobCursor(next.nextCursor);
+                }, false),
+            },
+            label('more'),
           ),
-          job.error && h('p', { className: css.error }, t('wiki.error', { code: job.error.code })),
+        jobs.map((job) =>
           h(
-            'div',
-            { className: css.toolbar },
-            ACTIVE.includes(job.status)
-              ? button('cancel', () => request('/jobs/' + job.id + '/cancel', 'POST', {}))
-              : button('retry', () => request('/jobs/' + job.id + '/retry', 'POST', {})),
-            button('deleteJob', () => request('/jobs/' + job.id, 'DELETE', {})),
-            job.kind === 'query' &&
-              job.status === 'completed' &&
-              button('details', async () => setAnswerId(job.id)),
+            'article',
+            { className: css.card, key: job.id },
+            h('p', null, job.kind, ' · ', t(`wiki.status.${job.status}`)),
+            h(
+              'p',
+              null,
+              label('skill') +
+                ': ' +
+                (job.skillName || '—') +
+                ' · ' +
+                t(`wiki.skill.${job.skillStatus || 'not_bound'}`),
+            ),
+            job.error &&
+              h('p', { className: css.error }, t('wiki.error', { code: job.error.code })),
+            h(
+              'div',
+              { className: css.toolbar },
+              ACTIVE.includes(job.status)
+                ? button('cancel', () => request('/jobs/' + job.id + '/cancel', 'POST', {}))
+                : button('retry', () => request('/jobs/' + job.id + '/retry', 'POST', {})),
+              button('deleteJob', () => request('/jobs/' + job.id, 'DELETE', {})),
+              job.kind === 'query' &&
+                job.status === 'completed' &&
+                button('details', async () => setAnswerId(job.id)),
+            ),
           ),
         ),
       ),
-    ),
   );
 }
 module.exports = { WikiPanel };

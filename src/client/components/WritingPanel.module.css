@@ -8,6 +8,13 @@
   container-type: inline-size;
 }
 .content {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.draft {
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -102,7 +109,7 @@
   font-size: var(--rh-font-size-sm);
   line-height: 20px;
 }
-.notice summary {
+.notice [data-rh-disclosure-trigger] {
   cursor: pointer;
 }
 
@@ -122,8 +129,14 @@
   padding: 8px 12px;
   border-bottom: 0.5px solid var(--dsw-alias-border-l1);
   font-size: var(--rh-font-size);
-  line-height: 22px;
+  line-height: var(--rh-line-height);
+  font-weight: 400;
   min-width: 0;
+}
+.toolbar :global([data-rh-button]) {
+  font-size: var(--rh-font-size);
+  line-height: var(--rh-line-height);
+  font-weight: 400;
 }
 .toolbar label {
   display: inline-flex;
@@ -134,6 +147,10 @@
 .inHeader {
   padding: 0;
   border-bottom: 0;
+}
+.saveStatus {
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
 }
 @container (max-width: 420px) {
   .actions {

@@ -17,6 +17,8 @@ import { knowledgeError } from '../knowledge/source-reader.js';
 import { installWritingTools, WritingRuntime, WRITING_TOOLS } from '../writing-runtime.js';
 import { saveWriting } from '../writing-save.js';
 import { resolveKnowledgeReferences } from '../knowledge/enhancements/knowledge-context.js';
+import { freezeWritingKnowledge, verifyWritingWiki } from '../writing-knowledge.js';
+import { relevanceScore } from '../knowledge/retrieval.js';
 
 function writingRequirementPath(value) {
   if (value === null || value === undefined || value === '') {
@@ -144,6 +146,40 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
       }
       if (req.method === 'GET' && path === '/options') {
         return json(res, { scopes: catalog(), starters: WRITING_STARTERS });
+      }
+      if (req.method === 'GET' && path === '/knowledge') {
+        const workspaceId = url.searchParams.get('workspaceId');
+        await knowledge.scope(workspaceId);
+        const ids = JSON.parse(url.searchParams.get('scopeIds') || '[]');
+        if (!Array.isArray(ids) || ids.length > 30 || ids.some((id) => typeof id !== 'string')) {
+          throw knowledgeError('WRITING_SCOPE_DENIED', 403);
+        }
+        const pages = [];
+        for (const id of new Set(ids)) {
+          const origin = knowledge
+            .database()
+            .scopes()
+            .find((item) => item.id === id);
+          const scope = origin && (await knowledge.scope(origin.workspace_id));
+          if (!scope || scope.identity !== id) {
+            throw knowledgeError('WRITING_SCOPE_DENIED', 403);
+          }
+          await knowledge.refreshSources(scope);
+          const frozen = freezeWritingKnowledge(knowledge, scope, origin, ids);
+          pages.push(...frozen.filter((item) => item.kind === 'wiki'));
+        }
+        const query = (url.searchParams.get('q') || '').slice(0, 1000);
+        const ranked = pages
+          .map((page) => ({ ...page, score: relevanceScore(page, query) }))
+          .filter((page) => !query.trim() || page.score > 0.05)
+          .sort((a, b) => b.score - a.score);
+        return json(res, {
+          items: ranked
+            .slice(0, 6)
+            .map(({ body, ...page }) => ({ ...page, summary: body.slice(0, 180) })),
+          hasWiki: pages.length > 0,
+          hasMore: ranked.length > 6,
+        });
       }
       if (req.method === 'GET' && path === '/jobs') {
         const workspaceId = url.searchParams.get('workspaceId');
@@ -321,7 +357,16 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
         await knowledge.refreshSources(scope);
         const excluded = scope.store.sources().filter((source) => source.status !== 'active');
         excludedSourceCount += excluded.length;
-        const entries = scope.store.list(10001, undefined, { activeOnly: true });
+        const currentScope = await knowledge.scope(origin.workspace_id);
+        if (currentScope.identity !== origin.id) {
+          throw knowledgeError('WRITING_SCOPE_DENIED', 403);
+        }
+        const entries = freezeWritingKnowledge(
+          knowledge,
+          scope,
+          origin,
+          selected.map((item) => item.id),
+        );
         if (!entries.length && excluded.length) {
           throw Object.assign(knowledgeError('WRITING_KNOWLEDGE_STALE', 409), {
             details: {
@@ -334,25 +379,32 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
         }
         for (const entry of entries) {
           characters += entry.body.length;
-          if (characters > 20000000 || documents.length >= 10000) {
+          if (characters > 20000000 || documents.length >= 20000) {
             throw knowledgeError('所选知识库过大，请减少选择范围', 413);
           }
           documents.push({ ...entry, scopeId: origin.id });
         }
       }
       for (const { doc, origin } of exact) {
+        const existing = documents.find((item) => item.id === doc.id);
+        if (existing) {
+          existing.explicitReference = true;
+        }
         if (!documents.some((item) => item.id === doc.id)) {
           characters += doc.body.length;
           if (characters > 20000000 || documents.length >= 10000) {
             throw knowledgeError('ENHANCEMENT_BUDGET_EXCEEDED', 413);
           }
-          documents.push(doc);
+          documents.push({ ...doc, explicitReference: true });
           if (!selected.some((scope) => scope.id === origin.id)) {
             selected.push(origin);
           }
         }
       }
       const scopes = selected.map((s) => ({ id: s.id, title: s.workspace_title }));
+      if (Buffer.byteLength(JSON.stringify({ documents, input }), 'utf8') > 20000000) {
+        throw knowledgeError('WRITING_KNOWLEDGE_BUDGET', 413);
+      }
       if (closed) {
         throw knowledgeError('写作服务已关闭', 503);
       }
@@ -435,11 +487,17 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
             await resolveKnowledgeReferences(
               knowledge,
               runtime.result.evidence
+                .filter((item) => item.kind !== 'wiki' && item.kind !== 'index')
                 .slice(offset, offset + 30)
                 .map(({ id, scopeId, version }) => ({ id, scopeId, version })),
               job.controller.signal,
             );
           }
+          await verifyWritingWiki(
+            knowledge,
+            runtime.result.evidence,
+            scopes.map((item) => item.id),
+          );
           job.controller.signal.throwIfAborted();
           job.result = { original: input.content, ...runtime.result };
           job.sessionId = result.sessionId;

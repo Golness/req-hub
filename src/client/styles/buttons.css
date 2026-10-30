@@ -159,26 +159,6 @@
   cursor: pointer;
 }
 
-.rh-json-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--dsw-radius-sm, var(--dsw-radius-xs));
-  color: var(--dsw-alias-label-secondary);
-  background: transparent;
-  vertical-align: middle;
-  cursor: pointer;
-}
-
-.rh-json-toggle:hover {
-  color: var(--dsw-alias-label-primary);
-  background: var(--rh-button-hover);
-}
-
 .rh-rail-btn {
   padding: 0;
   width: var(--rh-rail-btn-size);

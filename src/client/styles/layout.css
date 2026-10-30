@@ -119,7 +119,7 @@
   letter-spacing: normal;
 }
 
-.rh-rail-arrow {
+.rh-rail-action {
   font-size: var(--rh-font-size-sm);
   margin-left: 2px;
   opacity: 0.6;
@@ -456,15 +456,6 @@
   border-bottom: 0.5px solid var(--dsw-alias-border-l1);
   background: var(--dsw-alias-bg-layer-1);
   flex-shrink: 0;
-}
-
-.rh-filter-arrow {
-  font-size: var(--rh-font-size-sm);
-  transition: transform 0.15s;
-}
-
-.rh-filter-arrow.expanded {
-  transform: rotate(180deg);
 }
 
 .rh-filter-content {

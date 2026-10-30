@@ -68,7 +68,7 @@ function DocsViewerBody({
   initialReqId,
 }) {
   const [activePanel, setActivePanel] = useState(null);
-  const [knowledgeTab, setKnowledgeTab] = useState('documents');
+  const [knowledgeTab, setKnowledgeTab] = useState('wiki');
   const [fileRevision, setFileRevision] = useState(0);
   const [fileDirty, setFileDirty] = useState(false);
   const isKnowledgeSearch = activePanel === 'knowledge' && knowledgeTab === 'search';
@@ -851,6 +851,7 @@ function DocsViewerBody({
         workspaceId: workspace.id,
         knowledge,
         tab: knowledgeTab,
+        onTabChange: changeKnowledgeTab,
         selectedFile,
         documentView: renderDocumentPreview(),
       });
@@ -1033,6 +1034,8 @@ function DocsViewerBody({
                   'button',
                   {
                     className: `rh-rail-btn${isSubActive ? ' active' : ''}${isGroupExpanded ? ' expanded' : ''}`,
+                    type: 'button',
+                    'aria-expanded': isGroupExpanded,
                     onClick: () => {
                       if (isGroupExpanded) {
                         setExpandedGroup(null);
@@ -1043,7 +1046,11 @@ function DocsViewerBody({
                   },
                   h('span', null, btn.icon),
                   h('span', { className: 'rh-rail-label' }, btn.label),
-                  h('span', { className: 'rh-rail-arrow' }, isGroupExpanded ? '▾' : '▸'),
+                  h(
+                    'span',
+                    { className: 'rh-rail-action', 'aria-hidden': true },
+                    t(isGroupExpanded ? 'disclosure.collapse' : 'disclosure.expand'),
+                  ),
                 ),
                 isGroupExpanded &&
                   h(
@@ -1152,7 +1159,9 @@ function DocsViewerBody({
               },
               h(
                 'div',
-                { className: 'rh-right-header' },
+                {
+                  className: `rh-right-header${activePanel === 'writing' ? ` ${css.writingHeader}` : ''}`,
+                },
                 h('div', { className: 'rh-header-back-slot', ref: setHeaderBackTarget }),
                 h(
                   'div',
@@ -1214,7 +1223,7 @@ function DocsViewerBody({
                   style: { '--rh-display-0': cssValue(isKnowledgeSearch ? 'flex' : 'none') },
                   id: isKnowledgeSearch ? 'knowledge-content' : undefined,
                   role: isKnowledgeSearch ? 'tabpanel' : undefined,
-                  'aria-labelledby': isKnowledgeSearch ? 'knowledge-tab-search' : undefined,
+                  'aria-labelledby': isKnowledgeSearch ? 'knowledge-tab-files' : undefined,
                 },
                 h(SearchPanel, {
                   active: isKnowledgeSearch,

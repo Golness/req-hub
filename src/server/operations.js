@@ -58,6 +58,7 @@ export function createOperations(routes) {
     ['knowledge-job', '/req-hub/knowledge/builds/:id'],
     ['knowledge-cancel', '/req-hub/knowledge/builds/:id/cancel'],
     ['writing-options', '/req-hub/writing/options'],
+    ['writing-knowledge', '/req-hub/writing/knowledge'],
     ['writing-optimize', '/req-hub/writing/optimize'],
     ['writing-assets', '/req-hub/writing/assets'],
     ['writing-save', '/req-hub/writing/save'],
