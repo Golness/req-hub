@@ -1,0 +1,6 @@
+node_modules/
+.req-hub/
+lib/
+# Preserve third-party source and the generated icon snapshot.
+src/server/vendor/
+src/client/icons-artwork.cjs

@@ -6,7 +6,6 @@
  * @module req-hub/client/constants
  */
 
-
 /**
  * Base route path for the ReqHub plugin.
  * @constant {string}

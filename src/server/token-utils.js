@@ -4,12 +4,13 @@
  * @module token-utils
  */
 
-
 /** Fallback input estimate when the Host supplies no model capacity metadata. */
 export const MAX_SYNC_INPUT_TOKENS = 150000;
 
 /**
  * Include framing in the same multilingual estimate used for evidence and UI.
+ * @param text - Source text.
+ * @returns The estimated input-token count.
  */
 export function estimateSubagentInputTokens(text) {
   return estimateTextTokens(text) + 8;
@@ -27,13 +28,19 @@ export const ROLE_OVERHEAD = 4;
  * @returns {number} Estimated token count
  */
 export function estimateTextTokens(text) {
-  if (!text || typeof text !== 'string') return 0;
+  if (!text || typeof text !== 'string') {
+    return 0;
+  }
   // Code/identifiers need more room than prose. Non-ASCII text must not be
   // priced as English, nor as one token for every UTF-8 byte.
-  let ascii = 0, other = 0;
+  let ascii = 0;
+  let other = 0;
   for (const char of text) {
-    if (char.codePointAt(0) < 128) ascii++;
-    else other++;
+    if (char.codePointAt(0) < 128) {
+      ascii++;
+    } else {
+      other++;
+    }
   }
   return Math.ceil(ascii / 3 + other * 2);
 }
@@ -45,8 +52,10 @@ export function estimateTextTokens(text) {
  * @returns {number} Estimated token count
  */
 export function estimateContentTokens(blocks) {
-  if (!Array.isArray(blocks) || blocks.length === 0) return 0;
-  
+  if (!Array.isArray(blocks) || blocks.length === 0) {
+    return 0;
+  }
+
   let tokens = 0;
   for (const block of blocks) {
     switch (block.type) {
@@ -55,12 +64,10 @@ export function estimateContentTokens(blocks) {
         tokens += estimateTextTokens(block.text) + BLOCK_OVERHEAD;
         break;
       case 'tool-call':
-        tokens += estimateTextTokens(block.name)
-          + estimateTextTokens(block.arguments)
-          + BLOCK_OVERHEAD;
+        tokens +=
+          estimateTextTokens(block.name) + estimateTextTokens(block.arguments) + BLOCK_OVERHEAD;
         break;
       default:
-        // 其他类型使用 JSON 结构估算
         tokens += BLOCK_OVERHEAD + estimateTextTokens(JSON.stringify(block));
     }
   }
@@ -75,20 +82,21 @@ export function estimateContentTokens(blocks) {
  * @returns {number} Estimated token count
  */
 export function estimateMessageTokens(message) {
-  if (!message) return 0;
-  
+  if (!message) {
+    return 0;
+  }
+
   const content = message.content;
   let tokens = 0;
-  
+
   if (typeof content === 'string') {
     tokens = estimateTextTokens(content) + ROLE_OVERHEAD;
   } else if (Array.isArray(content)) {
     tokens = estimateContentTokens(content) + ROLE_OVERHEAD;
   }
-  
+
   return tokens;
 }
-
 
 /**
  * Format token count as a human-readable string.
@@ -96,8 +104,10 @@ export function estimateMessageTokens(message) {
  * @returns {string} Formatted string (e.g., "1.5k", "2.3M")
  */
 export function formatTokens(tokens) {
-  if (typeof tokens !== 'number' || isNaN(tokens)) return '0';
-  
+  if (typeof tokens !== 'number' || isNaN(tokens)) {
+    return '0';
+  }
+
   if (tokens >= 1000000) {
     return `${(tokens / 1000000).toFixed(1)}M`;
   } else if (tokens >= 1000) {

@@ -25,7 +25,9 @@ const REQ_DIR_RE = /^(\d{4}-\d{2}-\d{2})-(.+)$/;
  */
 function parseRequirementDir(dirName) {
   const m = dirName.match(REQ_DIR_RE);
-  if (!m) return null;
+  if (!m) {
+    return null;
+  }
   return {
     id: dirName,
     date: m[1],
@@ -33,17 +35,31 @@ function parseRequirementDir(dirName) {
   };
 }
 
-/** Count requirement directories without reading their contents. */
+/**
+ * Count requirement directories without reading their contents.
+ * @param docsDir - Configured document directory.
+ * @returns The number of recognized requirement directories.
+ */
 export async function countRequirementDirectories(docsDir) {
   let developers;
-  try { developers = await readdir(docsDir, { withFileTypes: true }); }
-  catch (error) { if (error.code === 'ENOENT') return 0; throw error; }
+  try {
+    developers = await readdir(docsDir, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return 0;
+    }
+    throw error;
+  }
   let count = 0;
   for (const developer of developers) {
-    if (!developer.isDirectory() || developer.name.startsWith('.')) continue;
+    if (!developer.isDirectory() || developer.name.startsWith('.')) {
+      continue;
+    }
     const developerPath = await safeDocumentPath(docsDir, developer.name);
     const entries = await readdir(developerPath, { withFileTypes: true });
-    count += entries.filter(entry => entry.isDirectory() && parseRequirementDir(entry.name)).length;
+    count += entries.filter(
+      (entry) => entry.isDirectory() && parseRequirementDir(entry.name),
+    ).length;
   }
   return count;
 }
@@ -55,9 +71,20 @@ export async function countRequirementDirectories(docsDir) {
  */
 function inferDocType(filename) {
   const lower = filename.toLowerCase();
-  if (/\bcr\b/.test(lower) || lower.includes('code review') || lower.includes('codereview')) return 'cr';
-  if (lower.includes('技术') || lower.includes('design') || lower.includes('tech') || lower.includes('technical')) return 'design';
-  if (lower.includes('需求') || lower.includes('require') || lower.includes('prd')) return 'requirement';
+  if (/\bcr\b/.test(lower) || lower.includes('code review') || lower.includes('codereview')) {
+    return 'cr';
+  }
+  if (
+    lower.includes('技术') ||
+    lower.includes('design') ||
+    lower.includes('tech') ||
+    lower.includes('technical')
+  ) {
+    return 'design';
+  }
+  if (lower.includes('需求') || lower.includes('require') || lower.includes('prd')) {
+    return 'requirement';
+  }
   return 'other';
 }
 
@@ -111,8 +138,12 @@ export async function buildTree(docsDir) {
   }
 
   for (const entry of devEntries) {
-    if (!entry.isDirectory()) continue;
-    if (entry.name.startsWith('.')) continue;
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    if (entry.name.startsWith('.')) {
+      continue;
+    }
 
     const devPath = join(docsDir, entry.name);
     const devNode = {
@@ -129,9 +160,13 @@ export async function buildTree(docsDir) {
     }
 
     for (const rd of reqDirs) {
-      if (!rd.isDirectory()) continue;
+      if (!rd.isDirectory()) {
+        continue;
+      }
       const parsed = parseRequirementDir(rd.name);
-      if (!parsed) continue;
+      if (!parsed) {
+        continue;
+      }
 
       const reqPath = join(devPath, rd.name);
       let files;
@@ -142,8 +177,13 @@ export async function buildTree(docsDir) {
       }
 
       const docFiles = files.filter(
-        f => f.endsWith('.md') || f.endsWith('.html') || f.endsWith('.htm') ||
-             f.endsWith('.txt') || f.endsWith('.text') || f.endsWith('.markdown')
+        (f) =>
+          f.endsWith('.md') ||
+          f.endsWith('.html') ||
+          f.endsWith('.htm') ||
+          f.endsWith('.txt') ||
+          f.endsWith('.text') ||
+          f.endsWith('.markdown'),
       );
       const hasMeta = files.includes('.meta.json');
 
@@ -155,7 +195,9 @@ export async function buildTree(docsDir) {
           metaUpdatedAt = metaStat.mtime.toISOString();
           const metaContent = await readFile(join(reqPath, '.meta.json'), 'utf8');
           meta = JSON.parse(metaContent);
-        } catch { /* ignore */ }
+        } catch (error) {
+          // Keep directory-derived metadata when optional .meta.json cannot be read.
+        }
       }
 
       // Get file modification times
@@ -173,8 +215,8 @@ export async function buildTree(docsDir) {
         ...parsed,
         developer: entry.name,
         path: relative(docsDir, reqPath),
-        files: docFiles.map(f => {
-          const statEntry = fileStats.find(s => s.name === f);
+        files: docFiles.map((f) => {
+          const statEntry = fileStats.find((s) => s.name === f);
           return {
             name: f,
             type: inferDocType(f),

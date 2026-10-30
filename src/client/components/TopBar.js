@@ -30,17 +30,41 @@ const { IconFolderExternal, IconTarget } = createIconComponents(h);
  * @param {Function} props.onLocateSessionReq - Callback invoked to auto-locate the current session's requirement
  * @returns {JSX.Element}
  */
-function TopBar({ docsDir, currentWorkspace, currentReq, onEditDocsDir, onChangeWorkspace, onChangeReq, onLocateSessionReq }) {
+function TopBar({
+  docsDir,
+  currentWorkspace,
+  currentReq,
+  onEditDocsDir,
+  onChangeWorkspace,
+  onChangeReq,
+  onLocateSessionReq,
+}) {
   const [showPathModal, setShowPathModal] = useState(false);
-  const field = (label, value, onClick, selected, className = '', fullText = value) => h('div', { className: `${css.field} ${className}` },
-    h('span', { className: 'rh-topbar-label' }, label),
-    h(Tooltip, { label: fullText, className: css.value }, h(Button, {
-      type: 'button', className: `rh-btn rh-btn-sm rh-topbar-value ${css.valueButton} ${selected ? 'selected' : 'unselected'}`,
-      onClick, 'aria-label': `${label} ${fullText}`,
-    }, h('span', { className: css.text }, value))));
+  const field = (label, value, onClick, selected, className = '', fullText = value) =>
+    h(
+      'div',
+      { className: `${css.field} ${className}` },
+      h('span', { className: 'rh-topbar-label' }, label),
+      h(
+        Tooltip,
+        { label: fullText, className: css.value },
+        h(
+          Button,
+          {
+            type: 'button',
+            className: `rh-btn rh-btn-sm rh-topbar-value ${css.valueButton} ${selected ? 'selected' : 'unselected'}`,
+            onClick,
+            'aria-label': `${label} ${fullText}`,
+          },
+          h('span', { className: css.text }, value),
+        ),
+      ),
+    );
 
   const handlePathConfirm = async (newDir) => {
-    if (!newDir) return;
+    if (!newDir) {
+      return;
+    }
     try {
       const res = await fetch(`${ROUTE}/config`, {
         method: 'POST',
@@ -51,70 +75,98 @@ function TopBar({ docsDir, currentWorkspace, currentReq, onEditDocsDir, onChange
         setShowPathModal(false);
         onEditDocsDir();
       }
-    } catch { /* ignore */ }
+    } catch (error) {
+      // Keep the path dialog open when its save request fails.
+    }
   };
 
   const handleOpenInExplorer = async () => {
-    if (!currentWorkspace || !currentReq) return;
+    if (!currentWorkspace || !currentReq) {
+      return;
+    }
     try {
       const res = await fetch(`${ROUTE}/open-in-explorer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workspaceId: currentWorkspace.id,
-          requirementId: currentReq.id
+          requirementId: currentReq.id,
         }),
       });
       if (!res.ok) {
         const data = await res.json();
-        showToast({ tone: 'error', text: data.error || t("TopBar.message001") });
+        showToast({ tone: 'error', text: data.error || t('TopBar.message001') });
       }
     } catch (e) {
-      showToast({ tone: 'error', text: t("TopBar.message002") + e.message });
+      showToast({ tone: 'error', text: t('TopBar.message002') + e.message });
     }
   };
 
-  return h('div', { className: `rh-topbar ${css.bar}` },
-    h('div', { className: 'rh-topbar-locate' },
-      // 定位到当前会话需求目录按钮
-      h('button', {
-        className: 'rh-rail-btn',
-        type: 'button',
-        onClick: onLocateSessionReq,
-        title: t("TopBar.message003"),
-        'aria-label': t("TopBar.message004"),
-      },
+  return h(
+    'div',
+    { className: `rh-topbar ${css.bar}` },
+    h(
+      'div',
+      { className: 'rh-topbar-locate' },
+
+      h(
+        'button',
+        {
+          className: 'rh-rail-btn',
+          type: 'button',
+          onClick: onLocateSessionReq,
+          title: t('TopBar.message003'),
+          'aria-label': t('TopBar.message004'),
+        },
         h('span', null, h(IconTarget, { size: 18 })),
-        h('span', { className: 'rh-rail-label' }, t("TopBar.message005"))
-      )
+        h('span', { className: 'rh-rail-label' }, t('TopBar.message005')),
+      ),
     ),
-    h('div', { className: `rh-topbar-left ${css.fields}` },
-      // 工作区
-      field(t("TopBar.message006"), currentWorkspace?.title || currentWorkspace?.id || t("TopBar.message010"), onChangeWorkspace, !!currentWorkspace),
+    h(
+      'div',
+      { className: `rh-topbar-left ${css.fields}` },
 
-      // 项目路径
-      field(t("TopBar.message011"), docsDir, () => setShowPathModal(true), true),
+      field(
+        t('TopBar.message006'),
+        currentWorkspace?.title || currentWorkspace?.id || t('TopBar.message010'),
+        onChangeWorkspace,
+        !!currentWorkspace,
+      ),
 
-      // 需求目录
-      field(t("TopBar.message014"), currentReq ? [currentReq.date?.slice(5), currentReq.title || currentReq.id].filter(Boolean).join(' ') : t("TopBar.message010"), onChangeReq, !!currentReq, css.requirement, currentReq?.path || currentReq?.id || t("TopBar.message010")),
+      field(t('TopBar.message011'), docsDir, () => setShowPathModal(true), true),
 
-      // 在文件资源管理器中打开按钮
-      currentReq && h(Button, {
-        className: 'rh-btn rh-btn-sm rh-btn-icon rh-open-directory',
-        onClick: handleOpenInExplorer,
-        title: t("TopBar.message016"),
-        'aria-label': t("TopBar.message017"),
-      }, h(IconFolderExternal, { size: 16 }))
+      field(
+        t('TopBar.message014'),
+        currentReq
+          ? [currentReq.date?.slice(5), currentReq.title || currentReq.id].filter(Boolean).join(' ')
+          : t('TopBar.message010'),
+        onChangeReq,
+        !!currentReq,
+        css.requirement,
+        currentReq?.path || currentReq?.id || t('TopBar.message010'),
+      ),
+
+      currentReq &&
+        h(
+          Button,
+          {
+            className: 'rh-btn rh-btn-sm rh-btn-icon rh-open-directory',
+            onClick: handleOpenInExplorer,
+            title: t('TopBar.message016'),
+            'aria-label': t('TopBar.message017'),
+          },
+          h(IconFolderExternal, { size: 16 }),
+        ),
     ),
 
-    // 项目路径输入弹框
-    showPathModal && h(InputModal, {
-      title: t("TopBar.message018"),
-      value: docsDir,
-      placeholder: t("TopBar.message019"),
-      onConfirm: handlePathConfirm,
-      onCancel: () => setShowPathModal(false),
-    })
+    showPathModal &&
+      h(InputModal, {
+        title: t('TopBar.message018'),
+        value: docsDir,
+        placeholder: t('TopBar.message019'),
+        onConfirm: handlePathConfirm,
+        onCancel: () => setShowPathModal(false),
+      }),
   );
 }
 

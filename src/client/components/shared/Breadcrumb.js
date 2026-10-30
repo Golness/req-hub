@@ -15,41 +15,72 @@ const h = React.createElement;
  * @returns {JSX.Element|null} The breadcrumb navigation element, or null if no items are provided.
  */
 function Breadcrumb({ items, onNavigate }) {
-  if (!items || items.length === 0) return null;
+  if (!items || items.length === 0) {
+    return null;
+  }
 
-  // 构建扁平元素列表（避免嵌套数组导致的 React key 警告）
+  // Keep children flat so each breadcrumb and separator owns a stable React key.
   const elements = [];
   items.forEach((item, i) => {
-    // 分隔符（第一项之前不显示）
     if (i > 0) {
-      elements.push(h('span', {
-        key: `sep-${i}`,
-        className: 'rh-breadcrumb-sep',
-        'aria-hidden': 'true',
-      }, ' / '));
+      elements.push(
+        h(
+          'span',
+          {
+            key: `sep-${i}`,
+            className: 'rh-breadcrumb-sep',
+            'aria-hidden': 'true',
+          },
+          ' / ',
+        ),
+      );
     }
-    // 链接或当前项
+
     if (i < items.length - 1) {
-      elements.push(h(Tooltip, { key: `link-${i}`, label: item.label, className: css.item }, h(Button, {
-        key: `link-${i}`,
-        className: `rh-btn rh-btn-ghost rh-btn-sm rh-breadcrumb-link ${css.link}`,
-        onClick: () => onNavigate ? onNavigate(item) : (item.onClick && item.onClick()),
-        'aria-label': t("Breadcrumb.message001", { value0: item.label }),
-      }, h('span', { className: css.text }, item.label))));
+      elements.push(
+        h(
+          Tooltip,
+          { key: `link-${i}`, label: item.label, className: css.item },
+          h(
+            Button,
+            {
+              key: `link-${i}`,
+              className: `rh-btn rh-btn-ghost rh-btn-sm rh-breadcrumb-link ${css.link}`,
+              onClick: () => (onNavigate ? onNavigate(item) : item.onClick && item.onClick()),
+              'aria-label': t('Breadcrumb.message001', { value0: item.label }),
+            },
+            h('span', { className: css.text }, item.label),
+          ),
+        ),
+      );
     } else {
-      elements.push(h(Tooltip, { key: `current-${i}`, label: item.label, className: `${css.item} ${css.current}` }, h('span', {
-        key: `current-${i}`,
-        className: `rh-breadcrumb-current ${css.text}`,
-        'aria-current': 'page',
-        tabIndex: 0,
-      }, item.label)));
+      elements.push(
+        h(
+          Tooltip,
+          { key: `current-${i}`, label: item.label, className: `${css.item} ${css.current}` },
+          h(
+            'span',
+            {
+              key: `current-${i}`,
+              className: `rh-breadcrumb-current ${css.text}`,
+              'aria-current': 'page',
+              tabIndex: 0,
+            },
+            item.label,
+          ),
+        ),
+      );
     }
   });
 
-  return h('nav', {
-    className: `rh-breadcrumb ${css.nav}`,
-    'aria-label': t("Breadcrumb.message002"),
-  }, ...elements);
+  return h(
+    'nav',
+    {
+      className: `rh-breadcrumb ${css.nav}`,
+      'aria-label': t('Breadcrumb.message002'),
+    },
+    ...elements,
+  );
 }
 
 module.exports = { Breadcrumb };

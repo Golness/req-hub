@@ -12,7 +12,8 @@
  * @returns {string} The Mermaid theme name: 'dark' if dark mode is active, 'default' otherwise.
  */
 function getMermaidTheme() {
-  const isDarkMode = document.documentElement.classList.contains('dark') ||
+  const isDarkMode =
+    document.documentElement.classList.contains('dark') ||
     window.matchMedia('(prefers-color-scheme: dark)').matches;
   return isDarkMode ? 'dark' : 'default';
 }

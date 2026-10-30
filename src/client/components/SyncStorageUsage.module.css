@@ -1,1 +1,10 @@
-.row { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 0; color:var(--dsw-alias-label-secondary); font-size:12px; line-height:18px; }
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}

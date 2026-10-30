@@ -19,15 +19,27 @@ const h = React.createElement;
  * @returns {JSX.Element} A modal dialog with confirm and cancel buttons
  */
 function ConfirmModal({ title, message, onConfirm, onCancel }) {
-  return h(ModalFrame, { className: 'rh-modal-overlay', onClick: onCancel, role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
-    h('div', { className: 'rh-modal', onClick: e => e.stopPropagation() },
+  return h(
+    ModalFrame,
+    {
+      className: 'rh-modal-overlay',
+      onClick: onCancel,
+      role: 'dialog',
+      'aria-modal': 'true',
+      'aria-label': title,
+    },
+    h(
+      'div',
+      { className: 'rh-modal', onClick: (e) => e.stopPropagation() },
       h('div', { className: 'rh-modal-title', id: 'confirm-modal-title' }, title),
       h('div', { className: css.spacing }, message),
-      h('div', { className: 'rh-modal-actions' },
-        h(Button, { className: 'rh-btn', onClick: onCancel }, t("common.no")),
-        h(Button, { className: 'rh-btn rh-btn-primary', onClick: onConfirm }, t("common.yes"))
-      )
-    )
+      h(
+        'div',
+        { className: 'rh-modal-actions' },
+        h(Button, { className: 'rh-btn', onClick: onCancel }, t('common.no')),
+        h(Button, { className: 'rh-btn rh-btn-primary', onClick: onConfirm }, t('common.yes')),
+      ),
+    ),
   );
 }
 

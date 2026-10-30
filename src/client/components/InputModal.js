@@ -16,7 +16,7 @@ const { useState, useEffect } = React;
  * @param {Object} props - Component props
  * @param {string} props.title - The title displayed in the modal header and used as aria-label
  * @param {string} [props.value=''] - The initial value for the input field
- * @param {string} [props.placeholder='请输入...'] - Placeholder text for the input field
+ * @param {string} [props.placeholder] - Placeholder text for the input field
  * @param {Function} props.onConfirm - Callback invoked with the trimmed input value when confirmed
  * @param {Function} props.onCancel - Callback invoked when the modal is cancelled
  * @returns {JSX.Element} A modal dialog with a text input and confirm/cancel buttons
@@ -32,29 +32,48 @@ function InputModal({ title, value, placeholder, onConfirm, onCancel }) {
     onConfirm(inputValue.trim());
   };
 
-  return h(ModalFrame, { className: 'rh-modal-overlay', onClick: onCancel, role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
-    h('div', { className: 'rh-modal', onClick: e => e.stopPropagation() },
+  return h(
+    ModalFrame,
+    {
+      className: 'rh-modal-overlay',
+      onClick: onCancel,
+      role: 'dialog',
+      'aria-modal': 'true',
+      'aria-label': title,
+    },
+    h(
+      'div',
+      { className: 'rh-modal', onClick: (e) => e.stopPropagation() },
       h('div', { className: 'rh-modal-title' }, title),
-      h('div', { className: css.spacing },
+      h(
+        'div',
+        { className: css.spacing },
         h(Input, {
           type: 'text',
           value: inputValue,
-          onChange: e => setInputValue(e.target.value),
-          onKeyDown: e => {
-            if (e.key === 'Enter' && !e.nativeEvent?.isComposing) handleConfirm();
-
+          onChange: (e) => setInputValue(e.target.value),
+          onKeyDown: (e) => {
+            if (e.key === 'Enter' && !e.nativeEvent?.isComposing) {
+              handleConfirm();
+            }
           },
-          placeholder: placeholder || t("InputModal.message001"),
+          placeholder: placeholder || t('InputModal.message001'),
           'aria-label': title,
           'data-modal-autofocus': true,
-          className: css.size
-        })
+          className: css.size,
+        }),
       ),
-      h('div', { className: 'rh-modal-actions' },
-        h(Button, { className: 'rh-btn', onClick: onCancel }, t("common.cancel")),
-        h(Button, { className: 'rh-btn rh-btn-primary', onClick: handleConfirm }, t("common.confirm"))
-      )
-    )
+      h(
+        'div',
+        { className: 'rh-modal-actions' },
+        h(Button, { className: 'rh-btn', onClick: onCancel }, t('common.cancel')),
+        h(
+          Button,
+          { className: 'rh-btn rh-btn-primary', onClick: handleConfirm },
+          t('common.confirm'),
+        ),
+      ),
+    ),
   );
 }
 

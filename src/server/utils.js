@@ -13,7 +13,6 @@ const MAX_DEPTH = 10;
 /** @type {number} Maximum HTTP request body size (1MB) */
 const MAX_BODY_SIZE = 1024 * 1024;
 
-
 /**
  * @typedef {Object} BranchInfo
  * @property {string|null} developer - Developer name extracted from branch
@@ -32,16 +31,16 @@ const MAX_BODY_SIZE = 1024 * 1024;
  * @returns {BranchInfo|null} Parsed info or null if no match
  */
 export function parseBranchName(branch) {
-  if (!branch) return null;
+  if (!branch) {
+    return null;
+  }
 
-  // 格式 1 & 2: feature/{developer}[/-]{YYYY-MM-DD}-{title}
   const match1 = branch.match(/^(?:feature\/)?([^/-]+)[/-](\d{4}-\d{2}-\d{2})-(.+)$/);
   if (match1) {
     const [, developer, date, title] = match1;
     return { developer, date, title, requirementId: `${date}-${title}` };
   }
 
-  // 格式 3: {YYYY-MM-DD}-{title}  (无开发者前缀)
   const match2 = branch.match(/^(\d{4}-\d{2}-\d{2})-(.+)$/);
   if (match2) {
     const [, date, title] = match2;
@@ -50,7 +49,6 @@ export function parseBranchName(branch) {
 
   return null;
 }
-
 
 /**
  * Check if a child path is safely inside a parent path.
@@ -63,12 +61,10 @@ export function isInside(parent, child) {
   const resolvedParent = resolve(parent);
   const resolvedChild = resolve(child);
 
-  const normalizedParent = process.platform === 'win32'
-    ? resolvedParent.toLowerCase()
-    : resolvedParent;
-  const normalizedChild = process.platform === 'win32'
-    ? resolvedChild.toLowerCase()
-    : resolvedChild;
+  const normalizedParent =
+    process.platform === 'win32' ? resolvedParent.toLowerCase() : resolvedParent;
+  const normalizedChild =
+    process.platform === 'win32' ? resolvedChild.toLowerCase() : resolvedChild;
 
   const rel = relative(normalizedParent, normalizedChild);
   return rel && !rel.startsWith('..') && !isAbsolute(rel);
@@ -97,7 +93,9 @@ export async function walkDocs(root, ext, maxDepth = MAX_DEPTH) {
 
   while (stack.length) {
     const { dir, depth } = stack.pop();
-    if (depth > maxDepth) continue;
+    if (depth > maxDepth) {
+      continue;
+    }
 
     let realDir;
     try {
@@ -106,7 +104,9 @@ export async function walkDocs(root, ext, maxDepth = MAX_DEPTH) {
       continue;
     }
 
-    if (visited.has(realDir)) continue;
+    if (visited.has(realDir)) {
+      continue;
+    }
     visited.add(realDir);
 
     let entries;
@@ -122,7 +122,9 @@ export async function walkDocs(root, ext, maxDepth = MAX_DEPTH) {
       if (entry.isDirectory()) {
         stack.push({ dir: full, depth: depth + 1 });
       } else if (entry.isFile() && entry.name.toLowerCase().endsWith(ext)) {
-        if (!isInside(root, full)) continue;
+        if (!isInside(root, full)) {
+          continue;
+        }
 
         const info = await stat(full).catch(() => null);
         results.push({
@@ -167,7 +169,7 @@ export function readBody(req, maxSize = MAX_BODY_SIZE) {
   return new Promise((resolve, reject) => {
     let body = '';
     let size = 0;
-    req.on('data', chunk => {
+    req.on('data', (chunk) => {
       size += chunk.length;
       if (size > maxSize) {
         reject(new Error('body too large'));

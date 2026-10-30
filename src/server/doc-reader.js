@@ -14,7 +14,9 @@ export async function findRequirementDir(docsRoot, requirementId) {
   try {
     const developers = await readdir(docsRoot, { withFileTypes: true });
     for (const dev of developers) {
-      if (!dev.isDirectory() || dev.name.startsWith('.')) continue;
+      if (!dev.isDirectory() || dev.name.startsWith('.')) {
+        continue;
+      }
       const devPath = join(docsRoot, dev.name);
       const reqs = await readdir(devPath, { withFileTypes: true });
       for (const req of reqs) {

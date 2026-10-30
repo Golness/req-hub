@@ -29,8 +29,8 @@ function SettingsPanel({ workspaceId, onClose }) {
     ai: {
       selectedModel: '',
       prompts: {},
-      skillBindings: {}
-    }
+      skillBindings: {},
+    },
   });
   const [llmConfig, setLlmConfig] = useState(null);
   const [promptRegistry, setPromptRegistry] = useState(null);
@@ -39,13 +39,15 @@ function SettingsPanel({ workspaceId, onClose }) {
   const [promptError, setPromptError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
-  const [previewingSkill, setPreviewingSkill] = useState(null); // 预览中的 skill 名称
+  const [previewingSkill, setPreviewingSkill] = useState(null);
 
   const loadPromptRegistry = async () => {
     setPromptError(false);
     try {
       const response = await fetch(`${ROUTE}/prompt-registry`);
-      if (!response.ok) throw new Error('load failed');
+      if (!response.ok) {
+        throw new Error('load failed');
+      }
       setPromptRegistry(await response.json());
     } catch {
       setPromptError(true);
@@ -62,16 +64,32 @@ function SettingsPanel({ workspaceId, onClose }) {
           const nextSettings = {
             ai: {
               selectedModel: data.ai?.selectedModel || '',
-              prompts: { ...Object.fromEntries(Object.entries(data.ai?.prompts || {}).filter(([key]) => !key.startsWith('phased-'))), ...data.ai?.syncV2?.prompts },
-              skillBindings: { ...Object.fromEntries(Object.entries(data.ai?.skillBindings || {}).filter(([key]) => !key.startsWith('phased-'))), ...data.ai?.syncV2?.skillBindings }
-            }
+              prompts: {
+                ...Object.fromEntries(
+                  Object.entries(data.ai?.prompts || {}).filter(
+                    ([key]) => !key.startsWith('phased-'),
+                  ),
+                ),
+                ...data.ai?.syncV2?.prompts,
+              },
+              skillBindings: {
+                ...Object.fromEntries(
+                  Object.entries(data.ai?.skillBindings || {}).filter(
+                    ([key]) => !key.startsWith('phased-'),
+                  ),
+                ),
+                ...data.ai?.syncV2?.skillBindings,
+              },
+            },
           };
           setSettings(nextSettings);
           setSavedSettings(JSON.stringify(nextSettings));
         } else {
-          setMessage({ type: 'error', text: t("SettingsPanel.message002") });
+          setMessage({ type: 'error', text: t('SettingsPanel.message002') });
         }
-      } catch (err) { setMessage({ type: 'error', text: t("SettingsPanel.message002") }); }
+      } catch (err) {
+        setMessage({ type: 'error', text: t('SettingsPanel.message002') });
+      }
 
       try {
         const llmRes = await fetch(`${ROUTE}/llm-config`);
@@ -80,13 +98,14 @@ function SettingsPanel({ workspaceId, onClose }) {
         } else {
           setLlmConfig({ error: `HTTP ${llmRes.status}` });
         }
-      } catch (err) { setLlmConfig({ error: err.message }); }
+      } catch (err) {
+        setLlmConfig({ error: err.message });
+      }
 
       await loadPromptRegistry();
 
       // Fetch available skills
       try {
-        // 尝试从 DSH 上下文获取当前会话 ID
         let sessionId = null;
         try {
           const ctx = window.__DSH_CTX__;
@@ -100,10 +119,9 @@ function SettingsPanel({ workspaceId, onClose }) {
             }
           }
         } catch (e) {
-          // 忽略错误
+          // A missing live session falls back to the workspace-scoped skill list.
         }
 
-        // 构建 URL：优先使用 sessionId，如果没有则使用 workspaceId
         let skillsUrl;
         if (sessionId) {
           skillsUrl = `${ROUTE}/skills?sessionId=${encodeURIComponent(sessionId)}`;
@@ -125,20 +143,29 @@ function SettingsPanel({ workspaceId, onClose }) {
         } else {
           console.error('Skills API error:', skillsRes.status);
         }
-      } catch (err) { console.error('Failed to fetch skills:', err); }
+      } catch (err) {
+        console.error('Failed to fetch skills:', err);
+      }
     };
     fetchAll();
   }, [workspaceId]);
 
   // Auto-select first model if none selected
   useEffect(() => {
-    if (llmConfig && !llmConfig.error && llmConfig.models?.length > 0 && !settings.ai.selectedModel) {
-      setSettings(prev => ({ ...prev, ai: { ...prev.ai, selectedModel: llmConfig.models[0] } }));
+    if (
+      llmConfig &&
+      !llmConfig.error &&
+      llmConfig.models?.length > 0 &&
+      !settings.ai.selectedModel
+    ) {
+      setSettings((prev) => ({ ...prev, ai: { ...prev.ai, selectedModel: llmConfig.models[0] } }));
     }
   }, [llmConfig, settings.ai.selectedModel]);
 
   const handleSave = async () => {
-    if (saving || savedSettings === null) return;
+    if (saving || savedSettings === null) {
+      return;
+    }
     const snapshot = JSON.stringify(settings);
     setSaving(true);
     setMessage(null);
@@ -146,52 +173,69 @@ function SettingsPanel({ workspaceId, onClose }) {
       const res = await fetch(`${ROUTE}/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ai: { selectedModel: settings.ai.selectedModel,
-          prompts: Object.fromEntries(Object.entries(settings.ai.prompts).filter(([key]) => !key.startsWith('phased-'))),
-          skillBindings: Object.fromEntries(Object.entries(settings.ai.skillBindings).filter(([key]) => !key.startsWith('phased-'))),
-          syncV2: { contractVersion: 2,
-            prompts: Object.fromEntries(Object.entries(settings.ai.prompts).filter(([key]) => key.startsWith('phased-'))),
-            skillBindings: Object.fromEntries(Object.entries(settings.ai.skillBindings).filter(([key]) => key.startsWith('phased-'))) }
-        } })
+        body: JSON.stringify({
+          ai: {
+            selectedModel: settings.ai.selectedModel,
+            prompts: Object.fromEntries(
+              Object.entries(settings.ai.prompts).filter(([key]) => !key.startsWith('phased-')),
+            ),
+            skillBindings: Object.fromEntries(
+              Object.entries(settings.ai.skillBindings).filter(
+                ([key]) => !key.startsWith('phased-'),
+              ),
+            ),
+            syncV2: {
+              contractVersion: 2,
+              prompts: Object.fromEntries(
+                Object.entries(settings.ai.prompts).filter(([key]) => key.startsWith('phased-')),
+              ),
+              skillBindings: Object.fromEntries(
+                Object.entries(settings.ai.skillBindings).filter(([key]) =>
+                  key.startsWith('phased-'),
+                ),
+              ),
+            },
+          },
+        }),
       });
       if (res.ok) {
         setSavedSettings(snapshot);
-        setMessage({ type: 'success', text: t("SettingsPanel.message003") });
+        setMessage({ type: 'success', text: t('SettingsPanel.message003') });
       } else {
-        setMessage({ type: 'error', text: t("FilePreview.message002") });
+        setMessage({ type: 'error', text: t('FilePreview.message002') });
       }
     } catch (err) {
-      setMessage({ type: 'error', text: t("SettingsPanel.message004") + err.message });
+      setMessage({ type: 'error', text: t('SettingsPanel.message004') + err.message });
     } finally {
       setSaving(false);
     }
   };
 
   const handlePromptChange = (key, value) => {
-    setSettings(prev => ({
+    setSettings((prev) => ({
       ...prev,
       ai: {
         ...prev.ai,
-        prompts: { ...prev.ai.prompts, [key]: value }
-      }
+        prompts: { ...prev.ai.prompts, [key]: value },
+      },
     }));
   };
 
   const handleSkillBindingChange = (promptKey, skillName) => {
-    setSettings(prev => ({
+    setSettings((prev) => ({
       ...prev,
       ai: {
         ...prev.ai,
         skillBindings: {
           ...prev.ai.skillBindings,
-          [promptKey]: skillName || null
-        }
-      }
+          [promptKey]: skillName || null,
+        },
+      },
     }));
   };
 
   const handleResetPrompt = (key) => {
-    setSettings(prev => {
+    setSettings((prev) => {
       const newPrompts = { ...prev.ai.prompts };
       // The config API merges prompt keys, so send an explicit empty override.
       newPrompts[key] = '';
@@ -202,8 +246,8 @@ function SettingsPanel({ workspaceId, onClose }) {
         ai: {
           ...prev.ai,
           prompts: newPrompts,
-          skillBindings: newSkillBindings
-        }
+          skillBindings: newSkillBindings,
+        },
       };
     });
   };
@@ -218,48 +262,118 @@ function SettingsPanel({ workspaceId, onClose }) {
 
   const dirty = savedSettings !== null && JSON.stringify(settings) !== savedSettings;
 
-  return h(React.Fragment, null,
-    previewingSkill && h(SkillPreview, {
-      skillName: previewingSkill, workspaceId, onBack: handleBackFromPreview,
-    }),
-    h('div', { className: 'rh-op-panel rh-settings-panel', hidden: !!previewingSkill },
-      h('div', { className: 'rh-settings-model' },
-        h('label', { htmlFor: 'rh-settings-model', className: 'rh-form-label' }, t("SettingsPanel.message005")),
-        llmConfig?.error
-          ? h('span', { className: 'rh-error', role: 'alert' }, t("SettingsPanel.message006"))
-          : !llmConfig
-            ? h('span', { className: 'rh-prompt-description' }, t("common.loadingEllipsis"))
-            : h(React.Fragment, null,
-                h(Select, {
-                  id: 'rh-settings-model', className: 'rh-form-select',
-                  value: settings.ai.selectedModel, disabled: savedSettings === null,
-                  onChange: event => setSettings(prev => ({ ...prev, ai: { ...prev.ai, selectedModel: event.target.value } })),
-                },
-                  !llmConfig.models?.length && h('option', { value: '' }, t("SettingsPanel.message007")),
-                  settings.ai.selectedModel && !llmConfig.models?.includes(settings.ai.selectedModel) && h('option', { value: settings.ai.selectedModel }, settings.ai.selectedModel),
-                  (llmConfig.models || []).map(model => h('option', { key: model, value: model }, model))
-                ),
-                h('span', { className: 'rh-settings-provider', title: t("common.provider") }, llmConfig.provider)
-              )
+  const renderModelStatus = () => {
+    if (llmConfig?.error) {
+      return h('span', { className: 'rh-error', role: 'alert' }, t('SettingsPanel.message006'));
+    } else if (!llmConfig) {
+      return h('span', { className: 'rh-prompt-description' }, t('common.loadingEllipsis'));
+    } else {
+      return h(
+        React.Fragment,
+        null,
+        h(
+          Select,
+          {
+            id: 'rh-settings-model',
+            className: 'rh-form-select',
+            value: settings.ai.selectedModel,
+            disabled: savedSettings === null,
+            onChange: (event) =>
+              setSettings((prev) => ({
+                ...prev,
+                ai: { ...prev.ai, selectedModel: event.target.value },
+              })),
+          },
+          !llmConfig.models?.length && h('option', { value: '' }, t('SettingsPanel.message007')),
+          settings.ai.selectedModel &&
+            !llmConfig.models?.includes(settings.ai.selectedModel) &&
+            h('option', { value: settings.ai.selectedModel }, settings.ai.selectedModel),
+          (llmConfig.models || []).map((model) => h('option', { key: model, value: model }, model)),
+        ),
+        h(
+          'span',
+          { className: 'rh-settings-provider', title: t('common.provider') },
+          llmConfig.provider,
+        ),
+      );
+    }
+  };
+  let saveStatusMessage;
+  if (saving) {
+    saveStatusMessage = t('SettingsPanel.message008');
+  } else if (message?.type === 'error') {
+    saveStatusMessage = message.text;
+  } else if (dirty) {
+    saveStatusMessage = t('SettingsPanel.message009');
+  } else {
+    saveStatusMessage = message?.text || '';
+  }
+  return h(
+    React.Fragment,
+    null,
+    previewingSkill &&
+      h(SkillPreview, {
+        skillName: previewingSkill,
+        workspaceId,
+        onBack: handleBackFromPreview,
+      }),
+    h(
+      'div',
+      { className: 'rh-op-panel rh-settings-panel', hidden: !!previewingSkill },
+      h(
+        'div',
+        { className: 'rh-settings-model' },
+        h(
+          'label',
+          { htmlFor: 'rh-settings-model', className: 'rh-form-label' },
+          t('SettingsPanel.message005'),
+        ),
+        renderModelStatus(),
       ),
-      h(EnhancementSettings, { key: 'enhancement-'+workspaceId, workspaceId }),
-      h(WikiSettings, { key: 'wiki-'+workspaceId, workspaceId }),
+      h(EnhancementSettings, { key: 'enhancement-' + workspaceId, workspaceId }),
+      h(WikiSettings, { key: 'wiki-' + workspaceId, workspaceId }),
       h(PromptManager, {
         key: workspaceId,
-        registry: promptRegistry, error: promptError, onRetry: loadPromptRegistry,
-        prompts: settings.ai.prompts, skillBindings: settings.ai.skillBindings,
-        skills: availableSkills, disabled: savedSettings === null,
-        onChange: handlePromptChange, onBindSkill: handleSkillBindingChange,
-        onReset: handleResetPrompt, onPreviewSkill: handlePreviewSkill,
+        registry: promptRegistry,
+        error: promptError,
+        onRetry: loadPromptRegistry,
+        prompts: settings.ai.prompts,
+        skillBindings: settings.ai.skillBindings,
+        skills: availableSkills,
+        disabled: savedSettings === null,
+        onChange: handlePromptChange,
+        onBindSkill: handleSkillBindingChange,
+        onReset: handleResetPrompt,
+        onPreviewSkill: handlePreviewSkill,
       }),
-      h('div', { className: 'rh-op-actions rh-settings-actions' },
-        h('span', { className: message?.type === 'error' ? 'rh-error' : 'rh-prompt-description', role: 'status' },
-          saving ? t("SettingsPanel.message008") : message?.type === 'error' ? message.text : dirty ? t("SettingsPanel.message009") : message?.text || ''
+      h(
+        'div',
+        { className: 'rh-op-actions rh-settings-actions' },
+        h(
+          'span',
+          {
+            className: message?.type === 'error' ? 'rh-error' : 'rh-prompt-description',
+            role: 'status',
+          },
+          saveStatusMessage,
         ),
-        h(Button, { type: 'button', className: 'rh-btn rh-btn-secondary', onClick: onClose }, t("common.close")),
-        h(Button, { type: 'button', className: 'rh-btn rh-btn-primary', onClick: handleSave, disabled: saving || !dirty }, saving ? t("SettingsPanel.message008") : t("common.save"))
-      )
-    )
+        h(
+          Button,
+          { type: 'button', className: 'rh-btn rh-btn-secondary', onClick: onClose },
+          t('common.close'),
+        ),
+        h(
+          Button,
+          {
+            type: 'button',
+            className: 'rh-btn rh-btn-primary',
+            onClick: handleSave,
+            disabled: saving || !dirty,
+          },
+          saving ? t('SettingsPanel.message008') : t('common.save'),
+        ),
+      ),
+    ),
   );
 }
 

@@ -13,15 +13,20 @@ const h = React.createElement;
  * @returns {JSX.Element} The skeleton loading element.
  */
 function Skeleton({ lines = 3, height = '1em' }) {
-  return h('div', { className: 'rh-skeleton', 'aria-busy': 'true' },
+  return h(
+    'div',
+    { className: 'rh-skeleton', 'aria-busy': 'true' },
     Array.from({ length: lines }).map((_, i) =>
       h('div', {
         key: i,
-        className: ('rh-skeleton-line') + ' ' + css.size,
-        style: { "--rh-width-0": cssValue(i === lines - 1 ? '60%' : '100%'), "--rh-height-1": cssValue(height) },
+        className: 'rh-skeleton-line' + ' ' + css.size,
+        style: {
+          '--rh-width-0': cssValue(i === lines - 1 ? '60%' : '100%'),
+          '--rh-height-1': cssValue(height),
+        },
         'aria-hidden': 'true',
-      })
-    )
+      }),
+    ),
   );
 }
 

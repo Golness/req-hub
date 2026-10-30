@@ -5,7 +5,14 @@
  */
 
 import { loadConfig, saveConfig, autoDefaultConfig } from '../config.js';
-import { PROMPT_REGISTRY, getPrompt, getAllPromptMetas, getPromptMeta, validatePromptTemplate, defaultSkillBindings } from '../prompts.js';
+import {
+  PROMPT_REGISTRY,
+  getPrompt,
+  getAllPromptMetas,
+  getPromptMeta,
+  validatePromptTemplate,
+  defaultSkillBindings,
+} from '../prompts.js';
 import { json, readBody } from '../utils.js';
 import { log } from '../logger.js';
 
@@ -17,7 +24,7 @@ import { log } from '../logger.js';
  */
 export function createConfigRoutes(registry, llm) {
   return [
-    // GET+POST /config - 获取/更新配置（合并为单路由，避免同路径重复注册）
+    // GET and POST share one registration because the router matches paths before methods.
     {
       kind: 'exact',
       path: '/req-hub/config',
@@ -26,12 +33,14 @@ export function createConfigRoutes(registry, llm) {
           try {
             let config = await loadConfig();
             config = await autoDefaultConfig(config, registry);
-            config = await defaultSkillBindings(config, undefined, { cwd: registry.list().find(item => item.id === config.workspaceId)?.path });
-            
+            config = await defaultSkillBindings(config, undefined, {
+              cwd: registry.list().find((item) => item.id === config.workspaceId)?.path,
+            });
+
             res.writeHead(200, {
               'Content-Type': 'application/json',
               'Cache-Control': 'no-store, no-cache, must-revalidate',
-              'Pragma': 'no-cache'
+              Pragma: 'no-cache',
             });
             res.end(JSON.stringify(config));
           } catch (e) {
@@ -46,7 +55,7 @@ export function createConfigRoutes(registry, llm) {
             const body = await readBody(req);
             const newConfig = JSON.parse(body);
             const existing = await loadConfig();
-            
+
             // Deep merge for ai object
             const merged = {
               ...existing,
@@ -56,9 +65,9 @@ export function createConfigRoutes(registry, llm) {
                 ...newConfig.ai,
                 prompts: {
                   ...existing.ai?.prompts,
-                  ...newConfig.ai?.prompts
-                }
-              }
+                  ...newConfig.ai?.prompts,
+                },
+              },
             };
 
             await saveConfig(merged);
@@ -73,10 +82,9 @@ export function createConfigRoutes(registry, llm) {
 
         res.writeHead(405);
         res.end();
-      }
+      },
     },
 
-    // GET /llm-config - 获取 LLM 配置
     {
       kind: 'exact',
       path: '/req-hub/llm-config',
@@ -102,7 +110,7 @@ export function createConfigRoutes(registry, llm) {
           try {
             const modelList = await llm.listModels(providerId);
             if (Array.isArray(modelList)) {
-              models = modelList.map(m => m.id || m.name || m);
+              models = modelList.map((m) => m.id || m.name || m);
             }
           } catch (e) {
             log.config.warn(`获取模型列表失败: ${e.message}`);
@@ -111,16 +119,15 @@ export function createConfigRoutes(registry, llm) {
           json(res, {
             provider: providerName,
             providerId: providerId,
-            models: models
+            models: models,
           });
         } catch (e) {
           log.config.error(`获取 LLM 配置失败: ${e.message}`);
           json(res, { error: e.message }, 500);
         }
-      }
+      },
     },
 
-    // GET /ai-config - 获取 AI 配置（LLM 服务信息）
     {
       kind: 'exact',
       path: '/req-hub/ai-config',
@@ -134,11 +141,11 @@ export function createConfigRoutes(registry, llm) {
         try {
           const config = await loadConfig();
           const ai = config.ai || {};
-          
+
           // Get real provider/model info from DSH global config
           let providerName = '(未配置)';
           let selectedModel = ai.selectedModel || null;
-          
+
           if (llm) {
             try {
               const providers = await llm.listProviders();
@@ -146,23 +153,29 @@ export function createConfigRoutes(registry, llm) {
                 const firstProvider = providers[0];
                 providerName = firstProvider.name || firstProvider.id || firstProvider;
               }
-            } catch { /* ignore */ }
+            } catch (error) {
+              // Provider metadata is optional; leave the provider name unset when inspection fails.
+            }
           }
 
           json(res, {
             enabled: ai.enabled !== false,
             provider: providerName,
             model: selectedModel || '(未选择)',
-            hasCustomPrompt: Object.keys(PROMPT_REGISTRY).some(key => !!(key.startsWith('phased-') ? ai.syncV2?.prompts?.[key] : ai.prompts?.[key])?.trim()),
+            hasCustomPrompt: Object.keys(PROMPT_REGISTRY).some(
+              (key) =>
+                !!(
+                  key.startsWith('phased-') ? ai.syncV2?.prompts?.[key] : ai.prompts?.[key]
+                )?.trim(),
+            ),
           });
         } catch (e) {
           log.config.error(`GET /ai-config 失败: ${e.message}`);
           json(res, { error: e.message }, 500);
         }
-      }
+      },
     },
 
-    // GET /prompt-registry - 获取 Prompt 注册表
     {
       kind: 'exact',
       path: '/req-hub/prompt-registry',
@@ -176,7 +189,7 @@ export function createConfigRoutes(registry, llm) {
         try {
           const config = await loadConfig();
           const result = {};
-          
+
           for (const [key, meta] of Object.entries(PROMPT_REGISTRY)) {
             result[key] = {
               label: meta.label,
@@ -188,19 +201,20 @@ export function createConfigRoutes(registry, llm) {
               default: meta.default,
               current: getPrompt(config, key),
               contractVersion: meta.contractVersion || 1,
-              isCustom: !!((meta.contractVersion === 2 ? config.ai?.syncV2 : config.ai)?.prompts?.[key]?.trim())
+              isCustom: !!(meta.contractVersion === 2 ? config.ai?.syncV2 : config.ai)?.prompts?.[
+                key
+              ]?.trim(),
             };
           }
-          
+
           json(res, result);
         } catch (e) {
           log.config.error(`获取 Prompt 注册表失败: ${e.message}`);
           json(res, { error: e.message }, 500);
         }
-      }
+      },
     },
 
-    // POST /prompt-validate - 验证自定义 prompt 模板
     {
       kind: 'exact',
       path: '/req-hub/prompt-validate',
@@ -212,16 +226,18 @@ export function createConfigRoutes(registry, llm) {
         }
 
         let body = '';
-        req.on('data', chunk => { body += chunk; });
+        req.on('data', (chunk) => {
+          body += chunk;
+        });
         req.on('end', async () => {
           try {
             const { promptKey, template } = JSON.parse(body);
-            
+
             if (!promptKey || !template) {
               json(res, { error: '缺少 promptKey 或 template' }, 400);
               return;
             }
-            
+
             const result = validatePromptTemplate(promptKey, template);
             json(res, result);
           } catch (e) {
@@ -229,10 +245,9 @@ export function createConfigRoutes(registry, llm) {
             json(res, { error: e.message }, 500);
           }
         });
-      }
+      },
     },
 
-    // GET /prompt-meta/:key - 获取单个 prompt 的元信息
     {
       kind: 'exact',
       path: '/req-hub/prompt-meta',
@@ -262,7 +277,7 @@ export function createConfigRoutes(registry, llm) {
           log.config.error(`获取 prompt 元信息失败: ${e.message}`);
           json(res, { error: e.message }, 500);
         }
-      }
+      },
     },
   ];
 }

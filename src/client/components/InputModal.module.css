@@ -1,3 +1,7 @@
 /* Component presentation; runtime geometry uses local CSS variables. */
-.spacing { margin-bottom: 12px; }
-.size { width: 100%; }
+.spacing {
+  margin-bottom: 12px;
+}
+.size {
+  width: 100%;
+}

@@ -3,19 +3,36 @@
 const zh = require('./locales/zh.js');
 const NAMESPACE = 'reqHub';
 let translate;
-/** @param {keyof typeof zh} key @param {Record<string, unknown>} [params] */
+/**
+ * @param {keyof typeof zh} key @param {Record<string, unknown>} [params]
+ * @returns Localized text with parameter interpolation.
+ */
 function t(key, params) {
   const resolved = translate?.(key, params);
-  if (resolved !== undefined && resolved !== key) return resolved;
+  if (resolved !== undefined && resolved !== key) {
+    return resolved;
+  }
   // This plugin currently ships Chinese copy. Retain it when the host selects
   // a locale for which no plugin dictionary has been installed.
   const text = zh[key];
-  if (text === undefined) throw new Error(`Unknown ReqHub locale key: ${key}`);
-  return text.replace(/\{(\w+)\}/g, (match, name) => params && Object.hasOwn(params, name) ? String(params[name]) : match);
+  if (text === undefined) {
+    throw new Error(`Unknown ReqHub locale key: ${key}`);
+  }
+  return text.replace(/\{(\w+)\}/g, (match, name) =>
+    params && Object.hasOwn(params, name) ? String(params[name]) : match,
+  );
 }
+/**
+ * Register the plugin dictionary for the lifetime of its owning effect.
+ * @param ctx - The injected Client context with locale support.
+ * @returns A disposer that clears the binding and unregisters the dictionary.
+ */
 function installLocale(ctx) {
   const dispose = ctx.locale.register(NAMESPACE, { zh });
   translate = ctx.locale.bind(NAMESPACE);
-  return () => { translate = undefined; dispose(); };
+  return () => {
+    translate = undefined;
+    dispose();
+  };
 }
 module.exports = { t, installLocale, NAMESPACE };

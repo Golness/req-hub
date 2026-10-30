@@ -4,6 +4,12 @@ const { t } = require('../locale.js');
 let diagramId = 0;
 
 // Keep source text in ProseMirror's contentDOM so diagrams round-trip to Markdown.
+/**
+ * Create source-preserving code-block views with disposable diagram previews.
+ * @param getMermaid - Callback reading the currently loaded Mermaid renderer.
+ * @param renderers - The owned diagram-render queue.
+ * @returns A ProseMirror node-view factory.
+ */
 function createMarkdownCodeBlockView(getMermaid, renderers) {
   return (initialNode) => {
     let node = initialNode;
@@ -15,9 +21,13 @@ function createMarkdownCodeBlockView(getMermaid, renderers) {
     const pre = document.createElement('pre');
     pre.dataset.language = language;
     const code = document.createElement('code');
-    if (language) code.className = `language-${language}`;
+    if (language) {
+      code.className = `language-${language}`;
+    }
     pre.appendChild(code);
-    if (!isDiagram) return { dom: pre, contentDOM: code };
+    if (!isDiagram) {
+      return { dom: pre, contentDOM: code };
+    }
 
     const dom = document.createElement('div');
     dom.className = 'rh-editable-mermaid';
@@ -27,7 +37,7 @@ function createMarkdownCodeBlockView(getMermaid, renderers) {
     const source = document.createElement('details');
     const summary = document.createElement('summary');
     summary.contentEditable = 'false';
-    summary.textContent = t("MarkdownCodeBlockView.message001");
+    summary.textContent = t('MarkdownCodeBlockView.message001');
     source.append(summary, pre);
     dom.append(preview, source);
 
@@ -35,16 +45,23 @@ function createMarkdownCodeBlockView(getMermaid, renderers) {
       const currentRevision = ++revision;
       const mermaid = getMermaid();
       if (!mermaid) {
-        preview.textContent = t("MarkdownCodeBlockView.message002");
+        preview.textContent = t('MarkdownCodeBlockView.message002');
         return;
       }
       try {
-        const { svg } = await mermaid.render(`rh-editable-mermaid-${++diagramId}`, node.textContent);
-        if (destroyed || currentRevision !== revision) return;
+        const { svg } = await mermaid.render(
+          `rh-editable-mermaid-${++diagramId}`,
+          node.textContent,
+        );
+        if (destroyed || currentRevision !== revision) {
+          return;
+        }
         preview.innerHTML = svg;
       } catch {
-        if (destroyed || currentRevision !== revision) return;
-        preview.textContent = t("MarkdownCodeBlockView.message003");
+        if (destroyed || currentRevision !== revision) {
+          return;
+        }
+        preview.textContent = t('MarkdownCodeBlockView.message003');
         source.open = true;
       }
     };
@@ -55,7 +72,9 @@ function createMarkdownCodeBlockView(getMermaid, renderers) {
       dom,
       contentDOM: code,
       update(nextNode) {
-        if (nextNode.type !== node.type || nextNode.attrs.language !== node.attrs.language) return false;
+        if (nextNode.type !== node.type || nextNode.attrs.language !== node.attrs.language) {
+          return false;
+        }
         const changed = nextNode.textContent !== node.textContent;
         node = nextNode;
         if (changed) {
@@ -70,7 +89,9 @@ function createMarkdownCodeBlockView(getMermaid, renderers) {
         return summary.contains(event.target) || preview.contains(event.target);
       },
       ignoreMutation(mutation) {
-        if (mutation.type === 'selection') return false;
+        if (mutation.type === 'selection') {
+          return false;
+        }
         return !code.contains(mutation.target) && mutation.target !== code;
       },
       destroy() {

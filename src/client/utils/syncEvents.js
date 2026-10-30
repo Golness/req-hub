@@ -3,16 +3,30 @@ const { t } = require('../locale.js');
 
 // Parse transport data separately from business events: server errors must never
 // be swallowed by a JSON parsing catch, including the last unterminated line.
+/**
+ * Read complete SSE events across chunk boundaries and cancel the reader on exit.
+ * @param body - Optional request payload; absence selects a read operation.
+ * @param onEvent - Callback receiving one complete event.
+ * @returns Completion after event consumption and reader cleanup.
+ */
 async function readSyncEvents(body, onEvent) {
-  if (!body) throw new Error(t("syncEvents.message001"));
-  const reader = body.getReader(), decoder = new TextDecoder();
+  if (!body) {
+    throw new Error(t('syncEvents.message001'));
+  }
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
   let buffer = '';
-  const line = async text => {
+  const line = async (text) => {
     text = text.replace(/\r$/, '');
-    if (!text.startsWith('data:')) return;
+    if (!text.startsWith('data:')) {
+      return;
+    }
     let event;
-    try { event = JSON.parse(text.slice(5).trimStart()); }
-    catch { throw new Error(t("syncEvents.message002")); }
+    try {
+      event = JSON.parse(text.slice(5).trimStart());
+    } catch {
+      throw new Error(t('syncEvents.message002'));
+    }
     await onEvent(event);
   };
   try {
@@ -20,13 +34,25 @@ async function readSyncEvents(body, onEvent) {
       const { done, value } = await reader.read();
       buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
       let index;
-      while ((index = buffer.indexOf('\n')) >= 0) { const text = buffer.slice(0, index); buffer = buffer.slice(index + 1); await line(text); }
-      if (done) break;
+      while ((index = buffer.indexOf('\n')) >= 0) {
+        const text = buffer.slice(0, index);
+        buffer = buffer.slice(index + 1);
+        await line(text);
+      }
+      if (done) {
+        break;
+      }
     }
-    if (buffer.trim()) await line(buffer);
+    if (buffer.trim()) {
+      await line(buffer);
+    }
   } catch (error) {
-    await reader.cancel().catch(() => {});
+    await reader.cancel().catch((error) => {
+      // The stream may already be closed or aborted when reader cancellation runs.
+    });
     throw error;
-  } finally { reader.releaseLock(); }
+  } finally {
+    reader.releaseLock();
+  }
 }
 module.exports = { readSyncEvents };

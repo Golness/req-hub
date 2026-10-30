@@ -35,7 +35,20 @@ export const name = 'req-hub';
  * Declared service dependencies — Cordis resolves load order from this list.
  * @type {string[]}
  */
-export const inject = ['workspaceRegistry', 'connection', 'webServer', 'llm', 'sessions', 'skills', 'agents', 'agentPresets', 'sessionQuery', 'subagents', 'sessionProjections', 'tools'];
+export const inject = [
+  'workspaceRegistry',
+  'connection',
+  'webServer',
+  'llm',
+  'sessions',
+  'skills',
+  'agents',
+  'agentPresets',
+  'sessionQuery',
+  'subagents',
+  'sessionProjections',
+  'tools',
+];
 
 /**
  * Apply plugin effects to the DSH context.
@@ -63,13 +76,23 @@ export function apply(ctx, config = {}) {
   const releaseConfig = configureStorage(config, {
     filePath: profile?.dir ? join(profile.dir, 'req-hub', 'config.json') : undefined,
   });
-  const { workspaceRegistry, webServer, llm, sessions, skills, agents, agentPresets, sessionQuery, subagents, sessionProjections } = ctx;
+  const {
+    workspaceRegistry,
+    webServer,
+    llm,
+    sessions,
+    skills,
+    agents,
+    agentPresets,
+    sessionQuery,
+    subagents,
+    sessionProjections,
+  } = ctx;
 
-  // 设置 skills 服务到 prompts 模块
   setSkillsService(skills);
 
   log.startup.info('ReqHub 插件启动 (模块化架构 - Subagent 统一委托)');
-  log.startup.debug('可用服务', { 
+  log.startup.debug('可用服务', {
     hasSessions: !!sessions,
     hasSkills: !!skills,
     hasLlm: !!llm,
@@ -77,7 +100,7 @@ export function apply(ctx, config = {}) {
     hasAgentPresets: !!agentPresets,
     hasSessionQuery: !!sessionQuery,
     hasSubagents: !!subagents,
-    hasSessionProjections: !!sessionProjections
+    hasSessionProjections: !!sessionProjections,
   });
 
   const disposers = [releaseConfig];
@@ -85,8 +108,20 @@ export function apply(ctx, config = {}) {
   const wiki = createWikiRoutes(knowledge.service, ctx);
   wiki.service.database();
   knowledge.service.wiki = wiki.service;
-  wiki.service.track(wiki.service.resume().catch(error => { log.startup.warn('WIKI_RESUME_FAILED: ' + error.message); }));
-  disposers.push(ctx.on('agent/created', () => wiki.service.track(wiki.service.resume().catch(error => { log.startup.warn('WIKI_RESUME_FAILED: ' + error.message); }))));
+  wiki.service.track(
+    wiki.service.resume().catch((error) => {
+      log.startup.warn('WIKI_RESUME_FAILED: ' + error.message);
+    }),
+  );
+  disposers.push(
+    ctx.on('agent/created', () =>
+      wiki.service.track(
+        wiki.service.resume().catch((error) => {
+          log.startup.warn('WIKI_RESUME_FAILED: ' + error.message);
+        }),
+      ),
+    ),
+  );
   disposers.push(() => wiki.dispose());
   const enhancements = createEnhancementRoutes(knowledge.service, ctx);
   disposers.push(() => enhancements.dispose());
@@ -96,29 +131,28 @@ export function apply(ctx, config = {}) {
   disposers.push(() => writing.dispose());
   disposers.push(() => knowledge.dispose());
   const syncTools = installSyncTools(ctx);
-  if (syncTools) disposers.push(() => syncTools.dispose());
+  if (syncTools) {
+    disposers.push(() => syncTools.dispose());
+  }
 
-  const syncRoutes = createSyncRoutes(workspaceRegistry, llm, sessions, agents, ctx, { knowledgeService: knowledge.service });
+  const syncRoutes = createSyncRoutes(workspaceRegistry, llm, sessions, agents, ctx, {
+    knowledgeService: knowledge.service,
+  });
 
-  // 创建所有路由
   const routes = [
     ...wiki.routes,
     ...enhancements.routes,
     ...knowledge.routes,
-    // 配置相关
+
     ...createConfigRoutes(workspaceRegistry, llm),
-    
-    // 文档树相关
+
     ...createTreeRoutes(workspaceRegistry, { knowledgeService: knowledge.service }),
     ...creation.routes,
-    
-    // 文档同步相关（传入 agents 和 ctx 用于 subagent）
+
     ...syncRoutes,
-    
-    // 写作与知识库优化
+
     ...writing.routes,
-    
-    // 日志相关
+
     {
       kind: 'exact',
       path: '/req-hub/logs',
@@ -129,7 +163,7 @@ export function apply(ctx, config = {}) {
           return;
         }
         json(res, { logs: getLogs() });
-      }
+      },
     },
     {
       kind: 'exact',
@@ -143,9 +177,9 @@ export function apply(ctx, config = {}) {
         clearLogs();
         log.startup.info('日志已清空');
         json(res, { success: true });
-      }
+      },
     },
-    // 日志元数据接口
+
     {
       kind: 'exact',
       path: '/req-hub/logs/meta',
@@ -157,11 +191,11 @@ export function apply(ctx, config = {}) {
         }
         json(res, {
           levels: getLogLevels(),
-          tags: getLogTags()
+          tags: getLogTags(),
         });
-      }
+      },
     },
-    // 诊断：查找会话及其 subagent 活跃度
+
     {
       kind: 'exact',
       path: '/req-hub/diagnose-subagent',
@@ -186,18 +220,18 @@ export function apply(ctx, config = {}) {
         }
 
         try {
-          // 1. 搜索匹配的会话
           const searchResult = await sessionQuery.searchSessions({ query: titleQuery });
           const hits = searchResult?.items || [];
 
-          // 找到标题匹配的会话
           const matchedSessions = [];
           for (const hit of hits) {
             let title = '';
             try {
               const titleObs = await sessionQuery.readTitle(hit.header.id);
               title = titleObs?.title || '';
-            } catch { /* ignore */ }
+            } catch (error) {
+              // An unreadable title cannot match this optional diagnostic query.
+            }
 
             if (title.includes(titleQuery)) {
               matchedSessions.push({
@@ -214,11 +248,9 @@ export function apply(ctx, config = {}) {
             return;
           }
 
-          // 取最近的一个会话
           matchedSessions.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
           const targetSession = matchedSessions[0];
 
-          // 2. 获取该会话的 subagent 列表
           let descendants = [];
           try {
             descendants = await subagents.listDescendants(targetSession.id);
@@ -226,12 +258,12 @@ export function apply(ctx, config = {}) {
             descendants = [];
           }
 
-          // 3. 获取每个 subagent 的详细信息
           const subagentDetails = [];
           for (const desc of descendants) {
-            if (desc.kind !== 'child') continue;
+            if (desc.kind !== 'child') {
+              continue;
+            }
 
-            // 获取 subagent 的最新事件
             let lastEventTime = null;
             let lastEventType = null;
             let hasActiveTurn = false;
@@ -243,7 +275,6 @@ export function apply(ctx, config = {}) {
               eventCount = events.length;
 
               if (events.length > 0) {
-                // 检查是否有未完成的 turn
                 let foundStart = false;
                 for (let i = events.length - 1; i >= 0; i--) {
                   const e = events[i];
@@ -256,14 +287,14 @@ export function apply(ctx, config = {}) {
                 }
                 hasActiveTurn = foundStart;
 
-                // 找最新事件
                 const latest = events[events.length - 1];
                 lastEventTime = latest.time || null;
                 lastEventType = latest.type || null;
               }
-            } catch { /* ignore */ }
+            } catch (error) {
+              // Keep diagnostic fields unset when the session events cannot be read.
+            }
 
-            // 判断是否活跃
             const agent = agents.get(desc.id);
             const agentStatus = agent?.status || 'unknown';
             const isActive = hasActiveTurn || agentStatus === 'running';
@@ -282,7 +313,6 @@ export function apply(ctx, config = {}) {
             });
           }
 
-          // 按深度排序，取最新的（最深的）
           subagentDetails.sort((a, b) => (b.depth || 0) - (a.depth || 0));
 
           json(res, {
@@ -294,9 +324,9 @@ export function apply(ctx, config = {}) {
         } catch (e) {
           json(res, { error: e.message }, 500);
         }
-      }
+      },
     },
-    // Skills 列表接口
+
     {
       kind: 'exact',
       path: '/req-hub/skills',
@@ -318,49 +348,40 @@ export function apply(ctx, config = {}) {
 
         let scopeLease;
         try {
-          // 获取 cwd（用于工作区相关的技能）
           let cwd = undefined;
           if (workspaceId) {
             const workspaces = workspaceRegistry.list();
-            const workspace = workspaces.find(w => w.id === workspaceId);
+            const workspace = workspaces.find((w) => w.id === workspaceId);
             if (workspace) {
               cwd = workspace.path;
             }
           }
 
-          // 默认使用全局 skills 服务
           let skillRegistry = skills;
           let scope = undefined;
-          
-          // 如果有 sessionId，参考 SessionSkillCatalog 的逻辑获取技能
+
           if (sessionId && sessionQuery && agents && agentPresets) {
             try {
-              // 1. 获取会话信息
               const observation = await sessionQuery.observeSession(sessionId);
               if (observation?.projections) {
-                // 从会话获取 cwd
                 if (!cwd) {
                   cwd = observation.header.cwd;
                 }
-                
-                // 从会话获取 agentPreset
+
                 const agentPreset = observation.projections.values.agentPreset ?? undefined;
-                
-                // 2. 尝试从活跃 agent 获取 scoped skills
+
                 const live = agents.get(sessionId);
                 let scoped = live ? agentPresets.serviceFor(live, 'skills') : undefined;
-                
-                // 3. 如果没有活跃 agent，尝试从 preset 获取 scope
+
                 if (!scoped && agentPreset) {
                   try {
-                    const lease = scopeLease = await agentPresets.acquireScope(agentPreset);
+                    const lease = (scopeLease = await agentPresets.acquireScope(agentPreset));
                     if (lease) {
                       scope = lease.key;
-                      // 注意：lease 需要在使用后释放，但我们这里直接返回结果，
-                      // 所以在异步操作完成后会自动释放
+                      // Release the acquired preset scope in the surrounding finally block.
                     }
                   } catch (e) {
-                    // preset 不可用，回退到全局
+                    // Use the global skill catalog when a preset scope is unavailable.
                   }
                 } else if (scoped) {
                   skillRegistry = scoped;
@@ -371,41 +392,46 @@ export function apply(ctx, config = {}) {
               log.startup.warn(`Failed to get session skills: ${e.message}`);
             }
           }
-          
-          log.startup.debug(`Fetching skills list`, { cwd, sessionId, scoped: skillRegistry !== skills });
-          
-          const skillsList = await skillRegistry.list(cwd ? { cwd, scope } : { scope });
-          
-          // 过滤出 user-invocable 的技能
-          const userSkills = skillsList.filter(s => s.invocation.userInvocable);
-          
-          log.startup.debug(`Skills list result`, { 
-            count: userSkills.length
+
+          log.startup.debug(`Fetching skills list`, {
+            cwd,
+            sessionId,
+            scoped: skillRegistry !== skills,
           });
-          
-          json(res, { 
-            skills: userSkills.map(s => ({
+
+          const skillsList = await skillRegistry.list(cwd ? { cwd, scope } : { scope });
+
+          const userSkills = skillsList.filter((s) => s.invocation.userInvocable);
+
+          log.startup.debug(`Skills list result`, {
+            count: userSkills.length,
+          });
+
+          json(res, {
+            skills: userSkills.map((s) => ({
               name: s.name,
               description: s.description,
               whenToUse: s.whenToUse,
               source: s.source,
               modelInvocable: s.invocation.modelInvocable,
-              userInvocable: s.invocation.userInvocable
+              userInvocable: s.invocation.userInvocable,
             })),
             debug: {
               cwd,
               workspaceId,
               sessionId,
-              scoped: skillRegistry !== skills
-            }
+              scoped: skillRegistry !== skills,
+            },
           });
         } catch (e) {
           log.startup.error(`获取 skills 失败: ${e.message}`, { stack: e.stack });
           json(res, { skills: [], error: e.message }, 500);
-        } finally { await scopeLease?.[Symbol.asyncDispose](); }
-      }
+        } finally {
+          await scopeLease?.[Symbol.asyncDispose]();
+        }
+      },
     },
-    // Skill 内容接口
+
     {
       kind: 'exact',
       path: '/req-hub/skill-content',
@@ -433,21 +459,18 @@ export function apply(ctx, config = {}) {
 
         let scopeLease;
         try {
-          // 获取 cwd
           let cwd = undefined;
           if (workspaceId) {
             const workspaces = workspaceRegistry.list();
-            const workspace = workspaces.find(w => w.id === workspaceId);
+            const workspace = workspaces.find((w) => w.id === workspaceId);
             if (workspace) {
               cwd = workspace.path;
             }
           }
 
-          // 默认使用全局 skills 服务
           let skillRegistry = skills;
           let scope = undefined;
-          
-          // 如果有 sessionId，使用与 skills 列表相同的逻辑
+
           if (sessionId && sessionQuery && agents && agentPresets) {
             try {
               const observation = await sessionQuery.observeSession(sessionId);
@@ -455,20 +478,20 @@ export function apply(ctx, config = {}) {
                 if (!cwd) {
                   cwd = observation.header.cwd;
                 }
-                
+
                 const agentPreset = observation.projections.values.agentPreset ?? undefined;
-                
+
                 const live = agents.get(sessionId);
                 let scoped = live ? agentPresets.serviceFor(live, 'skills') : undefined;
-                
+
                 if (!scoped && agentPreset) {
                   try {
-                    const lease = scopeLease = await agentPresets.acquireScope(agentPreset);
+                    const lease = (scopeLease = await agentPresets.acquireScope(agentPreset));
                     if (lease) {
                       scope = lease.key;
                     }
                   } catch (e) {
-                    // preset 不可用，回退到全局
+                    // Use the global skill catalog when a preset scope is unavailable.
                   }
                 } else if (scoped) {
                   skillRegistry = scoped;
@@ -486,28 +509,34 @@ export function apply(ctx, config = {}) {
             return;
           }
 
-          json(res, { 
+          json(res, {
             name: skill.name,
             description: skill.description,
             content: skill.content,
-            provider: skill.provider
+            provider: skill.provider,
           });
         } catch (e) {
           log.startup.error(`获取 skill 内容失败: ${e.message}`);
           json(res, { error: e.message }, 500);
-        } finally { await scopeLease?.[Symbol.asyncDispose](); }
-      }
-    }
+        } finally {
+          await scopeLease?.[Symbol.asyncDispose]();
+        }
+      },
+    },
   ];
 
   const operations = createOperations(routes);
   disposers.push(installOperationTool(ctx, operations));
 
   let closing;
-  const cleanup = () => closing ||= disposeAll([
-    () => syncRoutes.dispose(),
-    ...disposers.slice(1), releaseConfig,
-  ]).then(() => { log.startup.info('ReqHub 插件卸载'); });
+  const cleanup = () =>
+    (closing ||= disposeAll([
+      () => syncRoutes.dispose(),
+      ...disposers.slice(1),
+      releaseConfig,
+    ]).then(() => {
+      log.startup.info('ReqHub 插件卸载');
+    }));
   // Cordis owns effects; returning a function from apply alone is insufficient.
   ctx.effect(() => cleanup, 'req-hub: lifecycle');
   for (const route of operations.routes) {

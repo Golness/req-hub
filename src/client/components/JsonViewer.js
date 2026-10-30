@@ -21,7 +21,7 @@ function JsonViewer({ data, initialExpandLevel = 2 }) {
   const [expandedPaths, setExpandedPaths] = useState(new Set());
 
   const togglePath = useCallback((path) => {
-    setExpandedPaths(prev => {
+    setExpandedPaths((prev) => {
       const next = new Set(prev);
       if (next.has(path)) {
         next.delete(path);
@@ -57,24 +57,41 @@ function JsonViewer({ data, initialExpandLevel = 2 }) {
       }
 
       const expanded = isExpanded(path);
-      return h('div', null,
-        h('button', {
-          type: 'button', className: 'rh-json-toggle',
-          'aria-label': expanded ? t("JsonViewer.message001") : t("JsonViewer.message002"), 'aria-expanded': expanded,
-          onClick: () => togglePath(path)
-        }, h(IconChevronRight, { size: 12, className: css.indicator, style: { "--rh-transform-0": cssValue(expanded ? 'rotate(90deg)' : 'none') } })),
-        h('span', { className: 'rh-json-punctuation' }, ` Array(${value.length}) [`),
-        expanded && h('div', { className: css.spacing, style: { "--rh-margin-left-0": cssValue(indent * 20) } },
-          value.map((item, index) =>
-            h('div', { key: `${path}-${index}` },
-              h('span', { className: 'rh-json-muted' }, ' '.repeat(indent * 2)),
-              renderValue(item, `${path}-${index}`, indent + 1),
-              index < value.length - 1 && h('span', { className: 'rh-json-punctuation' }, ',')
-            )
-          )
+      return h(
+        'div',
+        null,
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'rh-json-toggle',
+            'aria-label': expanded ? t('JsonViewer.message001') : t('JsonViewer.message002'),
+            'aria-expanded': expanded,
+            onClick: () => togglePath(path),
+          },
+          h(IconChevronRight, {
+            size: 12,
+            className: css.indicator,
+            style: { '--rh-transform-0': cssValue(expanded ? 'rotate(90deg)' : 'none') },
+          }),
         ),
+        h('span', { className: 'rh-json-punctuation' }, ` Array(${value.length}) [`),
+        expanded &&
+          h(
+            'div',
+            { className: css.spacing, style: { '--rh-margin-left-0': cssValue(indent * 20) } },
+            value.map((item, index) =>
+              h(
+                'div',
+                { key: `${path}-${index}` },
+                h('span', { className: 'rh-json-muted' }, ' '.repeat(indent * 2)),
+                renderValue(item, `${path}-${index}`, indent + 1),
+                index < value.length - 1 && h('span', { className: 'rh-json-punctuation' }, ','),
+              ),
+            ),
+          ),
         expanded && h('span', { className: 'rh-json-punctuation' }, ']'),
-        !expanded && h('span', { className: 'rh-json-muted' }, '...]')
+        !expanded && h('span', { className: 'rh-json-muted' }, '...]'),
       );
     }
 
@@ -85,35 +102,56 @@ function JsonViewer({ data, initialExpandLevel = 2 }) {
       }
 
       const expanded = isExpanded(path);
-      return h('div', null,
-        h('button', {
-          type: 'button', className: 'rh-json-toggle',
-          'aria-label': expanded ? t("JsonViewer.message001") : t("JsonViewer.message002"), 'aria-expanded': expanded,
-          onClick: () => togglePath(path)
-        }, h(IconChevronRight, { size: 12, className: css.indicator, style: { "--rh-transform-0": cssValue(expanded ? 'rotate(90deg)' : 'none') } })),
-        h('span', { className: 'rh-json-punctuation' }, ` Object {`),
-        expanded && h('div', { className: css.spacing, style: { "--rh-margin-left-0": cssValue(indent * 20) } },
-          keys.map((key, index) =>
-            h('div', { key: `${path}-${key}` },
-              h('span', { className: 'rh-json-muted' }, ' '.repeat(indent * 2)),
-              h('span', { className: 'rh-json-key' }, `"${key}"`),
-              h('span', { className: 'rh-json-punctuation' }, ': '),
-              renderValue(value[key], `${path}-${key}`, indent + 1),
-              index < keys.length - 1 && h('span', { className: 'rh-json-punctuation' }, ',')
-            )
-          )
+      return h(
+        'div',
+        null,
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'rh-json-toggle',
+            'aria-label': expanded ? t('JsonViewer.message001') : t('JsonViewer.message002'),
+            'aria-expanded': expanded,
+            onClick: () => togglePath(path),
+          },
+          h(IconChevronRight, {
+            size: 12,
+            className: css.indicator,
+            style: { '--rh-transform-0': cssValue(expanded ? 'rotate(90deg)' : 'none') },
+          }),
         ),
+        h('span', { className: 'rh-json-punctuation' }, ` Object {`),
+        expanded &&
+          h(
+            'div',
+            { className: css.spacing, style: { '--rh-margin-left-0': cssValue(indent * 20) } },
+            keys.map((key, index) =>
+              h(
+                'div',
+                { key: `${path}-${key}` },
+                h('span', { className: 'rh-json-muted' }, ' '.repeat(indent * 2)),
+                h('span', { className: 'rh-json-key' }, `"${key}"`),
+                h('span', { className: 'rh-json-punctuation' }, ': '),
+                renderValue(value[key], `${path}-${key}`, indent + 1),
+                index < keys.length - 1 && h('span', { className: 'rh-json-punctuation' }, ','),
+              ),
+            ),
+          ),
         expanded && h('span', { className: 'rh-json-punctuation' }, '}'),
-        !expanded && h('span', { className: 'rh-json-muted' }, '...}')
+        !expanded && h('span', { className: 'rh-json-muted' }, '...}'),
       );
     }
 
     return h('span', null, String(value));
   };
 
-  return h('div', {
-    className: ('rh-json-viewer') + ' ' + css.pane
-  }, renderValue(data, 'root', 0));
+  return h(
+    'div',
+    {
+      className: 'rh-json-viewer' + ' ' + css.pane,
+    },
+    renderValue(data, 'root', 0),
+  );
 }
 
 module.exports = { JsonViewer };

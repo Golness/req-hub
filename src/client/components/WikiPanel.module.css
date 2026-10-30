@@ -1,13 +1,73 @@
-.panel { display: flex; flex-direction: column; gap: 12px; padding: 16px; min-width: 0; overflow: auto; font-size: 13px; line-height: 20px; color: var(--dsw-alias-label-primary); }
-.toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.input { display: flex; width: 100%; }
-.editor { box-sizing: border-box; width: 100%; min-height: 160px; resize: vertical; padding: 10px; border: .5px solid var(--dsw-alias-border-l3); border-radius: var(--dsw-radius-md); background: var(--dsw-alias-bg-layer-1); color: inherit; font: inherit; }
-.editor:focus-visible { outline: 1px solid var(--dsw-alias-state-business-primary); }
-.card { padding: 12px; border: .5px solid var(--dsw-alias-border-l3); border-radius: var(--dsw-radius-md); overflow-wrap: anywhere; }
-.card h3 { margin: 0 0 8px; font-size: 14px; line-height: 22px; font-weight: 500; }
-.body { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 8px 0; }
-.muted { color: var(--dsw-alias-label-secondary); }
-.error { color: var(--dsw-alias-state-error-primary); }
-.list { display: flex; flex-direction: column; gap: 8px; }
-.field { display: flex; flex-direction: column; gap: 6px; }
-.select { width: 100%; }
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  min-width: 0;
+  overflow: auto;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.input {
+  display: flex;
+  width: 100%;
+}
+.editor {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 160px;
+  resize: vertical;
+  padding: 10px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  color: inherit;
+  font: inherit;
+}
+.editor:focus-visible {
+  outline: 1px solid var(--dsw-alias-state-business-primary);
+}
+.card {
+  padding: 12px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-md);
+  overflow-wrap: anywhere;
+}
+.card h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+}
+.body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  margin: 8px 0;
+}
+.muted {
+  color: var(--dsw-alias-label-secondary);
+}
+.error {
+  color: var(--dsw-alias-state-error-primary);
+}
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.select {
+  width: 100%;
+}

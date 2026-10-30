@@ -26,14 +26,26 @@ function useScript(src, id, globalName) {
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    if (window[globalName]) { setLoaded(true); return; }
+    if (window[globalName]) {
+      setLoaded(true);
+      return;
+    }
     let script = document.getElementById(id);
     if (script) {
       const checkInterval = setInterval(() => {
-        if (window[globalName]) { clearInterval(checkInterval); setLoaded(true); }
+        if (window[globalName]) {
+          clearInterval(checkInterval);
+          setLoaded(true);
+        }
       }, 100);
-      const timeout = setTimeout(() => { clearInterval(checkInterval); setError(true); }, 5000);
-      return () => { clearInterval(checkInterval); clearTimeout(timeout); };
+      const timeout = setTimeout(() => {
+        clearInterval(checkInterval);
+        setError(true);
+      }, 5000);
+      return () => {
+        clearInterval(checkInterval);
+        clearTimeout(timeout);
+      };
     }
     script = document.createElement('script');
     script.id = id;

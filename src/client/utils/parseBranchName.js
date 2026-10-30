@@ -9,9 +9,9 @@
 /**
  * Parses a git branch name to extract developer, date, and title components.
  * Supports the following branch name formats:
- * - feature/<developer>/<date>-<title> (e.g., feature/lihanping/2026-10-10-包材报价管理)
- * - <developer>/<date>-<title> (e.g., lihanping/2026-10-10-包材报价管理)
- * - <developer>/<title> (e.g., lihanping/包材报价管理)
+ * - feature/<developer>/<date>-<title> (e.g., feature/lihanping/2026-10-10-pricing)
+ * - <developer>/<date>-<title> (e.g., lihanping/2026-10-10-pricing)
+ * - <developer>/<title> (e.g., lihanping/pricing)
  * @param {string} branch - The git branch name to parse.
  * @returns {Object} An object containing the parsed components:
  * @returns {string|null} returns.developer - The developer name extracted from the branch, or null if not found.
@@ -36,9 +36,10 @@ function parseBranchName(branch) {
     if (dateMatch) {
       // Normalize date to YYYY-MM-DD format (insert dashes if needed)
       const rawDate = dateMatch[1];
-      const date = rawDate.length === 8
-        ? `${rawDate.slice(0, 4)}-${rawDate.slice(4, 6)}-${rawDate.slice(6, 8)}`
-        : rawDate;
+      const date =
+        rawDate.length === 8
+          ? `${rawDate.slice(0, 4)}-${rawDate.slice(4, 6)}-${rawDate.slice(6, 8)}`
+          : rawDate;
       const title = dateMatch[2];
       // requirementId format: YYYY-MM-DD-title
       const requirementId = `${date}-${title}`;
@@ -63,9 +64,10 @@ function parseBranchName(branch) {
     if (dateMatch) {
       // Normalize date to YYYY-MM-DD format (insert dashes if needed)
       const rawDate = dateMatch[1];
-      const date = rawDate.length === 8
-        ? `${rawDate.slice(0, 4)}-${rawDate.slice(4, 6)}-${rawDate.slice(6, 8)}`
-        : rawDate;
+      const date =
+        rawDate.length === 8
+          ? `${rawDate.slice(0, 4)}-${rawDate.slice(4, 6)}-${rawDate.slice(6, 8)}`
+          : rawDate;
       const title = dateMatch[2];
       // requirementId format: YYYY-MM-DD-title
       const requirementId = `${date}-${title}`;

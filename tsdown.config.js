@@ -50,15 +50,17 @@ function styleInjectionModule(id, fileId, css, classMap) {
   const source = [
     `const css = ${JSON.stringify(css)};`,
     `const tagId = ${JSON.stringify(`${id}/${basename(fileId)}`)};`,
-    'if (typeof document !== \'undefined\' && document.querySelector(\'style[data-plugin-css=\' + JSON.stringify(tagId) + \']\') === null) {',
-    '  const tag = document.createElement(\'style\');',
+    "if (typeof document !== 'undefined' && document.querySelector('style[data-plugin-css=' + JSON.stringify(tagId) + ']') === null) {",
+    "  const tag = document.createElement('style');",
     `  tag.dataset.plugin = ${JSON.stringify(id)};`,
     '  tag.dataset.pluginCss = tagId;',
     '  tag.textContent = css;',
     '  document.head.appendChild(tag);',
     '}',
   ];
-  source.push(classMap === undefined ? 'export {};' : `export default ${JSON.stringify(classMap)};`);
+  source.push(
+    classMap === undefined ? 'export {};' : `export default ${JSON.stringify(classMap)};`,
+  );
   return source.join('\n');
 }
 
@@ -70,12 +72,16 @@ function cssGlobalInlinePlugin(id) {
   return {
     name: 'dsh-css-global-inline',
     resolveId(source, importer) {
-      if (!source.endsWith('.css') || source.endsWith('.module.css')) return null;
+      if (!source.endsWith('.css') || source.endsWith('.module.css')) {
+        return null;
+      }
       const abs = importer ? resolvePath(dirname(importer), source) : source;
       return GLOBAL_CSS_VIRTUAL_PREFIX + abs + CSS_VIRTUAL_SUFFIX;
     },
     async load(virtualId) {
-      if (!virtualId.startsWith(GLOBAL_CSS_VIRTUAL_PREFIX)) return null;
+      if (!virtualId.startsWith(GLOBAL_CSS_VIRTUAL_PREFIX)) {
+        return null;
+      }
       const fileId = virtualId.slice(GLOBAL_CSS_VIRTUAL_PREFIX.length, -CSS_VIRTUAL_SUFFIX.length);
       this.addWatchFile(fileId);
       const source = await readFile(fileId);
@@ -93,12 +99,16 @@ function cssModulesInlinePlugin(id) {
   return {
     name: 'dsh-css-modules-inline',
     resolveId(source, importer) {
-      if (!source.endsWith('.module.css')) return null;
+      if (!source.endsWith('.module.css')) {
+        return null;
+      }
       const abs = importer ? resolvePath(dirname(importer), source) : source;
       return CSS_VIRTUAL_PREFIX + abs + CSS_VIRTUAL_SUFFIX;
     },
     async load(virtualId) {
-      if (!virtualId.startsWith(CSS_VIRTUAL_PREFIX)) return null;
+      if (!virtualId.startsWith(CSS_VIRTUAL_PREFIX)) {
+        return null;
+      }
       const fileId = virtualId.slice(CSS_VIRTUAL_PREFIX.length, -CSS_VIRTUAL_SUFFIX.length);
       this.addWatchFile(fileId);
       const source = await readFile(fileId);
@@ -109,9 +119,18 @@ function cssModulesInlinePlugin(id) {
         minify: true,
       });
       const classMap = {};
-      const exportEntries = Object.entries(cssExports ?? {})
-        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
-      for (const [local, exp] of exportEntries) classMap[local] = exp.name;
+      const exportEntries = Object.entries(cssExports ?? {}).sort(([left], [right]) => {
+        if (left < right) {
+          return -1;
+        } else if (left > right) {
+          return 1;
+        } else {
+          return 0;
+        }
+      });
+      for (const [local, exp] of exportEntries) {
+        classMap[local] = exp.name;
+      }
       return styleInjectionModule(id, fileId, code.toString(), classMap);
     },
   };
@@ -134,7 +153,9 @@ function asyncChunkRequirePlugin() {
 
     renderChunk(code, chunk, outputOptions) {
       // Only process CJS format
-      if (outputOptions.format !== 'cjs') return null;
+      if (outputOptions.format !== 'cjs') {
+        return null;
+      }
 
       // Use RolldownMagicString for precise replacement (consistent with DSH official)
       const transformed = new Rolldown.RolldownMagicString(code);
@@ -142,9 +163,7 @@ function asyncChunkRequirePlugin() {
       // Iterate all dynamic imports
       for (const dynamicImport of chunk.dynamicImports) {
         // Extract filename (remove ./ prefix)
-        const fileName = dynamicImport.startsWith('./')
-          ? dynamicImport.slice(2)
-          : dynamicImport;
+        const fileName = dynamicImport.startsWith('./') ? dynamicImport.slice(2) : dynamicImport;
 
         // Validate chunk filename against DSH spec
         if (!/^client\.[A-Za-z0-9][A-Za-z0-9._-]*\.js$/.test(fileName)) {
@@ -164,7 +183,9 @@ function asyncChunkRequirePlugin() {
 
         if (matches.length === 0) {
           // DSH throws error, not just warns
-          throw new Error(`client bundle compiler: dynamic chunk ${JSON.stringify(specifier)} has no generated import expression`);
+          throw new Error(
+            `client bundle compiler: dynamic chunk ${JSON.stringify(specifier)} has no generated import expression`,
+          );
         }
 
         // Precise replacement
@@ -184,8 +205,12 @@ function asyncChunkRequirePlugin() {
     // chunk-only rebuilds don't change entry content but need to advance mtime
     // to trigger revision updates.
     async writeBundle(outputOptions, bundle) {
-      const entry = Object.values(bundle).find(output => output.type === 'chunk' && output.isEntry);
-      if (entry === undefined || outputOptions.dir === undefined) return;
+      const entry = Object.values(bundle).find(
+        (output) => output.type === 'chunk' && output.isEntry,
+      );
+      if (entry === undefined || outputOptions.dir === undefined) {
+        return;
+      }
       const entryPath = resolvePath(outputOptions.dir, entry.fileName);
       const current = await stat(entryPath);
       const completedAt = new Date(Math.max(Date.now(), current.mtimeMs + 1));

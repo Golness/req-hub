@@ -6,7 +6,6 @@
  * @module req-hub/client/context
  */
 
-
 const React = require('react');
 
 /**

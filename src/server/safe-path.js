@@ -6,18 +6,45 @@ function inside(root, path) {
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
-/** Reject escapes, including dangling links and junctions, before file operations. */
+/**
+ * Reject escapes, including dangling links and junctions, before file operations.
+ * @param root - Authorized root directory.
+ * @param input - Untrusted relative document path.
+ * @param [options] - Whether a missing target may be resolved through existing ancestors.
+ * @returns The authorized absolute target; unsafe paths reject.
+ */
 export async function safeDocumentPath(root, input, { allowMissing = false } = {}) {
-  if (typeof input !== 'string' || !input || input.includes('\0') || isAbsolute(input) || win32.isAbsolute(input)
-    || input.split(/[\\/]/).includes('..') || input.includes(':')) throw Object.assign(new Error('path outside docs root'), { status: 403 });
-  const base = resolve(root), target = resolve(base, input.replace(/[\\/]/g, '/'));
-  const deny = () => { throw Object.assign(new Error('path outside docs root'), { status: 403 }); };
-  if (!inside(base, target) || base === target) deny();
+  if (
+    typeof input !== 'string' ||
+    !input ||
+    input.includes('\0') ||
+    isAbsolute(input) ||
+    win32.isAbsolute(input) ||
+    input.split(/[\\/]/).includes('..') ||
+    input.includes(':')
+  ) {
+    throw Object.assign(new Error('path outside docs root'), { status: 403 });
+  }
+  const base = resolve(root);
+  const target = resolve(base, input.replace(/[\\/]/g, '/'));
+  const deny = () => {
+    throw Object.assign(new Error('path outside docs root'), { status: 403 });
+  };
+  if (!inside(base, target) || base === target) {
+    deny();
+  }
   let baseAncestor = base;
   let actualBase;
   while (!actualBase) {
-    try { actualBase = resolve(await realpath(baseAncestor), relative(baseAncestor, base)); }
-    catch (error) { if (error.code !== 'ENOENT' || !allowMissing || dirname(baseAncestor) === baseAncestor) throw error; await rejectDangling(baseAncestor); baseAncestor = dirname(baseAncestor); }
+    try {
+      actualBase = resolve(await realpath(baseAncestor), relative(baseAncestor, base));
+    } catch (error) {
+      if (error.code !== 'ENOENT' || !allowMissing || dirname(baseAncestor) === baseAncestor) {
+        throw error;
+      }
+      await rejectDangling(baseAncestor);
+      baseAncestor = dirname(baseAncestor);
+    }
   }
   let ancestor = target;
   while (true) {
@@ -25,11 +52,26 @@ export async function safeDocumentPath(root, input, { allowMissing = false } = {
       // lstat distinguishes missing paths from dangling symlinks.
       await lstat(ancestor);
       const actual = await realpath(ancestor);
-      if (!inside(actualBase, actual) && !(allowMissing && inside(actual, actualBase) && ancestor === baseAncestor)) deny();
+      if (
+        !inside(actualBase, actual) &&
+        !(allowMissing && inside(actual, actualBase) && ancestor === baseAncestor)
+      ) {
+        deny();
+      }
       break;
     } catch (error) {
-      if (error.code !== 'ENOENT' || !allowMissing || ancestor === baseAncestor) throw error;
-      try { if ((await lstat(ancestor)).isSymbolicLink()) deny(); } catch (linkError) { if (linkError.code !== 'ENOENT') throw linkError; }
+      if (error.code !== 'ENOENT' || !allowMissing || ancestor === baseAncestor) {
+        throw error;
+      }
+      try {
+        if ((await lstat(ancestor)).isSymbolicLink()) {
+          deny();
+        }
+      } catch (linkError) {
+        if (linkError.code !== 'ENOENT') {
+          throw linkError;
+        }
+      }
       ancestor = dirname(ancestor);
     }
   }
@@ -37,6 +79,13 @@ export async function safeDocumentPath(root, input, { allowMissing = false } = {
 }
 
 async function rejectDangling(path) {
-  try { if ((await lstat(path)).isSymbolicLink()) throw Object.assign(new Error('path outside docs root'), { status: 403 }); }
-  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  try {
+    if ((await lstat(path)).isSymbolicLink()) {
+      throw Object.assign(new Error('path outside docs root'), { status: 403 });
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      throw error;
+    }
+  }
 }

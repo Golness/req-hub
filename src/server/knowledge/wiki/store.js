@@ -1,10 +1,42 @@
 import { randomUUID, createHash } from 'node:crypto';
-export const digest = value => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex');
+/**
+ * Hash a raw string or JSON-serialized value for version checks.
+ * @param value - The input value to validate or encode.
+ * @returns The SHA-256 hexadecimal digest.
+ */
+export const digest = (value) =>
+  createHash('sha256')
+    .update(typeof value === 'string' ? value : JSON.stringify(value))
+    .digest('hex');
+/**
+ * Create a timestamp for persisted Wiki records.
+ * @returns The current time in ISO 8601 format.
+ */
 export const now = () => new Date().toISOString();
-export function fail(code, status = 400, details = {}) { throw Object.assign(new Error(code), { status, details }); }
-export function bounded(value, bytes) { if (Buffer.byteLength(JSON.stringify(value), 'utf8') > bytes) fail('WIKI_BUDGET_EXCEEDED', 413); return value; }
-const parse = row => row ? JSON.parse(row.payload) : null;
-export const PAGE_TYPES = ['source','entity','concept','overview','comparison','analysis'];
+/**
+ * Throw a stable domain error with structured status and details.
+ * @param code - Stable domain error code.
+ * @param [status] - HTTP status for the domain failure.
+ * @param [details] - Structured diagnostic fields.
+ * @returns Never returns.
+ */
+export function fail(code, status = 400, details = {}) {
+  throw Object.assign(new Error(code), { status, details });
+}
+/**
+ * Reject a value whose complete JSON encoding exceeds the byte budget.
+ * @param value - The input value to validate or encode.
+ * @param bytes - Original bytes to process without normalization.
+ * @returns The original value when it fits.
+ */
+export function bounded(value, bytes) {
+  if (Buffer.byteLength(JSON.stringify(value), 'utf8') > bytes) {
+    fail('WIKI_BUDGET_EXCEEDED', 413);
+  }
+  return value;
+}
+const parse = (row) => (row ? JSON.parse(row.payload) : null);
+export const PAGE_TYPES = ['source', 'entity', 'concept', 'overview', 'comparison', 'analysis'];
 export const DEFAULT_RULES = `# Wiki maintenance rules
 Keep source documents unchanged.
 Read the selected evidence before you generate content.
@@ -30,7 +62,9 @@ export class WikiStore {
       CREATE TABLE IF NOT EXISTS knowledge_wiki_meta (version INTEGER NOT NULL);
       INSERT INTO knowledge_wiki_meta SELECT 1 WHERE NOT EXISTS(SELECT 1 FROM knowledge_wiki_meta);
     `);
-    if (this.db.prepare('SELECT version FROM knowledge_wiki_meta').get().version !== 1) fail('WIKI_FORMAT_UNSUPPORTED', 503);
+    if (this.db.prepare('SELECT version FROM knowledge_wiki_meta').get().version !== 1) {
+      fail('WIKI_FORMAT_UNSUPPORTED', 503);
+    }
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS knowledge_rules(scope_id TEXT NOT NULL REFERENCES scopes(id),version INTEGER NOT NULL,body TEXT NOT NULL,hash TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(scope_id,version));
       CREATE TABLE IF NOT EXISTS knowledge_source_snapshots(id TEXT PRIMARY KEY,scope_id TEXT NOT NULL REFERENCES scopes(id),document_id TEXT NOT NULL,version INTEGER NOT NULL,hash TEXT NOT NULL,payload TEXT NOT NULL,UNIQUE(scope_id,document_id,version,hash));
@@ -59,61 +93,280 @@ export class WikiStore {
         UPDATE knowledge_wiki_pages SET status='stale' WHERE current_revision IN (SELECT ps.revision_id FROM knowledge_page_sources ps JOIN knowledge_source_snapshots s ON s.id=ps.snapshot_id JOIN documents d ON d.id=s.document_id WHERE d.scope_id=new.scope_id AND d.path=new.path);
       END;
     `);
-    for (const row of this.db.prepare("SELECT payload FROM knowledge_jobs WHERE status IN ('queued','running','cancelling')").all()) {
-      const job = parse(row); job.status = 'interrupted'; job.error = { code: 'WIKI_INTERRUPTED', retryable: true }; this.saveJob(job);
+    for (const row of this.db
+      .prepare(
+        "SELECT payload FROM knowledge_jobs WHERE status IN ('queued','running','cancelling')",
+      )
+      .all()) {
+      const job = parse(row);
+      job.status = 'interrupted';
+      job.error = { code: 'WIKI_INTERRUPTED', retryable: true };
+      this.saveJob(job);
     }
-    this.db.prepare("UPDATE knowledge_outbox SET status='interrupted' WHERE status IN ('queued','running')").run();
+    this.db
+      .prepare(
+        "UPDATE knowledge_outbox SET status='interrupted' WHERE status IN ('queued','running')",
+      )
+      .run();
   }
-  transaction(fn) { this.db.exec('BEGIN IMMEDIATE'); try { const value = fn(); this.db.exec('COMMIT'); return value; } catch (error) { this.db.exec('ROLLBACK'); throw error; } }
+  transaction(fn) {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const value = fn();
+      this.db.exec('COMMIT');
+      return value;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
   rules(scope) {
-    let row = this.db.prepare('SELECT * FROM knowledge_rules WHERE scope_id=? ORDER BY version DESC LIMIT 1').get(scope);
-    if (!row) { this.db.prepare('INSERT INTO knowledge_rules VALUES (?,?,?,?,?)').run(scope,1,DEFAULT_RULES,digest(DEFAULT_RULES),now()); row = this.rules(scope); }
+    let row = this.db
+      .prepare('SELECT * FROM knowledge_rules WHERE scope_id=? ORDER BY version DESC LIMIT 1')
+      .get(scope);
+    if (!row) {
+      this.db
+        .prepare('INSERT INTO knowledge_rules VALUES (?,?,?,?,?)')
+        .run(scope, 1, DEFAULT_RULES, digest(DEFAULT_RULES), now());
+      row = this.rules(scope);
+    }
     return row;
   }
-  append(scope, operation, detail = {}) { this.db.prepare('INSERT INTO knowledge_changelog(id,scope_id,operation,payload,created_at) VALUES (?,?,?,?,?)').run(randomUUID(),scope,operation,JSON.stringify(detail),now()); }
-  logs(scope, cursor = 0, limit = 30) { return this.pageRows('SELECT sequence,id,operation,payload,created_at FROM knowledge_changelog WHERE scope_id=? AND sequence>? ORDER BY sequence', [scope,cursor],limit, row => ({ ...row, detail: JSON.parse(row.payload),payload:undefined }), 'sequence'); }
-  pageRows(sql,args,limit,map = row => row,key = 'id') { const rows = this.db.prepare(sql+' LIMIT ?').all(...args,limit+1); return { items: rows.slice(0,limit).map(map),hasMore:rows.length>limit,nextCursor:rows.length>limit?rows[limit-1][key]:null }; }
-  documents(scope,cursor='',limit=30) { return this.pageRows('SELECT id,title,version,path FROM documents WHERE scope_id=? AND id>? ORDER BY id',[scope,cursor],limit); }
-  pages(scope,cursor='',limit=30) { return this.pageRows('SELECT * FROM knowledge_wiki_pages WHERE scope_id=? AND id>? ORDER BY id',[scope,cursor],limit); }
-  page(scope,id,revision) {
-    const page = this.db.prepare('SELECT * FROM knowledge_wiki_pages WHERE scope_id=? AND id=?').get(scope,id); if (!page) fail('WIKI_NOT_FOUND',404);
-    const saved = this.db.prepare('SELECT * FROM knowledge_wiki_revisions WHERE scope_id=? AND page_id=? AND id=?').get(scope,id,revision||page.current_revision);
-    const refs=this.db.prepare('SELECT payload FROM knowledge_wiki_refs WHERE scope_id=? AND (from_page_id=? OR to_page_id=?)').all(scope,id,id).map(parse).map(ref=>{
-      const from=this.db.prepare('SELECT status,current_revision FROM knowledge_wiki_pages WHERE scope_id=? AND id=?').get(scope,ref.fromPageId);
-      const to=this.db.prepare('SELECT status,version FROM knowledge_wiki_pages WHERE scope_id=? AND id=?').get(scope,ref.toPageId);
-      return {...ref,validity:from?.status==='ready'&&to?.status==='ready'&&(!ref.fromRevision||ref.fromRevision===from.current_revision)&&(!ref.toVersion||ref.toVersion===to.version)?'valid':'stale'};
+  append(scope, operation, detail = {}) {
+    this.db
+      .prepare(
+        'INSERT INTO knowledge_changelog(id,scope_id,operation,payload,created_at) VALUES (?,?,?,?,?)',
+      )
+      .run(randomUUID(), scope, operation, JSON.stringify(detail), now());
+  }
+  logs(scope, cursor = 0, limit = 30) {
+    return this.pageRows(
+      'SELECT sequence,id,operation,payload,created_at FROM knowledge_changelog WHERE scope_id=? AND sequence>? ORDER BY sequence',
+      [scope, cursor],
+      limit,
+      (row) => ({ ...row, detail: JSON.parse(row.payload), payload: undefined }),
+      'sequence',
+    );
+  }
+  pageRows(sql, args, limit, map = (row) => row, key = 'id') {
+    const rows = this.db.prepare(sql + ' LIMIT ?').all(...args, limit + 1);
+    return {
+      items: rows.slice(0, limit).map(map),
+      hasMore: rows.length > limit,
+      nextCursor: rows.length > limit ? rows[limit - 1][key] : null,
+    };
+  }
+  documents(scope, cursor = '', limit = 30) {
+    return this.pageRows(
+      'SELECT id,title,version,path FROM documents WHERE scope_id=? AND id>? ORDER BY id',
+      [scope, cursor],
+      limit,
+    );
+  }
+  pages(scope, cursor = '', limit = 30) {
+    return this.pageRows(
+      'SELECT * FROM knowledge_wiki_pages WHERE scope_id=? AND id>? ORDER BY id',
+      [scope, cursor],
+      limit,
+    );
+  }
+  page(scope, id, revision) {
+    const page = this.db
+      .prepare('SELECT * FROM knowledge_wiki_pages WHERE scope_id=? AND id=?')
+      .get(scope, id);
+    if (!page) {
+      fail('WIKI_NOT_FOUND', 404);
+    }
+    const saved = this.db
+      .prepare('SELECT * FROM knowledge_wiki_revisions WHERE scope_id=? AND page_id=? AND id=?')
+      .get(scope, id, revision || page.current_revision);
+    const refs = this.db
+      .prepare(
+        'SELECT payload FROM knowledge_wiki_refs WHERE scope_id=? AND (from_page_id=? OR to_page_id=?)',
+      )
+      .all(scope, id, id)
+      .map(parse)
+      .map((ref) => {
+        const from = this.db
+          .prepare(
+            'SELECT status,current_revision FROM knowledge_wiki_pages WHERE scope_id=? AND id=?',
+          )
+          .get(scope, ref.fromPageId);
+        const to = this.db
+          .prepare('SELECT status,version FROM knowledge_wiki_pages WHERE scope_id=? AND id=?')
+          .get(scope, ref.toPageId);
+        return {
+          ...ref,
+          validity:
+            from?.status === 'ready' &&
+            to?.status === 'ready' &&
+            (!ref.fromRevision || ref.fromRevision === from.current_revision) &&
+            (!ref.toVersion || ref.toVersion === to.version)
+              ? 'valid'
+              : 'stale',
+        };
+      });
+    return { ...page, ...(saved ? { revision: parse(saved), body: parse(saved).body } : {}), refs };
+  }
+  snapshot(scope, doc) {
+    const existing = this.db
+      .prepare(
+        'SELECT id FROM knowledge_source_snapshots WHERE scope_id=? AND document_id=? AND version=? AND hash=?',
+      )
+      .get(scope, doc.id, doc.version, digest(doc.body));
+    if (existing) {
+      return existing.id;
+    }
+    const id = randomUUID();
+    this.db
+      .prepare('INSERT INTO knowledge_source_snapshots VALUES (?,?,?,?,?,?)')
+      .run(id, scope, doc.id, doc.version, digest(doc.body), JSON.stringify(doc));
+    return id;
+  }
+  saveJob(job) {
+    job.updatedAt = now();
+    this.db
+      .prepare(
+        'INSERT INTO knowledge_jobs VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,payload=excluded.payload',
+      )
+      .run(job.id, job.scopeId, job.status, JSON.stringify(job));
+  }
+  job(scope, id) {
+    return parse(
+      this.db
+        .prepare('SELECT payload FROM knowledge_jobs WHERE scope_id=? AND id=?')
+        .get(scope, id),
+    );
+  }
+  jobs(scope) {
+    return this.db
+      .prepare('SELECT payload FROM knowledge_jobs WHERE scope_id=? ORDER BY rowid DESC LIMIT 100')
+      .all(scope)
+      .map(parse);
+  }
+  candidate(scope, id) {
+    const row = parse(
+      this.db
+        .prepare('SELECT payload FROM knowledge_candidates WHERE scope_id=? AND id=?')
+        .get(scope, id),
+    );
+    if (!row) {
+      fail('WIKI_NOT_FOUND', 404);
+    }
+    return row;
+  }
+  candidates(scope) {
+    return this.db
+      .prepare(
+        "SELECT payload FROM knowledge_candidates WHERE scope_id=? AND status='pending' ORDER BY rowid LIMIT 100",
+      )
+      .all(scope)
+      .map(parse);
+  }
+  saveCandidate(value) {
+    value.inputHash = digest([
+      value.manifest,
+      value.ruleVersion,
+      value.ruleHash,
+      value.pages,
+      value.summaries,
+      value.refs,
+      value.rules,
+    ]);
+    this.db
+      .prepare(
+        'INSERT INTO knowledge_candidates VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,payload=excluded.payload',
+      )
+      .run(value.id, value.scopeId, value.status, JSON.stringify(value));
+  }
+  summary(scope, id) {
+    return parse(
+      this.db
+        .prepare('SELECT payload FROM knowledge_summaries WHERE scope_id=? AND document_id=?')
+        .get(scope, id),
+    );
+  }
+  saveSummary(scope, value) {
+    this.db
+      .prepare('INSERT INTO knowledge_summary_revisions VALUES (?,?,?,?,?)')
+      .run(scope, value.documentId, value.version, value.sourceVersion, JSON.stringify(value));
+    this.db
+      .prepare(
+        'INSERT INTO knowledge_summaries VALUES (?,?,?,?) ON CONFLICT(scope_id,document_id) DO UPDATE SET version=excluded.version,payload=excluded.payload',
+      )
+      .run(scope, value.documentId, value.version, JSON.stringify(value));
+  }
+  outbox(scope) {
+    return this.db
+      .prepare(
+        "SELECT * FROM knowledge_outbox WHERE scope_id=? AND status='pending' ORDER BY sequence LIMIT 200",
+      )
+      .all(scope);
+  }
+  eventState(sequence, status) {
+    this.db.prepare('UPDATE knowledge_outbox SET status=? WHERE sequence=?').run(status, sequence);
+  }
+  publishPage(scope, proposal, ruleVersion, actor) {
+    const existing = proposal.pageId
+      ? this.page(scope, proposal.pageId)
+      : this.db
+          .prepare('SELECT * FROM knowledge_wiki_pages WHERE scope_id=? AND entity_key=?')
+          .get(scope, proposal.entityKey);
+    if ((existing?.version || 0) !== proposal.baseVersion) {
+      fail('WIKI_VERSION_CONFLICT', 409);
+    }
+    const id = existing?.id || randomUUID();
+    const version = (existing?.version || 0) + 1;
+    const revisionId = randomUUID();
+    this.db
+      .prepare(
+        "UPDATE knowledge_wiki_pages SET status='stale' WHERE current_revision IN (SELECT ps.revision_id FROM knowledge_page_sources ps JOIN knowledge_source_snapshots s ON s.id=ps.snapshot_id WHERE s.document_id=?)",
+      )
+      .run('wiki:' + id);
+    const revision = {
+      id: revisionId,
+      pageId: id,
+      version,
+      body: proposal.body,
+      title: proposal.title,
+      evidence: proposal.evidence,
+      ruleVersion,
+      actor,
+      createdAt: now(),
+    };
+    this.db
+      .prepare(
+        "INSERT INTO knowledge_wiki_pages VALUES (?,?,?,?,?,?,?,'ready',?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,page_type=excluded.page_type,current_revision=excluded.current_revision,status='ready',version=excluded.version,human_edited=excluded.human_edited",
+      )
+      .run(
+        id,
+        scope,
+        existing?.entity_key || proposal.entityKey,
+        existing?.slug || digest([scope, proposal.entityKey]).slice(0, 24),
+        proposal.pageType,
+        proposal.title,
+        revisionId,
+        version,
+        actor === 'user' ? 1 : existing?.human_edited || 0,
+      );
+    this.db
+      .prepare('INSERT INTO knowledge_wiki_revisions VALUES (?,?,?,?,?)')
+      .run(revisionId, id, scope, version, JSON.stringify(revision));
+    for (const ref of proposal.evidence) {
+      this.db
+        .prepare('INSERT OR IGNORE INTO knowledge_page_sources VALUES (?,?,?,?,?)')
+        .run(scope, revisionId, ref.snapshotId, ref.startLine, ref.endLine);
+    }
+    this.db.prepare('DELETE FROM knowledge_wiki_fts WHERE id=?').run(id);
+    this.db
+      .prepare('INSERT INTO knowledge_wiki_fts VALUES (?,?,?)')
+      .run(id, proposal.title, proposal.body);
+    this.append(scope, 'wiki_published', {
+      pageId: id,
+      oldVersion: version - 1,
+      newVersion: version,
+      actor,
     });
-    return { ...page,...(saved?{revision:parse(saved),body:parse(saved).body}:{}),refs };
-  }
-  snapshot(scope,doc) {
-    const existing = this.db.prepare('SELECT id FROM knowledge_source_snapshots WHERE scope_id=? AND document_id=? AND version=? AND hash=?').get(scope,doc.id,doc.version,digest(doc.body));
-    if (existing) return existing.id;
-    const id=randomUUID(); this.db.prepare('INSERT INTO knowledge_source_snapshots VALUES (?,?,?,?,?,?)').run(id,scope,doc.id,doc.version,digest(doc.body),JSON.stringify(doc)); return id;
-  }
-  saveJob(job) { job.updatedAt=now(); this.db.prepare('INSERT INTO knowledge_jobs VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,payload=excluded.payload').run(job.id,job.scopeId,job.status,JSON.stringify(job)); }
-  job(scope,id) { return parse(this.db.prepare('SELECT payload FROM knowledge_jobs WHERE scope_id=? AND id=?').get(scope,id)); }
-  jobs(scope) { return this.db.prepare('SELECT payload FROM knowledge_jobs WHERE scope_id=? ORDER BY rowid DESC LIMIT 100').all(scope).map(parse); }
-  candidate(scope,id) { const row=parse(this.db.prepare('SELECT payload FROM knowledge_candidates WHERE scope_id=? AND id=?').get(scope,id)); if(!row)fail('WIKI_NOT_FOUND',404);return row; }
-  candidates(scope) { return this.db.prepare("SELECT payload FROM knowledge_candidates WHERE scope_id=? AND status='pending' ORDER BY rowid LIMIT 100").all(scope).map(parse); }
-  saveCandidate(value) { value.inputHash=digest([value.manifest,value.ruleVersion,value.ruleHash,value.pages,value.summaries,value.refs,value.rules]);this.db.prepare('INSERT INTO knowledge_candidates VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,payload=excluded.payload').run(value.id,value.scopeId,value.status,JSON.stringify(value)); }
-  summary(scope,id) { return parse(this.db.prepare('SELECT payload FROM knowledge_summaries WHERE scope_id=? AND document_id=?').get(scope,id)); }
-  saveSummary(scope,value) {
-    this.db.prepare('INSERT INTO knowledge_summary_revisions VALUES (?,?,?,?,?)').run(scope,value.documentId,value.version,value.sourceVersion,JSON.stringify(value));
-    this.db.prepare('INSERT INTO knowledge_summaries VALUES (?,?,?,?) ON CONFLICT(scope_id,document_id) DO UPDATE SET version=excluded.version,payload=excluded.payload').run(scope,value.documentId,value.version,JSON.stringify(value));
-  }
-  outbox(scope) { return this.db.prepare("SELECT * FROM knowledge_outbox WHERE scope_id=? AND status='pending' ORDER BY sequence LIMIT 200").all(scope); }
-  eventState(sequence,status) { this.db.prepare('UPDATE knowledge_outbox SET status=? WHERE sequence=?').run(status,sequence); }
-  publishPage(scope,proposal,ruleVersion,actor) {
-    const existing = proposal.pageId ? this.page(scope,proposal.pageId) : this.db.prepare('SELECT * FROM knowledge_wiki_pages WHERE scope_id=? AND entity_key=?').get(scope,proposal.entityKey);
-    if ((existing?.version||0)!==proposal.baseVersion) fail('WIKI_VERSION_CONFLICT',409);
-    const id=existing?.id||randomUUID(),version=(existing?.version||0)+1,revisionId=randomUUID();
-    this.db.prepare("UPDATE knowledge_wiki_pages SET status='stale' WHERE current_revision IN (SELECT ps.revision_id FROM knowledge_page_sources ps JOIN knowledge_source_snapshots s ON s.id=ps.snapshot_id WHERE s.document_id=?)").run('wiki:'+id);
-    const revision={ id:revisionId,pageId:id,version,body:proposal.body,title:proposal.title,evidence:proposal.evidence,ruleVersion,actor,createdAt:now() };
-    this.db.prepare("INSERT INTO knowledge_wiki_pages VALUES (?,?,?,?,?,?,?,'ready',?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,page_type=excluded.page_type,current_revision=excluded.current_revision,status='ready',version=excluded.version,human_edited=excluded.human_edited")
-      .run(id,scope,existing?.entity_key||proposal.entityKey,(existing?.slug||digest([scope,proposal.entityKey]).slice(0,24)),proposal.pageType,proposal.title,revisionId,version,actor==='user'?1:existing?.human_edited||0);
-    this.db.prepare('INSERT INTO knowledge_wiki_revisions VALUES (?,?,?,?,?)').run(revisionId,id,scope,version,JSON.stringify(revision));
-    for (const ref of proposal.evidence) this.db.prepare('INSERT OR IGNORE INTO knowledge_page_sources VALUES (?,?,?,?,?)').run(scope,revisionId,ref.snapshotId,ref.startLine,ref.endLine);
-    this.db.prepare('DELETE FROM knowledge_wiki_fts WHERE id=?').run(id);this.db.prepare('INSERT INTO knowledge_wiki_fts VALUES (?,?,?)').run(id,proposal.title,proposal.body);
-    this.append(scope,'wiki_published',{pageId:id,oldVersion:version-1,newVersion:version,actor}); return id;
+    return id;
   }
 }

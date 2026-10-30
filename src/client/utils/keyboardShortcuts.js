@@ -28,16 +28,16 @@ function fallbackGuards(event) {
  * (e.g., 'Ctrl+K'), and each value is an object with an 'action' identifier and a human-readable 'description'.
  */
 const SHORTCUTS = {
-  'Ctrl+K': { action: 'focusSearch', description: t("keyboardShortcuts.message001") },
-  'Ctrl+N': { action: 'createDir', description: t("keyboardShortcuts.message002") },
-  'Ctrl+S': { action: 'sync', description: t("keyboardShortcuts.message003") },
-  'Ctrl+T': { action: 'toggleFileTree', description: t("keyboardShortcuts.message004") },
-  'Escape': { action: 'closePanel', description: t("keyboardShortcuts.message005") },
-  'ArrowLeft': { action: 'collapseTree', description: t("keyboardShortcuts.message006") },
-  'ArrowRight': { action: 'expandTree', description: t("keyboardShortcuts.message007") },
-  'ArrowUp': { action: 'prevTreeItem', description: t("keyboardShortcuts.message008") },
-  'ArrowDown': { action: 'nextTreeItem', description: t("keyboardShortcuts.message009") },
-  'Enter': { action: 'selectTreeItem', description: t("keyboardShortcuts.message010") },
+  'Ctrl+K': { action: 'focusSearch', description: t('keyboardShortcuts.message001') },
+  'Ctrl+N': { action: 'createDir', description: t('keyboardShortcuts.message002') },
+  'Ctrl+S': { action: 'sync', description: t('keyboardShortcuts.message003') },
+  'Ctrl+T': { action: 'toggleFileTree', description: t('keyboardShortcuts.message004') },
+  Escape: { action: 'closePanel', description: t('keyboardShortcuts.message005') },
+  ArrowLeft: { action: 'collapseTree', description: t('keyboardShortcuts.message006') },
+  ArrowRight: { action: 'expandTree', description: t('keyboardShortcuts.message007') },
+  ArrowUp: { action: 'prevTreeItem', description: t('keyboardShortcuts.message008') },
+  ArrowDown: { action: 'nextTreeItem', description: t('keyboardShortcuts.message009') },
+  Enter: { action: 'selectTreeItem', description: t('keyboardShortcuts.message010') },
 };
 
 /**
@@ -49,9 +49,8 @@ const SHORTCUTS = {
  * @returns {Function} A cleanup function that removes the event listener and disposes of the composition observer.
  */
 function setupKeyboardShortcuts(handlers) {
-  // 集成 DSH observeComposition 以支持 IME 输入（中文/日文等）
   let composition = null;
-  let guardsFn = fallbackGuards;  // 默认使用自建降级方案
+  let guardsFn = fallbackGuards;
   try {
     if (observeComposition) {
       composition = observeComposition(document);
@@ -63,24 +62,35 @@ function setupKeyboardShortcuts(handlers) {
 
   const handleKeyDown = (e) => {
     // Respect host menus before handling plugin shortcuts, including Escape.
-    if (e.defaultPrevented || e.target.closest?.('[role="menu"]')) return;
-    // IME 组合输入时跳过（如中文输入）
+    if (e.defaultPrevented || e.target.closest?.('[role="menu"]')) {
+      return;
+    }
+
     if (guardsFn(e)) {
       return;
     }
 
-    // 忽略输入框内的快捷键
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
+    if (
+      e.target.tagName === 'INPUT' ||
+      e.target.tagName === 'TEXTAREA' ||
+      e.target.isContentEditable
+    ) {
       return;
     }
 
     const key = e.key;
     const modifiers = [];
-    if (e.ctrlKey || e.metaKey) modifiers.push('Ctrl');
-    if (e.shiftKey) modifiers.push('Shift');
-    if (e.altKey) modifiers.push('Alt');
+    if (e.ctrlKey || e.metaKey) {
+      modifiers.push('Ctrl');
+    }
+    if (e.shiftKey) {
+      modifiers.push('Shift');
+    }
+    if (e.altKey) {
+      modifiers.push('Alt');
+    }
 
-    // 字母键统一转大写（e.key 返回小写 'k'，SHORTCUTS 定义大写 'K'）
+    // Normalize letter keys to match the uppercase shortcut registry.
     const normalizedKey = key.length === 1 ? key.toUpperCase() : key;
     const shortcut = [...modifiers, normalizedKey].join('+');
     const shortcutDef = SHORTCUTS[shortcut];

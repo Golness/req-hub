@@ -7,11 +7,15 @@ const h = React.createElement;
 const { HeaderBack } = require('./shared/HeaderBack.js');
 const { useState, useEffect, useLayoutEffect, useRef } = React;
 
-const { ROUTE, MARKED_SCRIPT_ID, MERMAID_SCRIPT_ID, HIGHLIGHT_SCRIPT_ID } = require('../constants.js');
+const {
+  ROUTE,
+  MARKED_SCRIPT_ID,
+  MERMAID_SCRIPT_ID,
+  HIGHLIGHT_SCRIPT_ID,
+} = require('../constants.js');
 const { useScript } = require('../hooks/useScript.js');
 const { getMermaidTheme } = require('../utils/getMermaidTheme.js');
 const { sanitizeHtml } = require('../utils/sanitizeHtml.js');
-
 
 const { Spinner } = require('./Spinner.js');
 
@@ -38,13 +42,19 @@ function SkillPreview({ skillName, workspaceId, onBack }) {
   const mermaidRenderIdRef = useRef(0);
 
   const { loaded: markedLoaded } = useScript(
-    'https://cdn.jsdelivr.net/npm/marked/marked.min.js', MARKED_SCRIPT_ID, 'marked',
+    'https://cdn.jsdelivr.net/npm/marked/marked.min.js',
+    MARKED_SCRIPT_ID,
+    'marked',
   );
   const { loaded: mermaidLoaded } = useScript(
-    'https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js', MERMAID_SCRIPT_ID, 'mermaid',
+    'https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js',
+    MERMAID_SCRIPT_ID,
+    'mermaid',
   );
   const { loaded: hljsLoaded } = useScript(
-    'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js', HIGHLIGHT_SCRIPT_ID, 'hljs',
+    'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js',
+    HIGHLIGHT_SCRIPT_ID,
+    'hljs',
   );
 
   useEffect(() => {
@@ -52,7 +62,8 @@ function SkillPreview({ skillName, workspaceId, onBack }) {
       const link = document.createElement('link');
       link.id = 'req-hub-hljs-css';
       link.rel = 'stylesheet';
-      link.href = 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-dark.min.css';
+      link.href =
+        'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-dark.min.css';
       document.head.appendChild(link);
     }
   }, []);
@@ -61,7 +72,6 @@ function SkillPreview({ skillName, workspaceId, onBack }) {
     let cancelled = false;
     (async () => {
       try {
-        // 获取 sessionId
         let sessionId = '';
         try {
           const ctx = window.__DSH_CTX__;
@@ -75,7 +85,7 @@ function SkillPreview({ skillName, workspaceId, onBack }) {
             }
           }
         } catch (e) {
-          // 忽略错误
+          // A missing live session falls back to the workspace-scoped skill lookup.
         }
 
         const url = sessionId
@@ -84,56 +94,86 @@ function SkillPreview({ skillName, workspaceId, onBack }) {
 
         const res = await fetch(url);
         const data = await res.json();
-        if (cancelled) return;
-        if (!res.ok) setError(data.error || t('common.loadFailed'));
-        else {
+        if (cancelled) {
+          return;
+        }
+        if (!res.ok) {
+          setError(data.error || t('common.loadFailed'));
+        } else {
           setText(data.content || '');
           setDescription(data.description || '');
         }
       } catch (e) {
-        if (!cancelled) setError(String(e));
+        if (!cancelled) {
+          setError(String(e));
+        }
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [skillName, workspaceId]);
 
   useEffect(() => {
     if (mermaidLoaded && window.mermaid && !mermaidInitRef.current) {
       mermaidInitRef.current = true;
-      window.mermaid.initialize({ startOnLoad: false, theme: getMermaidTheme(), securityLevel: 'strict' });
+      window.mermaid.initialize({
+        startOnLoad: false,
+        theme: getMermaidTheme(),
+        securityLevel: 'strict',
+      });
     }
   }, [mermaidLoaded]);
 
   useEffect(() => {
-    if (!mermaidInitRef.current || !window.mermaid || !rendered) return;
+    if (!mermaidInitRef.current || !window.mermaid || !rendered) {
+      return;
+    }
     const observer = new MutationObserver(() => {
       const newTheme = getMermaidTheme();
       window.mermaid.initialize({ startOnLoad: false, theme: newTheme, securityLevel: 'strict' });
       if (markdownRef.current) {
-        markdownRef.current.querySelectorAll('.mermaid-diagram').forEach(div => {
+        markdownRef.current.querySelectorAll('.mermaid-diagram').forEach((div) => {
           const code = div.getAttribute('data-mermaid-code');
           if (code) {
             const id = `mermaid-rerender-${Date.now()}-${Math.random()}`;
-            window.mermaid.render(id, code).then(({ svg }) => { div.innerHTML = svg; }).catch(() => {});
+            window.mermaid
+              .render(id, code)
+              .then(({ svg }) => {
+                div.innerHTML = svg;
+              })
+              .catch((error) => {
+                // A failed preview stylesheet must not prevent showing the skill source.
+              });
           }
         });
       }
     });
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class', 'data-theme'],
+    });
     return () => observer.disconnect();
   }, [rendered]);
 
   useEffect(() => {
-    if (!text) { setRendered(''); return; }
+    if (!text) {
+      setRendered('');
+      return;
+    }
     if (markedLoaded && window.marked) {
       setRendered(sanitizeHtml(window.marked.parse(text)));
     }
   }, [text, markedLoaded]);
 
   useLayoutEffect(() => {
-    if (!mermaidInitRef.current || !rendered || !markdownRef.current) return;
+    if (!mermaidInitRef.current || !rendered || !markdownRef.current) {
+      return;
+    }
     const mermaidBlocks = markdownRef.current.querySelectorAll('code.language-mermaid');
-    if (mermaidBlocks.length === 0) return;
+    if (mermaidBlocks.length === 0) {
+      return;
+    }
     mermaidRenderIdRef.current++;
     const prefix = `mermaid-skill-${mermaidRenderIdRef.current}`;
     mermaidBlocks.forEach(async (block, index) => {
@@ -147,37 +187,59 @@ function SkillPreview({ skillName, workspaceId, onBack }) {
         div.setAttribute('data-mermaid-code', code);
         div.innerHTML = svg;
         pre.replaceWith(div);
-      } catch (e) { /* keep original */ }
+      } catch (e) {
+        // Keep the original code block when Mermaid rendering fails.
+      }
     });
   }, [rendered]);
 
   useLayoutEffect(() => {
-    if (!hljsLoaded || !window.hljs || !rendered || !markdownRef.current) return;
+    if (!hljsLoaded || !window.hljs || !rendered || !markdownRef.current) {
+      return;
+    }
     const codeBlocks = markdownRef.current.querySelectorAll('pre code:not(.language-mermaid)');
-    if (codeBlocks.length === 0) return;
-    codeBlocks.forEach(block => {
+    if (codeBlocks.length === 0) {
+      return;
+    }
+    codeBlocks.forEach((block) => {
       window.hljs.highlightElement(block);
     });
   }, [rendered, hljsLoaded]);
 
-  return h('div', { className: css.column },
+  const renderPreview = () => {
+    if (error) {
+      return h('span', { className: 'rh-error' }, t('FilePreview.message019'), error);
+    } else if (text) {
+      if (markedLoaded && rendered) {
+        return h('div', {
+          ref: markdownRef,
+          className: 'rh-markdown',
+          dangerouslySetInnerHTML: { __html: rendered },
+        });
+      } else {
+        return h(Spinner);
+      }
+    } else {
+      return h(Spinner);
+    }
+  };
+  return h(
+    'div',
+    { className: css.column },
     // Header with back button
-    h('div', { className: css.row},
-      h(HeaderBack, { onBack: onBack, label: t("SettingsPanel.message001") }),
-      h('div', { className: css.content },
+    h(
+      'div',
+      { className: css.row },
+      h(HeaderBack, { onBack: onBack, label: t('SettingsPanel.message001') }),
+      h(
+        'div',
+        { className: css.content },
         h('div', { className: css.row2 }, ` ${skillName}`),
-        description && h('div', { className: css.mutedText }, description)
-      )
+        description && h('div', { className: css.mutedText }, description),
+      ),
     ),
     // Content
-    h('div', { className: ('rh-preview-body') + ' ' + css.pane },
-      error ? h('span', { className: 'rh-error' }, t("FilePreview.message019"), error)
-        : text
-          ? (markedLoaded && rendered)
-            ? h('div', { ref: markdownRef, className: 'rh-markdown', dangerouslySetInnerHTML: { __html: rendered } })
-            : h(Spinner)
-          : h(Spinner)
-    )
+    h('div', { className: 'rh-preview-body' + ' ' + css.pane }, renderPreview()),
   );
 }
 

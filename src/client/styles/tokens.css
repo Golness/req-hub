@@ -47,5 +47,4 @@ body {
   --rh-json-key: var(--dsw-alias-label-primary);
   --rh-json-punctuation: var(--dsw-alias-label-primary);
   --rh-json-muted: var(--dsw-alias-label-secondary);
-
 }

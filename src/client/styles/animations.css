@@ -12,8 +12,6 @@
   animation: rh-spin 1s linear infinite;
 }
 
-
-
 /* ── Timeline ── */
 .rh-timeline {
   padding: 12px 14px;
@@ -40,7 +38,8 @@
   width: 8px;
   height: 8px;
   margin-top: 6px;
-  border-radius: 50%; corner-shape: round;
+  border-radius: 50%;
+  corner-shape: round;
   flex-shrink: 0;
   background: var(--dsw-alias-label-tertiary);
 }
@@ -68,4 +67,9 @@
   margin-top: 2px;
 }
 
-@media (prefers-reduced-motion: reduce) { .rh-spin, .rh-skeleton-line { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .rh-spin,
+  .rh-skeleton-line {
+    animation: none;
+  }
+}

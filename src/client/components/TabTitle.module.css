@@ -1,2 +1,6 @@
 /* Component presentation; runtime geometry uses local CSS variables. */
-.row { display: inline-flex; align-items: center; gap: 4px; }
+.row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}

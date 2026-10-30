@@ -7,8 +7,6 @@ const { Button } = require('./shared/Button.js');
 const React = require('react');
 const h = React.createElement;
 
-
-
 /**
  * @component
  * Modal dialog for selecting a workspace from a list of available workspaces.
@@ -21,29 +19,48 @@ const h = React.createElement;
  * @returns {JSX.Element}
  */
 function WorkspaceModal({ workspaces, selectedId, onSelect, onClose }) {
-  return h(ModalFrame, { className: 'rh-modal-overlay', onClick: onClose, role: 'dialog', 'aria-modal': 'true', 'aria-label': t("WorkspaceModal.message001") },
-    h('div', { className: 'rh-modal', onClick: e => e.stopPropagation() },
-      h('div', { className: ('rh-modal-title') + ' ' + css.row },  t("WorkspaceModal.message002")),
+  return h(
+    ModalFrame,
+    {
+      className: 'rh-modal-overlay',
+      onClick: onClose,
+      role: 'dialog',
+      'aria-modal': 'true',
+      'aria-label': t('WorkspaceModal.message001'),
+    },
+    h(
+      'div',
+      { className: 'rh-modal', onClick: (e) => e.stopPropagation() },
+      h('div', { className: 'rh-modal-title' + ' ' + css.row }, t('WorkspaceModal.message002')),
       workspaces.length === 0
-        ? h('div', { className: 'rh-empty' }, t("WorkspaceModal.message003"))
-        : h('div', { className: 'rh-modal-list', role: 'group' },
-            workspaces.map(ws =>
-              h(Button, {
-                key: ws.id,
-                className: `rh-modal-item${selectedId === ws.id ? ' selected' : ''}`,
-                'aria-pressed': selectedId === ws.id,
-                title: ws.title || ws.id,
-                onClick: () => { onSelect(ws); onClose(); },
-              },
+        ? h('div', { className: 'rh-empty' }, t('WorkspaceModal.message003'))
+        : h(
+            'div',
+            { className: 'rh-modal-list', role: 'group' },
+            workspaces.map((ws) =>
+              h(
+                Button,
+                {
+                  key: ws.id,
+                  className: `rh-modal-item${selectedId === ws.id ? ' selected' : ''}`,
+                  'aria-pressed': selectedId === ws.id,
+                  title: ws.title || ws.id,
+                  onClick: () => {
+                    onSelect(ws);
+                    onClose();
+                  },
+                },
 
-                h('span', { className: `rh-modal-item-name ${css.name}` }, ws.title || ws.id)
-              )
-            )
+                h('span', { className: `rh-modal-item-name ${css.name}` }, ws.title || ws.id),
+              ),
+            ),
           ),
-      h('div', { className: 'rh-modal-actions' },
-        h(Button, { className: 'rh-btn', onClick: onClose }, t("common.close"))
-      )
-    )
+      h(
+        'div',
+        { className: 'rh-modal-actions' },
+        h(Button, { className: 'rh-btn', onClick: onClose }, t('common.close')),
+      ),
+    ),
   );
 }
 

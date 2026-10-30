@@ -24,7 +24,7 @@ let toastListeners = [];
  */
 function showToast(config) {
   const id = Date.now() + Math.random();
-  toastListeners.forEach(listener => listener({ id, ...config }));
+  toastListeners.forEach((listener) => listener({ id, ...config }));
   return id;
 }
 
@@ -40,22 +40,24 @@ function ToastContainer() {
 
   React.useEffect(() => {
     const listener = (toast) => {
-      setToasts(prev => [...prev, toast]);
+      setToasts((prev) => [...prev, toast]);
     };
     toastListeners.push(listener);
     return () => {
-      toastListeners = toastListeners.filter(l => l !== listener);
+      toastListeners = toastListeners.filter((l) => l !== listener);
     };
   }, []);
 
   const removeToast = (id) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
   // Host Toast owns one fixed banner seat. Queue outcomes instead of stacking
   // several body portals at the same viewport coordinates.
-  return h(React.Fragment, null,
-    toasts.slice(0, 1).map(toast =>
+  return h(
+    React.Fragment,
+    null,
+    toasts.slice(0, 1).map((toast) =>
       h(Toast, {
         key: toast.id,
         text: toast.text,
@@ -63,8 +65,8 @@ function ToastContainer() {
         holdMs: toast.holdMs,
         actions: toast.actions,
         onDone: () => removeToast(toast.id),
-      })
-    )
+      }),
+    ),
   );
 }
 

@@ -33,7 +33,9 @@ function RequirementDirModal({ workspaceId, selectedReqId, onSelect, onClose }) 
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${ROUTE}/tree?workspaceId=${encodeURIComponent(workspaceId)}&t=${Date.now()}`);
+        const res = await fetch(
+          `${ROUTE}/tree?workspaceId=${encodeURIComponent(workspaceId)}&t=${Date.now()}`,
+        );
         if (res.ok) {
           const data = await res.json();
           if (!cancelled && data.tree?.developers) {
@@ -44,53 +46,113 @@ function RequirementDirModal({ workspaceId, selectedReqId, onSelect, onClose }) 
             }
           }
         }
-      } catch { /* ignore */ }
-      if (!cancelled) setLoading(false);
+      } catch (error) {
+        // Keep the current tree when the optional requirement lookup fails.
+      }
+      if (!cancelled) {
+        setLoading(false);
+      }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [workspaceId]);
 
   const toggleDev = (devName) => {
-    setExpandedDevs(prev => ({ ...prev, [devName]: !prev[devName] }));
+    setExpandedDevs((prev) => ({ ...prev, [devName]: !prev[devName] }));
   };
 
-  return h(ModalFrame, { className: 'rh-modal-overlay', onClick: onClose, role: 'dialog', 'aria-modal': 'true', 'aria-label': t("DocsViewerBody.message067") },
-    h('div', { className: ('rh-modal') + ' ' + css.size, onClick: e => e.stopPropagation() },
-      h('div', { className: ('rh-modal-title') + ' ' + css.row },  t("RequirementDirModal.message001")),
-      loading
-        ? h('div', { className: 'rh-empty' }, t("common.loading"))
-        : !tree || tree.developers.length === 0
-          ? h('div', { className: 'rh-empty' }, t("RequirementDirModal.message002"))
-          : h('div', { className: ('rh-modal-list') + ' ' + css.size2 },
-              tree.developers.map(dev =>
-                h('div', { key: dev.name },
-                  h(Button, {
-                    className: ('rh-modal-item') + ' ' + css.heading,
-                    onClick: () => toggleDev(dev.name)
+  const renderRequirementTree = () => {
+    if (loading) {
+      return h('div', { className: 'rh-empty' }, t('common.loading'));
+    } else if (!tree || tree.developers.length === 0) {
+      return h('div', { className: 'rh-empty' }, t('RequirementDirModal.message002'));
+    } else {
+      return h(
+        'div',
+        { className: 'rh-modal-list' + ' ' + css.size2 },
+        tree.developers.map((dev) =>
+          h(
+            'div',
+            { key: dev.name },
+            h(
+              Button,
+              {
+                className: 'rh-modal-item' + ' ' + css.heading,
+                onClick: () => toggleDev(dev.name),
+              },
+              h(
+                'span',
+                { className: 'rh-modal-item-icon' },
+                h(IconChevronRight, {
+                  size: 12,
+                  className: css.indicator,
+                  style: {
+                    '--rh-transform-0': cssValue(expandedDevs[dev.name] ? 'rotate(90deg)' : 'none'),
                   },
-                    h('span', { className: 'rh-modal-item-icon' }, h(IconChevronRight, { size: 12, className: css.indicator, style: { "--rh-transform-0": cssValue(expandedDevs[dev.name] ? 'rotate(90deg)' : 'none') } })),
-                    h('span', { className: 'rh-modal-item-name' }, dev.name),
-                    h('span', { className: 'rh-modal-item-count' }, `(${dev.requirementCount})`)
-                  ),
-                  expandedDevs[dev.name] && dev.requirements.map(req =>
-                    h(Button, {
-                      key: req.id,
-                      className: (`rh-modal-item${selectedReqId === req.id ? ' selected' : ''}`) + ' ' + css.content,
-                      title: req.path,
-                      onClick: () => { onSelect(req); onClose(); },
-                    },
-                      h('span', { className: 'rh-modal-item-icon' }, h(IconFolderOpen, { size: 14 })),
-                      h('span', { className: 'rh-modal-item-name' }, `${req.date.slice(5)} ${req.title}`),
-                      h('span', { className: ('rh-modal-item-count') + ' ' + css.row2 }, t("files.count", { value0: req.fileCount }))
-                    )
-                  )
-                )
-              )
+                }),
+              ),
+              h('span', { className: 'rh-modal-item-name' }, dev.name),
+              h('span', { className: 'rh-modal-item-count' }, `(${dev.requirementCount})`),
             ),
-      h('div', { className: 'rh-modal-actions' },
-        h(Button, { className: 'rh-btn', onClick: onClose }, t("common.close"))
-      )
-    )
+            expandedDevs[dev.name] &&
+              dev.requirements.map((req) =>
+                h(
+                  Button,
+                  {
+                    key: req.id,
+                    className:
+                      `rh-modal-item${selectedReqId === req.id ? ' selected' : ''}` +
+                      ' ' +
+                      css.content,
+                    title: req.path,
+                    onClick: () => {
+                      onSelect(req);
+                      onClose();
+                    },
+                  },
+                  h('span', { className: 'rh-modal-item-icon' }, h(IconFolderOpen, { size: 14 })),
+                  h(
+                    'span',
+                    { className: 'rh-modal-item-name' },
+                    `${req.date.slice(5)} ${req.title}`,
+                  ),
+                  h(
+                    'span',
+                    { className: 'rh-modal-item-count' + ' ' + css.row2 },
+                    t('files.count', { value0: req.fileCount }),
+                  ),
+                ),
+              ),
+          ),
+        ),
+      );
+    }
+  };
+  return h(
+    ModalFrame,
+    {
+      className: 'rh-modal-overlay',
+      onClick: onClose,
+      role: 'dialog',
+      'aria-modal': 'true',
+      'aria-label': t('DocsViewerBody.message067'),
+    },
+    h(
+      'div',
+      { className: 'rh-modal' + ' ' + css.size, onClick: (e) => e.stopPropagation() },
+      h(
+        'div',
+        { className: 'rh-modal-title' + ' ' + css.row },
+        t('RequirementDirModal.message001'),
+      ),
+      renderRequirementTree(),
+      h(
+        'div',
+        { className: 'rh-modal-actions' },
+        h(Button, { className: 'rh-btn', onClick: onClose }, t('common.close')),
+      ),
+    ),
   );
 }
 

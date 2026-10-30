@@ -19,8 +19,6 @@ const { JsonViewer } = require('./JsonViewer.js');
 const { MilkdownEditor } = require('./MilkdownEditor.js');
 const { showToast } = require('./shared/ToastContainer.js');
 
-
-
 /**
  * @component FilePreview
  * @description Component for previewing document files including Markdown (with Mermaid diagrams and
@@ -38,7 +36,22 @@ const { showToast } = require('./shared/ToastContainer.js');
  * @param {HTMLElement|null} [props.toolbarTarget] - Header container following the breadcrumb
  * @returns {JSX.Element} A file preview with header, content area, and optional TOC sidebar
  */
-function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc, onToggleToc, toolbarTarget, onSaved, onDirtyChange, active = true, sourceUrl, readOnly = false, assist }) {
+function FilePreview({
+  workspaceId,
+  relPath,
+  name,
+  requirement,
+  onBack,
+  showToc,
+  onToggleToc,
+  toolbarTarget,
+  onSaved,
+  onDirtyChange,
+  active = true,
+  sourceUrl,
+  readOnly = false,
+  assist,
+}) {
   const [text, setText] = useState('');
   const [error, setError] = useState(null);
   const [parseWarnings, setParseWarnings] = useState([]);
@@ -56,14 +69,20 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
   const isJson = /\.json$/i.test(name);
   const isExtracted = /\.(pdf|docx|xlsx)$/i.test(name);
   const isEditable = !readOnly && /\.(md|txt|text|json)$/i.test(name);
-  useEffect(() => { onDirtyChange?.(editContent !== text); }, [editContent, text, workspaceId, relPath]);
+  useEffect(() => {
+    onDirtyChange?.(editContent !== text);
+  }, [editContent, text, workspaceId, relPath]);
 
   const { loaded: mermaidLoaded } = useScript(
-    'https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js', MERMAID_SCRIPT_ID, 'mermaid',
+    'https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js',
+    MERMAID_SCRIPT_ID,
+    'mermaid',
   );
   // Save handler
   const handleSave = async () => {
-    if (!isEditable) return;
+    if (!isEditable) {
+      return;
+    }
 
     setSaving(true);
     try {
@@ -81,12 +100,12 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
         setText(editContent);
         setLastSaved(new Date());
         onSaved?.();
-        showToast({ tone: 'success', text: t("FilePreview.message001"), holdMs: 2000 });
+        showToast({ tone: 'success', text: t('FilePreview.message001'), holdMs: 2000 });
       } else {
-        showToast({ tone: 'error', text: data.error || t("FilePreview.message002"), holdMs: 3000 });
+        showToast({ tone: 'error', text: data.error || t('FilePreview.message002'), holdMs: 3000 });
       }
     } catch (e) {
-      showToast({ tone: 'error', text: t("FilePreview.message003"), holdMs: 3000 });
+      showToast({ tone: 'error', text: t('FilePreview.message003'), holdMs: 3000 });
     } finally {
       setSaving(false);
     }
@@ -94,7 +113,9 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
 
   // Keyboard shortcut: Ctrl+S to save
   useEffect(() => {
-    if (!active || readOnly || !isMd && !editMode) return;
+    if (!active || readOnly || (!isMd && !editMode)) {
+      return;
+    }
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
@@ -108,49 +129,73 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
   useEffect(() => {
     let cancelled = false;
     setEditMode(false);
-    setText(''); setEditContent('');
+    setText('');
+    setEditContent('');
     setError(null);
     setParseWarnings([]);
     setLastSaved(null);
     (async () => {
       try {
-        const url = sourceUrl || `${ROUTE}/read?workspaceId=${encodeURIComponent(workspaceId)}&path=${encodeURIComponent(relPath)}`;
+        const url =
+          sourceUrl ||
+          `${ROUTE}/read?workspaceId=${encodeURIComponent(workspaceId)}&path=${encodeURIComponent(relPath)}`;
         const res = await fetch(url);
         const data = await res.json();
-        if (cancelled) return;
-        if (!res.ok) setError(data.error || 'read failed');
-        else { setText(data.text || ''); setEditContent(data.text || ''); setParseWarnings(data.warnings || []); }
+        if (cancelled) {
+          return;
+        }
+        if (!res.ok) {
+          setError(data.error || 'read failed');
+        } else {
+          setText(data.text || '');
+          setEditContent(data.text || '');
+          setParseWarnings(data.warnings || []);
+        }
       } catch (e) {
-        if (!cancelled) setError(String(e));
+        if (!cancelled) {
+          setError(String(e));
+        }
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [workspaceId, relPath, isMd, sourceUrl]);
 
   useEffect(() => {
     if (mermaidLoaded && window.mermaid && !mermaidInitRef.current) {
       mermaidInitRef.current = true;
-      window.mermaid.initialize({ startOnLoad: false, theme: getMermaidTheme(), securityLevel: 'strict' });
+      window.mermaid.initialize({
+        startOnLoad: false,
+        theme: getMermaidTheme(),
+        securityLevel: 'strict',
+      });
     }
   }, [mermaidLoaded]);
 
   // Extract headings for TOC
-  const headings = useMemo(() => isMd ? extractHeadings(editContent) : [], [isMd, editContent]);
+  const headings = useMemo(() => (isMd ? extractHeadings(editContent) : []), [isMd, editContent]);
 
   // Scroll spy for active heading
   useEffect(() => {
-    if (!isMd || editMode || !previewBodyRef.current || headings.length === 0) return;
+    if (!isMd || editMode || !previewBodyRef.current || headings.length === 0) {
+      return;
+    }
     const container = previewBodyRef.current;
     let frame = null;
 
     const handleScroll = () => {
       const root = container.querySelector('.ProseMirror');
-      if (!root) return;
+      if (!root) {
+        return;
+      }
       const elements = root.querySelectorAll('h1, h2, h3, h4, h5, h6');
-      const headingElements = headings.map((h, index) => ({
-        id: h.id,
-        element: elements[index]
-      })).filter(h => h.element);
+      const headingElements = headings
+        .map((h, index) => ({
+          id: h.id,
+          element: elements[index],
+        }))
+        .filter((h) => h.element);
 
       const threshold = container.getBoundingClientRect().top + 100;
       let activeId = headingElements[0]?.id || null;
@@ -159,15 +204,19 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
           activeId = id;
         }
       }
-      if (container.scrollHeight > container.clientHeight + 1 &&
-          container.scrollTop + container.clientHeight >= container.scrollHeight - 2) {
+      if (
+        container.scrollHeight > container.clientHeight + 1 &&
+        container.scrollTop + container.clientHeight >= container.scrollHeight - 2
+      ) {
         activeId = headingElements[headingElements.length - 1]?.id || activeId;
       }
       setActiveHeadingId(activeId);
     };
 
     const scheduleUpdate = () => {
-      if (frame !== null) return;
+      if (frame !== null) {
+        return;
+      }
       frame = requestAnimationFrame(() => {
         frame = null;
         handleScroll();
@@ -177,7 +226,8 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
     // The editor mounts asynchronously and diagrams can change heading positions.
     const observer = new MutationObserver(scheduleUpdate);
     observer.observe(container, { childList: true, subtree: true, characterData: true });
-    const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleUpdate);
+    const resizeObserver =
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleUpdate);
     resizeObserver?.observe(container);
     handleScroll(); // Initial check
 
@@ -185,21 +235,28 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
       container.removeEventListener('scroll', scheduleUpdate);
       observer.disconnect();
       resizeObserver?.disconnect();
-      if (frame !== null) cancelAnimationFrame(frame);
+      if (frame !== null) {
+        cancelAnimationFrame(frame);
+      }
     };
   }, [isMd, headings, editMode]);
 
   // Navigate to heading
   const navigateToHeading = (headingId) => {
-    if (!previewBodyRef.current) return;
+    if (!previewBodyRef.current) {
+      return;
+    }
     const root = previewBodyRef.current.querySelector('.ProseMirror');
-    const index = headings.findIndex(heading => heading.id === headingId);
+    const index = headings.findIndex((heading) => heading.id === headingId);
     const element = root?.querySelectorAll('h1, h2, h3, h4, h5, h6')[index];
     if (element) {
       previewBodyRef.current.scrollTo({
-        top: previewBodyRef.current.scrollTop + element.getBoundingClientRect().top -
-          previewBodyRef.current.getBoundingClientRect().top - 20,
-        behavior: 'smooth'
+        top:
+          previewBodyRef.current.scrollTop +
+          element.getBoundingClientRect().top -
+          previewBodyRef.current.getBoundingClientRect().top -
+          20,
+        behavior: 'smooth',
       });
     }
   };
@@ -213,7 +270,9 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
   };
 
   const handleMouseMove = (e) => {
-    if (!isResizingRef.current) return;
+    if (!isResizingRef.current) {
+      return;
+    }
     const newWidth = window.innerWidth - e.clientX;
     if (newWidth >= 150 && newWidth <= 400) {
       setTocWidth(newWidth);
@@ -234,127 +293,202 @@ function FilePreview({ workspaceId, relPath, name, requirement, onBack, showToc,
   }, []);
 
   // Edit toolbar
-  const editToolbar = isEditable && h('div', {
-    className: `rh-edit-toolbar${toolbarTarget ? ' rh-edit-toolbar-header' : ''}`,
-  },
-    isMd ? h('div', { role: 'group', 'aria-label': t("FilePreview.message004") },
-      [[t("FilePreview.message005"), false], [t("FilePreview.message006"), true]].map(([label, source]) => h(Button, {
-        key: label,
-        type: 'button',
-        className: 'rh-btn rh-btn-ghost rh-btn-sm',
-        'aria-pressed': editMode === source,
-        onClick: () => setEditMode(source),
-        title: source ? t("FilePreview.message007") : t("FilePreview.message008"),
-      }, label))
-    ) : h(Button, {
-      className: 'rh-btn rh-btn-ghost rh-btn-sm',
-      onClick: () => setEditMode(!editMode),
-      title: editMode ? t("FilePreview.message009") : t("FilePreview.message010"),
-    }, editMode ? t("FilePreview.message005") : t("FilePreview.message006")),
+  const editToolbar =
+    isEditable &&
+    h(
+      'div',
+      {
+        className: `rh-edit-toolbar${toolbarTarget ? ' rh-edit-toolbar-header' : ''}`,
+      },
+      isMd
+        ? h(
+            'div',
+            { role: 'group', 'aria-label': t('FilePreview.message004') },
+            [
+              [t('FilePreview.message005'), false],
+              [t('FilePreview.message006'), true],
+            ].map(([label, source]) =>
+              h(
+                Button,
+                {
+                  key: label,
+                  type: 'button',
+                  className: 'rh-btn rh-btn-ghost rh-btn-sm',
+                  'aria-pressed': editMode === source,
+                  onClick: () => setEditMode(source),
+                  title: source ? t('FilePreview.message007') : t('FilePreview.message008'),
+                },
+                label,
+              ),
+            ),
+          )
+        : h(
+            Button,
+            {
+              className: 'rh-btn rh-btn-ghost rh-btn-sm',
+              onClick: () => setEditMode(!editMode),
+              title: editMode ? t('FilePreview.message009') : t('FilePreview.message010'),
+            },
+            editMode ? t('FilePreview.message005') : t('FilePreview.message006'),
+          ),
 
-    (isMd || editMode) && h(Button, {
-      className: 'rh-btn rh-btn-ghost rh-btn-sm',
-      onClick: handleSave,
-      disabled: saving,
-      title: t("FilePreview.message011"),
-    }, saving ? t("FilePreview.message012") : t("common.save")),
+      (isMd || editMode) &&
+        h(
+          Button,
+          {
+            className: 'rh-btn rh-btn-ghost rh-btn-sm',
+            onClick: handleSave,
+            disabled: saving,
+            title: t('FilePreview.message011'),
+          },
+          saving ? t('FilePreview.message012') : t('common.save'),
+        ),
 
-    // Last saved time
-    lastSaved && h('span', {
-      className: css.mutedText
-    }, t("FilePreview.message014", { value0: lastSaved.toLocaleTimeString() }))
-  );
+      // Last saved time
+      lastSaved &&
+        h(
+          'span',
+          {
+            className: css.mutedText,
+          },
+          t('FilePreview.message014', { value0: lastSaved.toLocaleTimeString() }),
+        ),
+    );
 
   // TOC toggle button (only for markdown with headings)
-  const tocToggle = isMd && !editMode && headings.length > 0 && h(Button, {
-    className: ('rh-btn rh-btn-secondary rh-btn-sm rh-toc-toggle') + ' ' + css.content,
-    onClick: onToggleToc,
-    title: showToc ? t("FilePreview.message015") : t("FilePreview.message016"),
-    style: { "--rh-right-0": cssValue(showToc ? tocWidth + 8 : 8) },
-  }, showToc ? t("FilePreview.message017") : t("FilePreview.message018"));
+  const tocToggle =
+    isMd &&
+    !editMode &&
+    headings.length > 0 &&
+    h(
+      Button,
+      {
+        className: 'rh-btn rh-btn-secondary rh-btn-sm rh-toc-toggle' + ' ' + css.content,
+        onClick: onToggleToc,
+        title: showToc ? t('FilePreview.message015') : t('FilePreview.message016'),
+        style: { '--rh-right-0': cssValue(showToc ? tocWidth + 8 : 8) },
+      },
+      showToc ? t('FilePreview.message017') : t('FilePreview.message018'),
+    );
 
   // Main content
-  const mainContent = error ? h('span', { className: 'rh-error' }, t("FilePreview.message019"), error)
-    : isHtml
-      ? h('iframe', {
-          title: name,
-          className: 'rh-preview-iframe',
-          sandbox: 'allow-scripts',
-          referrerPolicy: 'no-referrer',
-          // Opaque origin plus CSP: diagrams can run, but cannot call Host APIs.
-          srcDoc: '<meta http-equiv="Content-Security-Policy" content="default-src &apos;none&apos;; script-src &apos;unsafe-inline&apos; https://cdn.jsdelivr.net; style-src &apos;unsafe-inline&apos;; img-src data: https:; font-src data:; connect-src &apos;none&apos;; form-action &apos;none&apos;; base-uri &apos;none&apos;">' + text
-        })
-      : isMd
-        ? editMode
-          ? h('textarea', {
-              className: 'rh-text-editor',
-              'aria-label': t("FilePreview.message020"),
-              value: editContent,
-              onChange: (event) => setEditContent(event.target.value),
-              spellCheck: false,
-            })
-          : h(MilkdownEditor, {
-              readOnly,
-              content: editContent,
-              onChange: setEditContent,
-              imageContext: relPath ? { workspaceId, requirementPath: relPath.split('/').slice(0, 2).join('/') } : undefined,
-              mermaid: mermaidLoaded ? window.mermaid : null,
-            })
-        : isJson
-          ? editMode
-            ? h('textarea', {
-                className: ('rh-json-editor') + ' ' + css.section,
-                value: editContent,
-                onChange: (e) => setEditContent(e.target.value),
-                spellCheck: false,
-              })
-            : (() => {
-                try {
-                  const parsed = JSON.parse(text);
-                  return h(JsonViewer, { data: parsed, initialExpandLevel: 2 });
-                } catch {
-                  return h('pre', { className: ('rh-error') + ' ' + css.content2 }, t('common.invalidJson') + text);
-                }
-              })()
-          : editMode
-            ? h('textarea', {
-                className: ('rh-text-editor') + ' ' + css.section,
-                value: editContent,
-                onChange: (e) => setEditContent(e.target.value),
-                spellCheck: false,
-              })
-            : !text
-              ? h(Skeleton, { lines: 6, height: '1.2em' })
-              : h('pre', { className: css.content2 }, text);
+  let mainContent;
+  if (error) {
+    mainContent = h('span', { className: 'rh-error' }, t('FilePreview.message019'), error);
+  } else if (isHtml) {
+    mainContent = h('iframe', {
+      title: name,
+      className: 'rh-preview-iframe',
+      sandbox: 'allow-scripts',
+      referrerPolicy: 'no-referrer',
+      // Opaque origin plus CSP: diagrams can run, but cannot call Host APIs.
+      srcDoc:
+        '<meta http-equiv="Content-Security-Policy" content="default-src &apos;none&apos;; script-src &apos;unsafe-inline&apos; https://cdn.jsdelivr.net; style-src &apos;unsafe-inline&apos;; img-src data: https:; font-src data:; connect-src &apos;none&apos;; form-action &apos;none&apos;; base-uri &apos;none&apos;">' +
+        text,
+    });
+  } else if (isMd) {
+    if (editMode) {
+      mainContent = h('textarea', {
+        className: 'rh-text-editor',
+        'aria-label': t('FilePreview.message020'),
+        value: editContent,
+        onChange: (event) => setEditContent(event.target.value),
+        spellCheck: false,
+      });
+    } else {
+      mainContent = h(MilkdownEditor, {
+        readOnly,
+        content: editContent,
+        onChange: setEditContent,
+        imageContext: relPath
+          ? { workspaceId, requirementPath: relPath.split('/').slice(0, 2).join('/') }
+          : undefined,
+        mermaid: mermaidLoaded ? window.mermaid : null,
+      });
+    }
+  } else if (isJson) {
+    if (editMode) {
+      mainContent = h('textarea', {
+        className: 'rh-json-editor' + ' ' + css.section,
+        value: editContent,
+        onChange: (e) => setEditContent(e.target.value),
+        spellCheck: false,
+      });
+    } else {
+      mainContent = (() => {
+        try {
+          const parsed = JSON.parse(text);
+          return h(JsonViewer, { data: parsed, initialExpandLevel: 2 });
+        } catch {
+          return h(
+            'pre',
+            { className: 'rh-error' + ' ' + css.content2 },
+            t('common.invalidJson') + text,
+          );
+        }
+      })();
+    }
+  } else if (editMode) {
+    mainContent = h('textarea', {
+      className: 'rh-text-editor' + ' ' + css.section,
+      value: editContent,
+      onChange: (e) => setEditContent(e.target.value),
+      spellCheck: false,
+    });
+  } else if (!text) {
+    mainContent = h(Skeleton, { lines: 6, height: '1.2em' });
+  } else {
+    mainContent = h('pre', { className: css.content2 }, text);
+  }
 
   // TOC sidebar (only for markdown with headings, resizable)
-  const tocSidebar = isMd && !editMode && headings.length > 0 && showToc && h('div', {
-    className: css.pane, style: { "--rh-width-0": cssValue(tocWidth) }
-  },
-    h('div', {
-      onMouseDown: handleMouseDown,
-      className: css.size
-    }),
-    h(TableOfContents, {
-      headings,
-      activeId: activeHeadingId,
-      onNavigate: navigateToHeading,
-      width: tocWidth,
-    })
-  );
+  const tocSidebar =
+    isMd &&
+    !editMode &&
+    headings.length > 0 &&
+    showToc &&
+    h(
+      'div',
+      {
+        className: css.pane,
+        style: { '--rh-width-0': cssValue(tocWidth) },
+      },
+      h('div', {
+        onMouseDown: handleMouseDown,
+        className: css.size,
+      }),
+      h(TableOfContents, {
+        headings,
+        activeId: activeHeadingId,
+        onNavigate: navigateToHeading,
+        width: tocWidth,
+      }),
+    );
 
   // Keep local tools in a real row so they never cover document contents.
-  return h('div', { className: 'rh-file-preview' },
+  return h(
+    'div',
+    { className: 'rh-file-preview' },
     toolbarTarget ? createPortal(editToolbar, toolbarTarget) : editToolbar,
     tocToggle,
-    h('div', { className: 'rh-file-preview-content' },
-      h('div', { ref: previewBodyRef, className: ('rh-preview-body') + ' ' + css.pane2 },
-        isExtracted && h('div', { className: 'rh-op-info', role: 'status' }, t("FilePreview.message021"), parseWarnings.length > 0 && h('div', null, parseWarnings.join('；'))),
+    h(
+      'div',
+      { className: 'rh-file-preview-content' },
+      h(
+        'div',
+        { ref: previewBodyRef, className: 'rh-preview-body' + ' ' + css.pane2 },
+        isExtracted &&
+          h(
+            'div',
+            { className: 'rh-op-info', role: 'status' },
+            t('FilePreview.message021'),
+            parseWarnings.length > 0 && h('div', null, parseWarnings.join('；')),
+          ),
         mainContent,
-        assist
+        assist,
       ),
-      tocSidebar
-    )
+      tocSidebar,
+    ),
   );
 }
 

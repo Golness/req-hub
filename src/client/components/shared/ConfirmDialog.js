@@ -14,54 +14,91 @@ const { IconWarning, IconClose } = createIconComponents(h);
  * @param {Object} props - Component props.
  * @param {string} props.title - The dialog title.
  * @param {string} props.message - The confirmation message body.
- * @param {string} [props.confirmText='确认'] - Label text for the confirm button.
- * @param {string} [props.cancelText='取消'] - Label text for the cancel button.
+ * @param {string} [props.confirmText] - Label text for the confirm button.
+ * @param {string} [props.cancelText] - Label text for the cancel button.
  * @param {'default'|'warning'|'danger'} [props.variant='default'] - Visual variant that affects button styling and icon display.
  * @param {Function} props.onConfirm - Callback invoked when the user confirms the action.
  * @param {Function} props.onCancel - Callback invoked when the user cancels the action.
  * @returns {JSX.Element} The confirmation dialog element.
  */
-function ConfirmDialog({ title, message, confirmText = t("common.confirmAction"), cancelText = t("common.cancel"), variant = 'default', onConfirm, onCancel }) {
-  return h(ModalFrame, {
-    className: 'rh-confirm-overlay',
-    onClick: onCancel,
-    role: 'alertdialog',
-    'aria-modal': 'true',
-    'aria-label': title,
-  },
-    h('div', {
-      className: `rh-confirm-dialog rh-confirm-${variant}`,
-      onClick: e => e.stopPropagation(),
+function ConfirmDialog({
+  title,
+  message,
+  confirmText = t('common.confirmAction'),
+  cancelText = t('common.cancel'),
+  variant = 'default',
+  onConfirm,
+  onCancel,
+}) {
+  let confirmClassName;
+  if (variant === 'danger') {
+    confirmClassName = 'rh-btn-danger';
+  } else if (variant === 'warning') {
+    confirmClassName = 'rh-btn-warning';
+  } else {
+    confirmClassName = 'rh-btn-primary';
+  }
+  return h(
+    ModalFrame,
+    {
+      className: 'rh-confirm-overlay',
+      onClick: onCancel,
+      role: 'alertdialog',
+      'aria-modal': 'true',
+      'aria-label': title,
     },
-      h('div', { className: 'rh-confirm-header' },
-        variant === 'danger' && h('div', { className: 'rh-confirm-warning-icon' },
-          h(IconWarning, { size: 20 })
-        ),
+    h(
+      'div',
+      {
+        className: `rh-confirm-dialog rh-confirm-${variant}`,
+        onClick: (e) => e.stopPropagation(),
+      },
+      h(
+        'div',
+        { className: 'rh-confirm-header' },
+        variant === 'danger' &&
+          h('div', { className: 'rh-confirm-warning-icon' }, h(IconWarning, { size: 20 })),
         h('h3', { className: 'rh-confirm-title' }, title),
-        h(Button, {
-          className: 'rh-btn rh-btn-ghost rh-btn-sm rh-btn-icon rh-confirm-close',
-          onClick: onCancel,
-          'aria-label': t("common.close"),
-        }, h(IconClose, { size: 16 }))
+        h(
+          Button,
+          {
+            className: 'rh-btn rh-btn-ghost rh-btn-sm rh-btn-icon rh-confirm-close',
+            onClick: onCancel,
+            'aria-label': t('common.close'),
+          },
+          h(IconClose, { size: 16 }),
+        ),
       ),
-      h('div', { className: 'rh-confirm-body' },
-        h('p', { className: 'rh-confirm-message' }, message)
+      h(
+        'div',
+        { className: 'rh-confirm-body' },
+        h('p', { className: 'rh-confirm-message' }, message),
       ),
-      h('div', { className: 'rh-confirm-footer' },
-        h(Button, {
-          className: 'rh-btn rh-btn-ghost',
-          onClick: onCancel,
-        }, cancelText),
-        h(Button, {
-          className: `rh-btn ${variant === 'danger' ? 'rh-btn-danger' : variant === 'warning' ? 'rh-btn-warning' : 'rh-btn-primary'}`,
-          onClick: onConfirm,
-        }, confirmText)
-      )
-    )
+      h(
+        'div',
+        { className: 'rh-confirm-footer' },
+        h(
+          Button,
+          {
+            className: 'rh-btn rh-btn-ghost',
+            onClick: onCancel,
+          },
+          cancelText,
+        ),
+        h(
+          Button,
+          {
+            className: `rh-btn ${confirmClassName}`,
+            onClick: onConfirm,
+          },
+          confirmText,
+        ),
+      ),
+    ),
   );
 }
 
-// 全局确认对话框管理器
+// One shared confirmation request is active at a time.
 let confirmResolve = null;
 
 /**
@@ -111,7 +148,9 @@ function ConfirmDialogContainer() {
     }
   }, []);
 
-  if (!config) return null;
+  if (!config) {
+    return null;
+  }
 
   return h(ConfirmDialog, { ...config, onConfirm: handleConfirm, onCancel: handleCancel });
 }

@@ -18,7 +18,13 @@ const { createMarkdownCodeBlockView } = require('./MarkdownCodeBlockView.js');
  * @param {boolean} [props.readOnly=false] - Whether the editor is read-only
  * @returns {JSX.Element}
  */
-function MilkdownEditor({ content, onChange, readOnly = false, mermaid = null, imageContext = null }) {
+function MilkdownEditor({
+  content,
+  onChange,
+  readOnly = false,
+  mermaid = null,
+  imageContext = null,
+}) {
   const editorRef = useRef(null);
   const milkdownRef = useRef(null);
   const propsRef = useRef({ content, onChange, readOnly, mermaid, imageContext });
@@ -38,11 +44,22 @@ function MilkdownEditor({ content, onChange, readOnly = false, mermaid = null, i
     const loadMilkdown = async () => {
       try {
         const {
-          Editor, rootCtx, defaultValueCtx, editorViewOptionsCtx, editorViewCtx, nodeViewCtx,
-          commonmark, gfm, listener, listenerCtx, replaceAll,
+          Editor,
+          rootCtx,
+          defaultValueCtx,
+          editorViewOptionsCtx,
+          editorViewCtx,
+          nodeViewCtx,
+          commonmark,
+          gfm,
+          listener,
+          listenerCtx,
+          replaceAll,
         } = require('./MilkdownRuntime.mjs');
 
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
 
         // Initialize editor
         replaceAllRef.current = replaceAll;
@@ -56,13 +73,23 @@ function MilkdownEditor({ content, onChange, readOnly = false, mermaid = null, i
               ...options,
               editable: () => !propsRef.current.readOnly,
             }));
-            ctx.update(nodeViewCtx, (views) => views.concat([[
-              'code_block',
-              createMarkdownCodeBlockView(() => propsRef.current.mermaid, diagramRenderersRef.current),
-            ], ['image', node => imageNodeView(node, () => propsRef.current.imageContext)]]));
+            ctx.update(nodeViewCtx, (views) =>
+              views.concat([
+                [
+                  'code_block',
+                  createMarkdownCodeBlockView(
+                    () => propsRef.current.mermaid,
+                    diagramRenderersRef.current,
+                  ),
+                ],
+                ['image', (node) => imageNodeView(node, () => propsRef.current.imageContext)],
+              ]),
+            );
 
             ctx.get(listenerCtx).markdownUpdated((_, markdown) => {
-              if (cancelled || markdown === markdownRef.current) return;
+              if (cancelled || markdown === markdownRef.current) {
+                return;
+              }
               markdownRef.current = markdown;
               if (!propsRef.current.readOnly && propsRef.current.onChange) {
                 propsRef.current.onChange(markdown);
@@ -87,7 +114,11 @@ function MilkdownEditor({ content, onChange, readOnly = false, mermaid = null, i
         }
         setLoading(false);
       } catch (e) {
-        if (editor) await editor.destroy().catch(() => {});
+        if (editor) {
+          await editor.destroy().catch((error) => {
+            // Failed setup may leave a partial editor; still clear its container after destroy is attempted.
+          });
+        }
         console.error('Failed to load Milkdown:', e);
         if (!cancelled) {
           setError(e.message);
@@ -130,17 +161,37 @@ function MilkdownEditor({ content, onChange, readOnly = false, mermaid = null, i
   }, [mermaid]);
 
   // Keep the root mounted while the async editor is being created.
-  const status = loading ? h('div', {
-      className: ('rh-milkdown-loading') + ' ' + css.row
-    }, t("MilkdownEditor.message001")) : error ? h('div', {
-      className: ('rh-milkdown-error') + ' ' + css.section
-    }, t("MilkdownEditor.message002", { value0: error })) : null;
+  let status;
+  if (loading) {
+    status = h(
+      'div',
+      {
+        className: 'rh-milkdown-loading' + ' ' + css.row,
+      },
+      t('MilkdownEditor.message001'),
+    );
+  } else if (error) {
+    status = h(
+      'div',
+      {
+        className: 'rh-milkdown-error' + ' ' + css.section,
+      },
+      t('MilkdownEditor.message002', { value0: error }),
+    );
+  } else {
+    status = null;
+  }
 
-  return h(React.Fragment, null, status, h('div', {
-    ref: editorRef,
-    className: ('rh-milkdown-editor') + ' ' + css.pane,
-    hidden: loading || !!error,
-  }));
+  return h(
+    React.Fragment,
+    null,
+    status,
+    h('div', {
+      ref: editorRef,
+      className: 'rh-milkdown-editor' + ' ' + css.pane,
+      hidden: loading || !!error,
+    }),
+  );
 }
 
 module.exports = { MilkdownEditor };

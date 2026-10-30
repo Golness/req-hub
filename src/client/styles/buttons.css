@@ -1,27 +1,70 @@
 /* Action buttons render DSH Button. Feature CSS only owns placement and semantic state. */
-.rh-btn-icon { width: 28px; padding: 0; flex: none; }
-.rh-btn-danger, .rh-btn-danger-outline { color: var(--dsw-alias-state-error-primary); }
-.rh-btn-warning, .rh-btn-warning-outline { color: var(--dsw-alias-state-warn-primary); }
-.rh-btn[aria-pressed="true"] { background: var(--dsw-alias-interactive-bg-active); }
+.rh-btn-icon {
+  width: 28px;
+  padding: 0;
+  flex: none;
+}
+.rh-btn-danger,
+.rh-btn-danger-outline {
+  color: var(--dsw-alias-state-error-primary);
+}
+.rh-btn-warning,
+.rh-btn-warning-outline {
+  color: var(--dsw-alias-state-warn-primary);
+}
+.rh-btn[aria-pressed='true'] {
+  background: var(--dsw-alias-interactive-bg-active);
+}
 /* Placement adapters do not redefine control colors or typography. */
 .rh-right-close,
 .rh-confirm-close,
-.rh-toast-close { flex-shrink: 0; }
-.rh-filter-toggle { width: 100%; justify-content: space-between; }
-.rh-open-directory { margin-left: 8px; }
+.rh-toast-close {
+  flex-shrink: 0;
+}
+.rh-filter-toggle {
+  width: 100%;
+  justify-content: space-between;
+}
+.rh-open-directory {
+  margin-left: 8px;
+}
 .rh-topbar-value {
   max-width: min(280px, 100%);
   overflow: hidden;
   text-overflow: ellipsis;
   display: inline-block;
 }
-.rh-topbar-value.selected { color: var(--rh-accent); }
-.rh-topbar-value.unselected { color: var(--dsw-alias-label-secondary); }
-.rh-diff-expand { display: block; width: 100%; text-align: left; }
-.rh-header-back { white-space: nowrap; }
-.rh-btn.rh-codex-workspace { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 100%; padding: 10px 12px; text-align: left; white-space: normal; overflow-wrap: anywhere; border-radius: 0; }
+.rh-topbar-value.selected {
+  color: var(--rh-accent);
+}
+.rh-topbar-value.unselected {
+  color: var(--dsw-alias-label-secondary);
+}
+.rh-diff-expand {
+  display: block;
+  width: 100%;
+  text-align: left;
+}
+.rh-header-back {
+  white-space: nowrap;
+}
+.rh-btn.rh-codex-workspace {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  border-radius: 0;
+}
 .rh-codex-workspace > span,
-.rh-codex-workspace > small { color: var(--dsw-alias-label-secondary); font-size: var(--rh-font-size-sm); }
+.rh-codex-workspace > small {
+  color: var(--dsw-alias-label-secondary);
+  font-size: var(--rh-font-size-sm);
+}
 
 /* Navigation, tab and disclosure buttons follow the same interaction palette.
  * Their existing blue text marks location; tabs retain their full-width underline.
@@ -105,11 +148,36 @@
   outline-offset: -2px;
 }
 
-.rh-knowledge-hit { margin: 0 0 12px; display: block; width: 100%; text-align: left; color: inherit; font: inherit; background: var(--dsw-alias-bg-layer-1); cursor: pointer; }
+.rh-knowledge-hit {
+  margin: 0 0 12px;
+  display: block;
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  background: var(--dsw-alias-bg-layer-1);
+  cursor: pointer;
+}
 
-.rh-json-toggle { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--dsw-radius-sm, var(--dsw-radius-xs)); color: var(--dsw-alias-label-secondary); background: transparent; vertical-align: middle; cursor: pointer; }
+.rh-json-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--dsw-radius-sm, var(--dsw-radius-xs));
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+  vertical-align: middle;
+  cursor: pointer;
+}
 
-.rh-json-toggle:hover { color: var(--dsw-alias-label-primary); background: var(--rh-button-hover); }
+.rh-json-toggle:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--rh-button-hover);
+}
 
 .rh-rail-btn {
   padding: 0;
@@ -194,13 +262,13 @@
   background: transparent;
 }
 
-.rh-workbench-tab[aria-selected="true"] {
+.rh-workbench-tab[aria-selected='true'] {
   color: var(--dsw-alias-state-business-primary);
   background: transparent;
   font-weight: 500;
 }
 
-.rh-workbench-tab[aria-selected="true"]::after {
+.rh-workbench-tab[aria-selected='true']::after {
   content: '';
   position: absolute;
   bottom: -1px;
@@ -217,11 +285,17 @@
 }
 
 @media (max-width: 400px) {
-  .rh-rail-btn { width: 36px; height: 48px; font-size: var(--rh-font-size-title); }
+  .rh-rail-btn {
+    width: 36px;
+    height: 48px;
+    font-size: var(--rh-font-size-title);
+  }
 }
 
 @media (min-width: 700px) {
-  .rh-result-card { margin: 8px 18px; }
+  .rh-result-card {
+    margin: 8px 18px;
+  }
 }
 
 .rh-file-tree-toggle {

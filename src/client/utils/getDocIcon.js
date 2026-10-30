@@ -10,7 +10,8 @@ const React = require('react');
 const h = React.createElement;
 const { createIconComponents } = require('../icons.js');
 
-const { IconClipboard, IconDesign, IconReview, IconApi, IconTest, IconFile, IconFolder } = createIconComponents(h);
+const { IconClipboard, IconDesign, IconReview, IconApi, IconTest, IconFile, IconFolder } =
+  createIconComponents(h);
 
 /**
  * Returns a React icon element corresponding to the given document type.

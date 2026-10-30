@@ -24,25 +24,30 @@ function TabBodyWrapper() {
   // Pass wsList explicitly to avoid stale closure over workspaces state
   const loadConfig = (wsList) => {
     const list = wsList || workspaces;
-    return fetch(`${ROUTE}/config?t=${Date.now()}`, { cache: 'no-cache', headers: { 'Cache-Control': 'no-cache' } })
-      .then(res => res.ok ? res.json() : null)
-      .then(config => {
-        if (config?.docsDir) setDocsDir(config.docsDir);
+    return fetch(`${ROUTE}/config?t=${Date.now()}`, {
+      cache: 'no-cache',
+      headers: { 'Cache-Control': 'no-cache' },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((config) => {
+        if (config?.docsDir) {
+          setDocsDir(config.docsDir);
+        }
         setInitialReqId(config?.requirementId || null);
         if (list.length > 0) {
           if (config?.workspaceId) {
-            const ws = list.find(w => w.id === config.workspaceId);
+            const ws = list.find((w) => w.id === config.workspaceId);
             if (ws) {
-              setSelectedWs(prev => prev?.id === ws.id ? prev : ws);
+              setSelectedWs((prev) => (prev?.id === ws.id ? prev : ws));
               return config;
             }
           }
-          setSelectedWs(prev => prev || list[0]);
+          setSelectedWs((prev) => prev || list[0]);
         }
         return config;
       })
       .catch(() => {
-        setSelectedWs(prev => prev || (list.length > 0 ? list[0] : null));
+        setSelectedWs((prev) => prev || (list.length > 0 ? list[0] : null));
         return null;
       });
   };
@@ -52,35 +57,43 @@ function TabBodyWrapper() {
     (async () => {
       try {
         const res = await fetch(`${ROUTE}/workspaces`);
-        if (!res.ok) return;
+        if (!res.ok) {
+          return;
+        }
         const data = await res.json();
         if (!cancelled && Array.isArray(data)) {
           setWorkspaces(data);
           // Use plugin's saved config or first workspace
           const config = await loadConfig();
           if (config?.workspaceId) {
-            const ws = data.find(w => w.id === config.workspaceId);
+            const ws = data.find((w) => w.id === config.workspaceId);
             if (ws) {
               setSelectedWs(ws);
               return;
             }
           }
-          setSelectedWs(prev => prev || (data.length > 0 ? data[0] : null));
+          setSelectedWs((prev) => prev || (data.length > 0 ? data[0] : null));
         }
-      } catch { /* ignore */ }
+      } catch (error) {
+        // Keep the last workspace list when its refresh fails.
+      }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (!workspaces.length) {
-    return h('div', { className: 'rh-empty' }, t("TabBodyWrapper.message001"));
+    return h('div', { className: 'rh-empty' }, t('TabBodyWrapper.message001'));
   }
 
   if (!selectedWs) {
-    return h('div', { className: 'rh-empty' }, t("TabBodyWrapper.message002"));
+    return h('div', { className: 'rh-empty' }, t('TabBodyWrapper.message002'));
   }
 
-  return h('div', { className: css.column, role: 'main' },
+  return h(
+    'div',
+    { className: css.column, role: 'main' },
     h(DocsViewerBody, {
       key: `${selectedWs.id}:${docsDir}`,
       workspace: selectedWs,
@@ -89,7 +102,7 @@ function TabBodyWrapper() {
       workspaces,
       onSelectWorkspace: setSelectedWs,
       initialReqId,
-    })
+    }),
   );
 }
 

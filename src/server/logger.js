@@ -72,7 +72,7 @@ function _addLog(level, tag, message, data = null) {
     level,
     tag,
     message,
-    data
+    data,
   };
   operationLogs.unshift(entry);
   if (operationLogs.length > MAX_LOGS) {
@@ -102,7 +102,7 @@ export function createLogger(tag) {
      * @param {any} [data=null] - Optional additional data
      */
     debug: (message, data = null) => _addLog('debug', tag, message, data),
-    
+
     /**
      * Log info level message.
      * Used for routine operation info like startup, completion, progress.
@@ -110,7 +110,7 @@ export function createLogger(tag) {
      * @param {any} [data=null] - Optional additional data
      */
     info: (message, data = null) => _addLog('info', tag, message, data),
-    
+
     /**
      * Log warning level message.
      * Used for warnings like degraded operation, non-fatal errors.
@@ -118,7 +118,7 @@ export function createLogger(tag) {
      * @param {any} [data=null] - Optional additional data
      */
     warn: (message, data = null) => _addLog('warn', tag, message, data),
-    
+
     /**
      * Log error level message.
      * Used for errors like operation failures, exceptions.
@@ -138,19 +138,17 @@ export function createLogger(tag) {
  */
 export function getLogs(options = {}) {
   const { levels = [], tags = [] } = options;
-  
+
   let filtered = operationLogs;
-  
-  // 按等级筛选
+
   if (levels.length > 0) {
-    filtered = filtered.filter(log => levels.includes(log.level));
+    filtered = filtered.filter((log) => levels.includes(log.level));
   }
-  
-  // 按标签筛选
+
   if (tags.length > 0) {
-    filtered = filtered.filter(log => tags.includes(log.tag));
+    filtered = filtered.filter((log) => tags.includes(log.tag));
   }
-  
+
   return filtered;
 }
 
@@ -187,19 +185,18 @@ export function clearLogs() {
  * @returns {void}
  */
 export function addLog(type, message, data = null) {
-  // 旧类型映射到新等级
+  // Map legacy logger categories to the current level and tag fields.
   const typeToLevel = {
     success: 'info',
     info: 'info',
     warning: 'warn',
     error: 'error',
   };
-  
-  // 从消息中尝试提取标签（兼容旧行为）
+
+  // Infer a tag only for legacy callers that do not pass one.
   let level = typeToLevel[type] || 'info';
-  let tag = 'startup'; // 默认标签
-  
-  // 根据消息内容推断标签
+  let tag = 'startup';
+
   if (message.includes('配置') || message.includes('LLM')) {
     tag = 'config';
   } else if (message.includes('同步') || message.includes('Sync')) {
@@ -215,7 +212,7 @@ export function addLog(type, message, data = null) {
   } else if (message.includes('启动') || message.includes('卸载')) {
     tag = 'startup';
   }
-  
+
   _addLog(level, tag, message, data);
 }
 

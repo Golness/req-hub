@@ -7,6 +7,8 @@
     "node": "^22.19.0 || >=24.0.0"
   },
   "scripts": {
+    "format": "prettier --write src scripts \"*.config.js\"",
+    "format:check": "prettier --check src scripts \"*.config.js\"",
     "build": "tsdown",
     "dev": "tsdown --watch",
     "test": "vitest",
@@ -51,6 +53,7 @@
     "jsdom": "26.1.0",
     "lightningcss": "^1.28.0",
     "oxc-resolver": "^11.24.2",
+    "prettier": "3.6.2",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "tsdown": "^0.23.1",

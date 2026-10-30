@@ -18,19 +18,21 @@ export const DEFAULT_FILE_SKILL = 'asd-ste100';
  */
 export function setSkillsService(skills) {
   skillsService = skills;
-  // 清空缓存
 }
-
 
 // Shared contracts keep all ten sync prompts aligned with the same evidence and edit model.
 const SYNC_DOCUMENT_PROFILES = {
   requirement: {
-    name: '需求文档', role: '资深产品经理与业务分析师',
-    quality: '面向产品、研发和测试，用明确的业务术语说明参与角色、触发条件、业务规则、状态变化、异常边界和可验证的验收结果。仅补充本次变更涉及且有证据的项目；不要把内部类名、工具调用或实现细节当成用户需求。验收标准应可观察、可复现，不得虚构业务价值、角色、权限、阈值或尚未实现的能力。',
+    name: '需求文档',
+    role: '资深产品经理与业务分析师',
+    quality:
+      '面向产品、研发和测试，用明确的业务术语说明参与角色、触发条件、业务规则、状态变化、异常边界和可验证的验收结果。仅补充本次变更涉及且有证据的项目；不要把内部类名、工具调用或实现细节当成用户需求。验收标准应可观察、可复现，不得虚构业务价值、角色、权限、阈值或尚未实现的能力。',
   },
   design: {
-    name: '技术方案', role: '资深软件架构师与技术文档工程师',
-    quality: '面向实现、评审和维护，准确说明本次变化涉及的职责、调用或数据流、接口契约、字段与约束、状态与失败行为。按证据需要说明兼容性、事务、一致性、并发、权限或迁移影响；不套用无关章节，不虚构接口路径、字段类型、默认值、性能指标和架构决策。示例必须与已知契约一致。',
+    name: '技术方案',
+    role: '资深软件架构师与技术文档工程师',
+    quality:
+      '面向实现、评审和维护，准确说明本次变化涉及的职责、调用或数据流、接口契约、字段与约束、状态与失败行为。按证据需要说明兼容性、事务、一致性、并发、权限或迁移影响；不套用无关章节，不虚构接口路径、字段类型、默认值、性能指标和架构决策。示例必须与已知契约一致。',
   },
 };
 
@@ -95,7 +97,6 @@ ${profile.quality}
 无有效变更时保持候选字节不变。完成后简短确认；编辑日志由程序记录，标准 Unified Diff 由程序生成和回放校验。`;
 }
 
-
 /**
  * @typedef {Object} PromptMeta
  * @property {string} label - Display name
@@ -114,7 +115,9 @@ ${profile.quality}
  */
 export const PROMPT_REGISTRY = {
   'wiki-generate': {
-    label: 'Wiki 生成、查询与维护', category: 'knowledge', generatesFileContent: true,
+    label: 'Wiki 生成、查询与维护',
+    category: 'knowledge',
+    generatesFileContent: true,
     description: '读取冻结证据，提交有版本引用的 Wiki 候选或查询结果',
     default: `Task: {kind}. Runtime: {runtimeId}.
 Read each frozen document with req_hub_wiki_read.
@@ -150,12 +153,18 @@ For rules, return a rules string and evidence.
 Do not change source documents. Do not publish a candidate.
 Question or instruction: {instruction}
 Frozen document IDs: {documents}`,
-    variables: ['runtimeId','kind','instruction','documents'].map(name => ({ name, description: name, required: true })),
-    outputFormat: 'JSON', requirements: ['完整读取冻结资料，通过受控工具提交，引用精确版本'],
+    variables: ['runtimeId', 'kind', 'instruction', 'documents'].map((name) => ({
+      name,
+      description: name,
+      required: true,
+    })),
+    outputFormat: 'JSON',
+    requirements: ['完整读取冻结资料，通过受控工具提交，引用精确版本'],
   },
   'knowledge-enhancement': {
     generatesFileContent: true,
-    label: '知识检查与范例建议', category: 'knowledge',
+    label: '知识检查与范例建议',
+    category: 'knowledge',
     description: '基于用户所选冻结资料生成可审阅建议，不修改正式文档',
     default: `REQHUB_ENHANCEMENT={runtimeId}
 任务类型：{kind}。授权文档清单：{documents}。
@@ -164,12 +173,19 @@ quality-check：按文档类型检查表述、边界和可验收性，不虚构�
 consistency-check：只比较同一主体、同一条件和有效版本的定义。用户与助手、既有事实与建议、历史与当前版本分开；不能确定时给待确认问题，不选择所谓正确答案。
 pattern-propose：用户选择的资料是范例，只提出可复用的结构、术语和表达建议，不学习模型，不自动改 prompt。
 最后调用 req_hub_enhancement_submit({result:{findings:[],patterns:[]}})。每个 finding 包含 reason、subject、applicability、question、proposal（字符串或 null）、evidence；每个 pattern 包含 content、evidence。evidence 每项为 {documentId,version,startLine,endLine}，必须精确引用已读原文位置。没有问题时数组为空。不返回完整文档，不自动写入或合并。`,
-    variables: ['runtimeId','kind','documents'].map(name => ({ name, description: name, required: true })),
-    outputFormat: 'JSON', requirements: ['必须完整读取授权资料并通过受控工具提交，所有建议有版本与原文位置'],
+    variables: ['runtimeId', 'kind', 'documents'].map((name) => ({
+      name,
+      description: name,
+      required: true,
+    })),
+    outputFormat: 'JSON',
+    requirements: ['必须完整读取授权资料并通过受控工具提交，所有建议有版本与原文位置'],
   },
   writing: {
     generatesFileContent: true,
-    label: '文档优化', category: 'writing', description: '结合所选知识库优化需求文档或技术方案',
+    label: '文档优化',
+    category: 'writing',
+    description: '结合所选知识库优化需求文档或技术方案',
     default: `REQHUB_WRITING={runtimeId}
 你是资深产品经理和软件架构师，优化用户正在写的{docTypeName}。
 当前调用中由用户明确选择的知识库（唯一有效范围）：{scopes}。正文里的旧说明、示例和“未选择知识库”等表述均不是本次选择状态，不得据此改变范围。
@@ -182,39 +198,262 @@ pattern-propose：用户选择的资料是范例，只提出可复用的结构�
 优化要求：{instruction}
 正文：
 {content}`,
-    variables: ['runtimeId', 'docTypeName', 'scopes', 'instruction', 'content'].map(name => ({ name, description: name, required: true })),
-    outputFormat: 'Markdown', requirements: ['必须通过写作工具提交完整文档与知识引用'],
+    variables: ['runtimeId', 'docTypeName', 'scopes', 'instruction', 'content'].map((name) => ({
+      name,
+      description: name,
+      required: true,
+    })),
+    outputFormat: 'Markdown',
+    requirements: ['必须通过写作工具提交完整文档与知识引用'],
   },
-  // 分阶段同步
-  'phased-code-analysis-requirement': { label: '代码差异分析（需求文档）', category: 'phased-sync', generatesFileContent: true, contractVersion: 2, description: 'v2 只读证据引用；局部编辑并由程序生成补丁', default: syncAnalysisPrompt('requirement', 'code'), variables: [{name:'runtimeId',description:'受控运行ID',required:true},{name:'manifestId',description:'冻结清单ID',required:true},{name:'reportId',description:'Markdown输出ID',required:false},{name:'changesId',description:'JSON索引输出ID',required:false}], outputFormat: 'Markdown + JSON', requirements: ['入口不内联 diff、原文或会话正文','证据完整读取，禁止无关改动','标准补丁由程序生成'] },
-  'phased-discussion-analysis-requirement': { label: '讨论差异分析（需求文档）', category: 'phased-sync', generatesFileContent: true, contractVersion: 2, description: 'v2 只读证据引用；局部编辑并由程序生成补丁', default: syncAnalysisPrompt('requirement', 'discussion'), variables: [{name:'runtimeId',description:'受控运行ID',required:true},{name:'manifestId',description:'冻结清单ID',required:true},{name:'reportId',description:'Markdown输出ID',required:false},{name:'changesId',description:'JSON索引输出ID',required:false}], outputFormat: 'Markdown + JSON', requirements: ['入口不内联 diff、原文或会话正文','证据完整读取，禁止无关改动','标准补丁由程序生成'] },
-  'phased-code-analysis-merge-requirement': { label: '代码分析汇总（需求文档）', category: 'phased-sync', generatesFileContent: true, contractVersion: 2, description: 'v2 只读证据引用；局部编辑并由程序生成补丁', default: syncAnalysisMergePrompt('requirement', 'code'), variables: [{name:'runtimeId',description:'受控运行ID',required:true},{name:'manifestId',description:'冻结清单ID',required:true},{name:'reportId',description:'Markdown输出ID',required:false},{name:'changesId',description:'JSON索引输出ID',required:false}], outputFormat: 'Markdown + JSON', requirements: ['入口不内联 diff、原文或会话正文','证据完整读取，禁止无关改动','标准补丁由程序生成'] },
-  'phased-discussion-analysis-merge-requirement': { label: '讨论分析汇总（需求文档）', category: 'phased-sync', generatesFileContent: true, contractVersion: 2, description: 'v2 只读证据引用；局部编辑并由程序生成补丁', default: syncAnalysisMergePrompt('requirement', 'discussion'), variables: [{name:'runtimeId',description:'受控运行ID',required:true},{name:'manifestId',description:'冻结清单ID',required:true},{name:'reportId',description:'Markdown输出ID',required:false},{name:'changesId',description:'JSON索引输出ID',required:false}], outputFormat: 'Markdown + JSON', requirements: ['入口不内联 diff、原文或会话正文','证据完整读取，禁止无关改动','标准补丁由程序生成'] },
-  'phased-merge-requirement': { label: '隔离文档局部编辑（需求文档）', category: 'phased-sync', generatesFileContent: true, contractVersion: 2, description: 'v2 只读证据引用；局部编辑并由程序生成补丁', default: syncMergePrompt('requirement'), variables: [{name:'runtimeId',description:'受控运行ID',required:true},{name:'manifestId',description:'冻结清单ID',required:true},{name:'reportId',description:'Markdown输出ID',required:false},{name:'changesId',description:'JSON索引输出ID',required:false}], outputFormat: 'Candidate document', requirements: ['入口不内联 diff、原文或会话正文','证据完整读取，禁止无关改动','标准补丁由程序生成'] },
-  'phased-code-analysis-design': { label: '代码差异分析（技术文档）', category: 'phased-sync', generatesFileContent: true, contractVersion: 2, description: 'v2 只读证据引用；局部编辑并由程序生成补丁', default: syncAnalysisPrompt('design', 'code'), variables: [{name:'runtimeId',description:'受控运行ID',required:true},{name:'manifestId',description:'冻结清单ID',required:true},{name:'reportId',description:'Markdown输出ID',required:false},{name:'changesId',description:'JSON索引输出ID',required:false}], outputFormat: 'Markdown + JSON', requirements: ['入口不内联 diff、原文或会话正文','证据完整读取，禁止无关改动','标准补丁由程序生成'] },
-  'phased-discussion-analysis-design': { label: '讨论差异分析（技术文档）', category: 'phased-sync', generatesFileContent: true, contractVersion: 2, description: 'v2 只读证据引用；局部编辑并由程序生成补丁', default: syncAnalysisPrompt('design', 'discussion'), variables: [{name:'runtimeId',description:'受控运行ID',required:true},{name:'manifestId',description:'冻结清单ID',required:true},{name:'reportId',description:'Markdown输出ID',required:false},{name:'changesId',description:'JSON索引输出ID',required:false}], outputFormat: 'Markdown + JSON', requirements: ['入口不内联 diff、原文或会话正文','证据完整读取，禁止无关改动','标准补丁由程序生成'] },
-  'phased-code-analysis-merge-design': { label: '代码分析汇总（技术文档）', category: 'phased-sync', generatesFileContent: true, contractVersion: 2, description: 'v2 只读证据引用；局部编辑并由程序生成补丁', default: syncAnalysisMergePrompt('design', 'code'), variables: [{name:'runtimeId',description:'受控运行ID',required:true},{name:'manifestId',description:'冻结清单ID',required:true},{name:'reportId',description:'Markdown输出ID',required:false},{name:'changesId',description:'JSON索引输出ID',required:false}], outputFormat: 'Markdown + JSON', requirements: ['入口不内联 diff、原文或会话正文','证据完整读取，禁止无关改动','标准补丁由程序生成'] },
-  'phased-discussion-analysis-merge-design': { label: '讨论分析汇总（技术文档）', category: 'phased-sync', generatesFileContent: true, contractVersion: 2, description: 'v2 只读证据引用；局部编辑并由程序生成补丁', default: syncAnalysisMergePrompt('design', 'discussion'), variables: [{name:'runtimeId',description:'受控运行ID',required:true},{name:'manifestId',description:'冻结清单ID',required:true},{name:'reportId',description:'Markdown输出ID',required:false},{name:'changesId',description:'JSON索引输出ID',required:false}], outputFormat: 'Markdown + JSON', requirements: ['入口不内联 diff、原文或会话正文','证据完整读取，禁止无关改动','标准补丁由程序生成'] },
-  'phased-merge-design': { label: '隔离文档局部编辑（技术文档）', category: 'phased-sync', generatesFileContent: true, contractVersion: 2, description: 'v2 只读证据引用；局部编辑并由程序生成补丁', default: syncMergePrompt('design'), variables: [{name:'runtimeId',description:'受控运行ID',required:true},{name:'manifestId',description:'冻结清单ID',required:true},{name:'reportId',description:'Markdown输出ID',required:false},{name:'changesId',description:'JSON索引输出ID',required:false}], outputFormat: 'Candidate document', requirements: ['入口不内联 diff、原文或会话正文','证据完整读取，禁止无关改动','标准补丁由程序生成'] },
+
+  'phased-code-analysis-requirement': {
+    label: '代码差异分析（需求文档）',
+    category: 'phased-sync',
+    generatesFileContent: true,
+    contractVersion: 2,
+    description: 'v2 只读证据引用；局部编辑并由程序生成补丁',
+    default: syncAnalysisPrompt('requirement', 'code'),
+    variables: [
+      { name: 'runtimeId', description: '受控运行ID', required: true },
+      { name: 'manifestId', description: '冻结清单ID', required: true },
+      { name: 'reportId', description: 'Markdown输出ID', required: false },
+      { name: 'changesId', description: 'JSON索引输出ID', required: false },
+    ],
+    outputFormat: 'Markdown + JSON',
+    requirements: [
+      '入口不内联 diff、原文或会话正文',
+      '证据完整读取，禁止无关改动',
+      '标准补丁由程序生成',
+    ],
+  },
+  'phased-discussion-analysis-requirement': {
+    label: '讨论差异分析（需求文档）',
+    category: 'phased-sync',
+    generatesFileContent: true,
+    contractVersion: 2,
+    description: 'v2 只读证据引用；局部编辑并由程序生成补丁',
+    default: syncAnalysisPrompt('requirement', 'discussion'),
+    variables: [
+      { name: 'runtimeId', description: '受控运行ID', required: true },
+      { name: 'manifestId', description: '冻结清单ID', required: true },
+      { name: 'reportId', description: 'Markdown输出ID', required: false },
+      { name: 'changesId', description: 'JSON索引输出ID', required: false },
+    ],
+    outputFormat: 'Markdown + JSON',
+    requirements: [
+      '入口不内联 diff、原文或会话正文',
+      '证据完整读取，禁止无关改动',
+      '标准补丁由程序生成',
+    ],
+  },
+  'phased-code-analysis-merge-requirement': {
+    label: '代码分析汇总（需求文档）',
+    category: 'phased-sync',
+    generatesFileContent: true,
+    contractVersion: 2,
+    description: 'v2 只读证据引用；局部编辑并由程序生成补丁',
+    default: syncAnalysisMergePrompt('requirement', 'code'),
+    variables: [
+      { name: 'runtimeId', description: '受控运行ID', required: true },
+      { name: 'manifestId', description: '冻结清单ID', required: true },
+      { name: 'reportId', description: 'Markdown输出ID', required: false },
+      { name: 'changesId', description: 'JSON索引输出ID', required: false },
+    ],
+    outputFormat: 'Markdown + JSON',
+    requirements: [
+      '入口不内联 diff、原文或会话正文',
+      '证据完整读取，禁止无关改动',
+      '标准补丁由程序生成',
+    ],
+  },
+  'phased-discussion-analysis-merge-requirement': {
+    label: '讨论分析汇总（需求文档）',
+    category: 'phased-sync',
+    generatesFileContent: true,
+    contractVersion: 2,
+    description: 'v2 只读证据引用；局部编辑并由程序生成补丁',
+    default: syncAnalysisMergePrompt('requirement', 'discussion'),
+    variables: [
+      { name: 'runtimeId', description: '受控运行ID', required: true },
+      { name: 'manifestId', description: '冻结清单ID', required: true },
+      { name: 'reportId', description: 'Markdown输出ID', required: false },
+      { name: 'changesId', description: 'JSON索引输出ID', required: false },
+    ],
+    outputFormat: 'Markdown + JSON',
+    requirements: [
+      '入口不内联 diff、原文或会话正文',
+      '证据完整读取，禁止无关改动',
+      '标准补丁由程序生成',
+    ],
+  },
+  'phased-merge-requirement': {
+    label: '隔离文档局部编辑（需求文档）',
+    category: 'phased-sync',
+    generatesFileContent: true,
+    contractVersion: 2,
+    description: 'v2 只读证据引用；局部编辑并由程序生成补丁',
+    default: syncMergePrompt('requirement'),
+    variables: [
+      { name: 'runtimeId', description: '受控运行ID', required: true },
+      { name: 'manifestId', description: '冻结清单ID', required: true },
+      { name: 'reportId', description: 'Markdown输出ID', required: false },
+      { name: 'changesId', description: 'JSON索引输出ID', required: false },
+    ],
+    outputFormat: 'Candidate document',
+    requirements: [
+      '入口不内联 diff、原文或会话正文',
+      '证据完整读取，禁止无关改动',
+      '标准补丁由程序生成',
+    ],
+  },
+  'phased-code-analysis-design': {
+    label: '代码差异分析（技术文档）',
+    category: 'phased-sync',
+    generatesFileContent: true,
+    contractVersion: 2,
+    description: 'v2 只读证据引用；局部编辑并由程序生成补丁',
+    default: syncAnalysisPrompt('design', 'code'),
+    variables: [
+      { name: 'runtimeId', description: '受控运行ID', required: true },
+      { name: 'manifestId', description: '冻结清单ID', required: true },
+      { name: 'reportId', description: 'Markdown输出ID', required: false },
+      { name: 'changesId', description: 'JSON索引输出ID', required: false },
+    ],
+    outputFormat: 'Markdown + JSON',
+    requirements: [
+      '入口不内联 diff、原文或会话正文',
+      '证据完整读取，禁止无关改动',
+      '标准补丁由程序生成',
+    ],
+  },
+  'phased-discussion-analysis-design': {
+    label: '讨论差异分析（技术文档）',
+    category: 'phased-sync',
+    generatesFileContent: true,
+    contractVersion: 2,
+    description: 'v2 只读证据引用；局部编辑并由程序生成补丁',
+    default: syncAnalysisPrompt('design', 'discussion'),
+    variables: [
+      { name: 'runtimeId', description: '受控运行ID', required: true },
+      { name: 'manifestId', description: '冻结清单ID', required: true },
+      { name: 'reportId', description: 'Markdown输出ID', required: false },
+      { name: 'changesId', description: 'JSON索引输出ID', required: false },
+    ],
+    outputFormat: 'Markdown + JSON',
+    requirements: [
+      '入口不内联 diff、原文或会话正文',
+      '证据完整读取，禁止无关改动',
+      '标准补丁由程序生成',
+    ],
+  },
+  'phased-code-analysis-merge-design': {
+    label: '代码分析汇总（技术文档）',
+    category: 'phased-sync',
+    generatesFileContent: true,
+    contractVersion: 2,
+    description: 'v2 只读证据引用；局部编辑并由程序生成补丁',
+    default: syncAnalysisMergePrompt('design', 'code'),
+    variables: [
+      { name: 'runtimeId', description: '受控运行ID', required: true },
+      { name: 'manifestId', description: '冻结清单ID', required: true },
+      { name: 'reportId', description: 'Markdown输出ID', required: false },
+      { name: 'changesId', description: 'JSON索引输出ID', required: false },
+    ],
+    outputFormat: 'Markdown + JSON',
+    requirements: [
+      '入口不内联 diff、原文或会话正文',
+      '证据完整读取，禁止无关改动',
+      '标准补丁由程序生成',
+    ],
+  },
+  'phased-discussion-analysis-merge-design': {
+    label: '讨论分析汇总（技术文档）',
+    category: 'phased-sync',
+    generatesFileContent: true,
+    contractVersion: 2,
+    description: 'v2 只读证据引用；局部编辑并由程序生成补丁',
+    default: syncAnalysisMergePrompt('design', 'discussion'),
+    variables: [
+      { name: 'runtimeId', description: '受控运行ID', required: true },
+      { name: 'manifestId', description: '冻结清单ID', required: true },
+      { name: 'reportId', description: 'Markdown输出ID', required: false },
+      { name: 'changesId', description: 'JSON索引输出ID', required: false },
+    ],
+    outputFormat: 'Markdown + JSON',
+    requirements: [
+      '入口不内联 diff、原文或会话正文',
+      '证据完整读取，禁止无关改动',
+      '标准补丁由程序生成',
+    ],
+  },
+  'phased-merge-design': {
+    label: '隔离文档局部编辑（技术文档）',
+    category: 'phased-sync',
+    generatesFileContent: true,
+    contractVersion: 2,
+    description: 'v2 只读证据引用；局部编辑并由程序生成补丁',
+    default: syncMergePrompt('design'),
+    variables: [
+      { name: 'runtimeId', description: '受控运行ID', required: true },
+      { name: 'manifestId', description: '冻结清单ID', required: true },
+      { name: 'reportId', description: 'Markdown输出ID', required: false },
+      { name: 'changesId', description: 'JSON索引输出ID', required: false },
+    ],
+    outputFormat: 'Candidate document',
+    requirements: [
+      '入口不内联 diff、原文或会话正文',
+      '证据完整读取，禁止无关改动',
+      '标准补丁由程序生成',
+    ],
+  },
 };
 
-
-/** Return effective defaults. Explicit empty bindings mean no skill. */
+/**
+ * Return effective defaults. Explicit empty bindings mean no skill.
+ * @param config - Validated plugin configuration.
+ * @param [skills] - The skill catalog used for lookup.
+ * @param [lookup] - Scoped skill lookup context.
+ * @returns Effective skill bindings and lookup state.
+ */
 export async function defaultSkillBindings(config, skills = skillsService, lookup = {}) {
   const result = structuredClone(config);
-  if (!skills?.get) return result;
+  if (!skills?.get) {
+    return result;
+  }
   let skill;
-  try { skill = await skills.get(DEFAULT_FILE_SKILL, lookup); } catch { return result; }
-  if (typeof skill?.content !== 'string' || !skill.content.trim() || Buffer.byteLength(skill.content)>200000 || skill.invocation?.modelInvocable === false) return result;
+  try {
+    skill = await skills.get(DEFAULT_FILE_SKILL, lookup);
+  } catch {
+    return result;
+  }
+  if (
+    typeof skill?.content !== 'string' ||
+    !skill.content.trim() ||
+    Buffer.byteLength(skill.content) > 200000 ||
+    skill.invocation?.modelInvocable === false
+  ) {
+    return result;
+  }
   for (const [key, meta] of Object.entries(PROMPT_REGISTRY)) {
-    if (!meta.generatesFileContent) continue;
-    if (meta.contractVersion === 2 && result.ai?.syncV2?.contractVersion !== 2 && Object.values(result.ai?.syncV2?.skillBindings || {}).some(Boolean)) continue;
+    if (!meta.generatesFileContent) {
+      continue;
+    }
+    if (
+      meta.contractVersion === 2 &&
+      result.ai?.syncV2?.contractVersion !== 2 &&
+      Object.values(result.ai?.syncV2?.skillBindings || {}).some(Boolean)
+    ) {
+      continue;
+    }
     result.ai ||= {};
     const settings = meta.contractVersion === 2 ? (result.ai.syncV2 ||= {}) : result.ai;
     settings.skillBindings ||= {};
     if (!Object.hasOwn(settings.skillBindings, key)) {
       settings.skillBindings[key] = DEFAULT_FILE_SKILL;
-      if (meta.contractVersion === 2) settings.contractVersion = 2;
+      if (meta.contractVersion === 2) {
+        settings.contractVersion = 2;
+      }
     }
   }
   return result;
@@ -235,7 +474,6 @@ export async function getScopedSkills(sessionId, sessionQuery, agents, agentPres
   }
 
   try {
-    // 1. 获取会话信息
     const observation = await sessionQuery.observeSession(sessionId);
     if (!observation?.projections) {
       return null;
@@ -243,17 +481,18 @@ export async function getScopedSkills(sessionId, sessionQuery, agents, agentPres
 
     const agentPreset = observation.projections.values.agentPreset ?? undefined;
 
-    // 2. 尝试从活跃 agent 获取 scoped skills
     const live = agents.get(sessionId);
     let scoped = live ? agentPresets.serviceFor(live, 'skills') : undefined;
 
-    // 3. 如果没有活跃 agent，尝试从 preset 获取 scope
     if (!scoped && agentPreset) {
       try {
         const lease = await agentPresets.acquireScope(agentPreset);
-        try { return null; } finally { await lease?.[Symbol.asyncDispose](); }
+        try {
+          return null;
+        } finally {
+          await lease?.[Symbol.asyncDispose]();
+        }
       } catch (e) {
-        // preset 不可用
         return null;
       }
     }
@@ -275,8 +514,10 @@ export async function getScopedSkills(sessionId, sessionQuery, agents, agentPres
  */
 export function getPromptMeta(promptKey) {
   const meta = PROMPT_REGISTRY[promptKey];
-  if (!meta) return null;
-  
+  if (!meta) {
+    return null;
+  }
+
   return {
     key: promptKey,
     label: meta.label,
@@ -294,7 +535,7 @@ export function getPromptMeta(promptKey) {
  */
 export function getAllPromptMetas() {
   const result = [];
-  
+
   for (const [key, meta] of Object.entries(PROMPT_REGISTRY)) {
     result.push({
       key,
@@ -305,7 +546,7 @@ export function getAllPromptMetas() {
       category: meta.category || 'general',
     });
   }
-  
+
   return result;
 }
 
@@ -322,21 +563,19 @@ export function validatePromptTemplate(promptKey, template) {
     errors: [],
     warnings: [],
   };
-  
+
   const meta = PROMPT_REGISTRY[promptKey];
   if (!meta) {
     result.warnings.push(`未知的 promptKey: ${promptKey}`);
     return result;
   }
-  
-  // 检查模板是否为空
+
   if (!template || template.trim().length === 0) {
     result.errors.push('模板不能为空');
     result.valid = false;
     return result;
   }
-  
-  // 检查必需变量是否在模板中出现
+
   if (meta.variables) {
     for (const varDef of meta.variables) {
       if (varDef.required) {
@@ -348,14 +587,13 @@ export function validatePromptTemplate(promptKey, template) {
       }
     }
   }
-  
-  // 检查输出格式要求
+
   if (meta.outputFormat === 'JSON') {
     if (!template.includes('JSON') && !template.includes('json')) {
       result.warnings.push('此 prompt 要求返回 JSON 格式，建议在模板中明确说明');
     }
   }
-  
+
   return result;
 }
 
@@ -373,19 +611,53 @@ export function validatePromptTemplate(promptKey, template) {
  * @param {Object} [scopedSkills] - Optional scoped skills service
  * @returns {Promise<{systemPrompt: string, promptTemplate: string, skillUsed: string|null}>}
  */
-export async function getPromptAsync(config, promptKey, cwd = undefined, scopedSkills = undefined, lookup = {}) {
-  const settings = PROMPT_REGISTRY[promptKey]?.contractVersion === 2 ? config.ai?.syncV2 : config.ai;
-  const promptTemplate = settings?.prompts?.[promptKey]?.trim() || PROMPT_REGISTRY[promptKey]?.default || '';
+export async function getPromptAsync(
+  config,
+  promptKey,
+  cwd = undefined,
+  scopedSkills = undefined,
+  lookup = {},
+) {
+  const settings =
+    PROMPT_REGISTRY[promptKey]?.contractVersion === 2 ? config.ai?.syncV2 : config.ai;
+  const promptTemplate =
+    settings?.prompts?.[promptKey]?.trim() || PROMPT_REGISTRY[promptKey]?.default || '';
   const explicit = Object.hasOwn(settings?.skillBindings || {}, promptKey);
-  const skillName = explicit ? settings.skillBindings[promptKey] : PROMPT_REGISTRY[promptKey]?.generatesFileContent ? DEFAULT_FILE_SKILL : null;
-  if (!skillName) return { systemPrompt: '', promptTemplate, skillUsed: null, skillStatus: 'not_bound' };
+  let skillName;
+  if (explicit) {
+    skillName = settings.skillBindings[promptKey];
+  } else if (PROMPT_REGISTRY[promptKey]?.generatesFileContent) {
+    skillName = DEFAULT_FILE_SKILL;
+  } else {
+    skillName = null;
+  }
+  if (!skillName) {
+    return { systemPrompt: '', promptTemplate, skillUsed: null, skillStatus: 'not_bound' };
+  }
   try {
     const skill = await (scopedSkills || skillsService)?.get(skillName, { ...lookup, cwd });
-    if (skill?.content?.trim() && Buffer.byteLength(skill.content) <= 200000 && skill.invocation?.modelInvocable !== false) {
-      return { systemPrompt: skill.content, promptTemplate, skillUsed: skillName, skillStatus: 'loaded' };
+    if (
+      skill?.content?.trim() &&
+      Buffer.byteLength(skill.content) <= 200000 &&
+      skill.invocation?.modelInvocable !== false
+    ) {
+      return {
+        systemPrompt: skill.content,
+        promptTemplate,
+        skillUsed: skillName,
+        skillStatus: 'loaded',
+      };
     }
-  } catch (error) { lookup.signal?.throwIfAborted(); }
-  return { systemPrompt: '', promptTemplate, skillUsed: null, skillStatus: 'unavailable', requestedSkill: skillName };
+  } catch (error) {
+    lookup.signal?.throwIfAborted();
+  }
+  return {
+    systemPrompt: '',
+    promptTemplate,
+    skillUsed: null,
+    skillStatus: 'unavailable',
+    requestedSkill: skillName,
+  };
 }
 
 /**
@@ -398,16 +670,17 @@ export async function getPromptAsync(config, promptKey, cwd = undefined, scopedS
  */
 export function buildFullPrompt(options) {
   const { systemPrompt, promptTemplate, variables = {} } = options;
-  
+
   // One pass preserves literal dollar sequences and placeholders inside source documents.
   const filledTemplate = promptTemplate.replace(/\{([^{}\r\n]+)\}/g, (match, key) =>
-    Object.prototype.hasOwnProperty.call(variables, key) ? String(variables[key]) : match);
+    Object.prototype.hasOwnProperty.call(variables, key) ? String(variables[key]) : match,
+  );
 
-  // 组合 Skill 指令和业务数据
+  // Keep skill instructions separate from user-provided business data.
   if (systemPrompt) {
     return `${systemPrompt}\n\n---\n\n${filledTemplate}`;
   }
-  
+
   return filledTemplate;
 }
 
@@ -419,7 +692,10 @@ export function buildFullPrompt(options) {
  * @returns {string} Prompt content
  */
 export function getPrompt(config, promptKey) {
-  const custom = (PROMPT_REGISTRY[promptKey]?.contractVersion === 2 ? config.ai?.syncV2 : config.ai)?.prompts?.[promptKey];
-  if (custom && custom.trim()) return custom;
+  const custom = (PROMPT_REGISTRY[promptKey]?.contractVersion === 2 ? config.ai?.syncV2 : config.ai)
+    ?.prompts?.[promptKey];
+  if (custom && custom.trim()) {
+    return custom;
+  }
   return PROMPT_REGISTRY[promptKey]?.default || '';
 }

@@ -1,3 +1,7 @@
 /* Component presentation; runtime geometry uses local CSS variables. */
-.size { width: var(--rh-width-0); }
-.content { padding-left: var(--rh-padding-left-0); }
+.size {
+  width: var(--rh-width-0);
+}
+.content {
+  padding-left: var(--rh-padding-left-0);
+}

@@ -141,4 +141,6 @@
 }
 
 .rh-markdown :where(strong, b),
-.rh-milkdown-editor :where(strong, b) { font-weight: var(--dsw-font-markdown-base-strong-font-weight); }
+.rh-milkdown-editor :where(strong, b) {
+  font-weight: var(--dsw-font-markdown-base-strong-font-weight);
+}

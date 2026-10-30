@@ -18,7 +18,9 @@ const DEFAULT_TTL = 30000;
  */
 export function getCached(key) {
   const entry = cache.get(key);
-  if (!entry) return null;
+  if (!entry) {
+    return null;
+  }
   if (Date.now() - entry.timestamp > DEFAULT_TTL) {
     cache.delete(key);
     return null;
