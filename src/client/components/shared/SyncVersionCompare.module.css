@@ -1,14 +1,52 @@
 /* Component presentation; runtime geometry uses local CSS variables. */
 .spacing {
-  margin-top: 20px;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  container-type: inline-size;
+}
+.spacing h3 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
 }
 .mutedText {
+  margin: 0 0 16px;
   color: var(--dsw-alias-label-secondary);
-  font-size: var(--rh-font-size);
+  font-size: 13px;
+  line-height: 20px;
 }
 .row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  min-width: 0;
+  align-items: start;
+}
+.actions {
   display: flex;
-  gap: 12px;
+  justify-content: flex-end;
+  align-items: center;
   flex-wrap: wrap;
-  align-items: end;
+  gap: 8px;
+  margin-top: 16px;
+}
+.action {
+  min-height: 36px;
+}
+.spacing p[role='alert'] {
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+@container (max-width: 480px) {
+  .row {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

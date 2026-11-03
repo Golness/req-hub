@@ -16,7 +16,7 @@ const ACTIVE = ['queued', 'running', 'cancelling'];
  * @param props - Data, state and callbacks supplied by the owning surface.
  * @returns The rendered component content.
  */
-function WikiPanel({ workspaceId, tab, embedded = false }) {
+function WikiPanel({ workspaceId, tab, embedded = false, refreshKey = 0 }) {
   const session = React.useContext(SessionSelectionContext);
   const [data, setData] = React.useState({ items: [] });
   const [jobs, setJobs] = React.useState([]);
@@ -180,7 +180,7 @@ function WikiPanel({ workspaceId, tab, embedded = false }) {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [workspaceId, tab, revision]);
+  }, [workspaceId, tab, revision, refreshKey]);
   const label = (key) => t(`wiki.${key}`);
   const button = (key, action, disabled = busy) =>
     h(
@@ -852,6 +852,24 @@ function WikiPanel({ workspaceId, tab, embedded = false }) {
             ),
             job.error &&
               h('p', { className: css.error }, t('wiki.error', { code: job.error.code })),
+            (job.execution || job.error?.details) &&
+              h(
+                Disclosure,
+                { title: t('wiki.events.details') },
+                h(
+                  'pre',
+                  { className: css.body },
+                  JSON.stringify(
+                    {
+                      sessionId: job.sessionId,
+                      execution: job.execution,
+                      error: job.error,
+                    },
+                    null,
+                    2,
+                  ),
+                ),
+              ),
             h(
               'div',
               { className: css.toolbar },

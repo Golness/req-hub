@@ -42,7 +42,7 @@ const mergeParts = (parts) =>
     .join('');
 
 /**
- * Review individual changes before completing the proposed document.
+ * Review individual changes; identical documents show their result before optional content.
  * @param props - Data, state and callbacks supplied by the owning surface.
  * @returns The rendered component content.
  */
@@ -63,6 +63,7 @@ function DiffReviewPage({
     () => initialParts || reviewParts(oldContent || '', newContent || ''),
   );
   const [conflict, setConflict] = React.useState(false);
+  const [changesOnly, setChangesOnly] = React.useState(false);
   const back = React.useRef(null);
   React.useEffect(() => {
     back.current?.focus();
@@ -94,9 +95,19 @@ function DiffReviewPage({
     h(
       'header',
       { className: css.header },
-      h('span', { className: css.filename, title: fileName }, fileName || t('review.title')),
-      h('span', { role: 'status' }, t('review.count', { count: changes.length, pending })),
+      h(
+        'div',
+        { className: css.heading },
+        h('h2', null, t(onComplete ? 'review.title' : 'review.compareTitle')),
+        h('span', { className: css.filename, title: fileName }, fileName),
+      ),
+      h(
+        'span',
+        { className: css.count, role: 'status' },
+        t(onComplete ? 'review.count' : 'review.readCount', { count: changes.length, pending }),
+      ),
       onComplete &&
+        changes.length > 0 &&
         h(
           'div',
           { className: css.bulkActions },
@@ -109,11 +120,28 @@ function DiffReviewPage({
       'div',
       { className: css.body },
       conflict && h('p', { role: 'alert' }, t('review.changed')),
+      !changes.length &&
+        h(
+          'div',
+          { className: css.identical, role: 'status' },
+          h('strong', null, t('review.identical')),
+          h('span', null, t('review.identicalHelp')),
+        ),
       h(
         'section',
         { className: css.overview },
-        h('h3', null, t('review.overview')),
-        h('p', null, overview || t(onComplete ? 'review.editHelp' : 'review.readHelp')),
+        changes.length > 0 &&
+          h(
+            'div',
+            { className: css.overviewHeading },
+            h(
+              'span',
+              { className: css.mode },
+              t(onComplete ? 'review.editMode' : 'review.readMode'),
+            ),
+            h('p', null, t(onComplete ? 'review.editHelp' : 'review.readHelp')),
+          ),
+        overview && h('p', { className: css.explanation }, overview),
         evidence?.length > 0 &&
           h(
             Disclosure,
@@ -129,72 +157,111 @@ function DiffReviewPage({
       ),
       h(
         'div',
-        { className: css.comparison },
+        { className: css.labels },
         h(
           'div',
-          { className: css.labels },
-          h('span', null, oldLabel || t('DiffViewer.message003')),
-          h('span', null, newLabel || t('DiffViewer.message004')),
+          null,
+          h('span', null, t('review.baseVersion')),
+          h('strong', null, oldLabel || t('DiffViewer.message003')),
         ),
-        parts.map((part, index) =>
-          part.text !== undefined
-            ? h(
-                'div',
-                { className: css.pair, key: index },
-                h('pre', null, part.text),
-                h('pre', null, part.text),
-              )
-            : h(
-                'section',
-                {
-                  key: index,
-                  className: css.change,
-                  'aria-label': t('review.change', { index: changes.indexOf(part) + 1 }),
-                },
-                h(
-                  'div',
-                  { className: css.actions },
-                  h('span', null, t('review.change', { index: changes.indexOf(part) + 1 })),
-                  onComplete &&
-                    h(
-                      React.Fragment,
-                      null,
-                      h(
-                        Button,
-                        {
-                          size: 'sm',
-                          'aria-pressed': part.decision === 'accept',
-                          onClick: () => decide(index, 'accept'),
-                        },
-                        t('review.accept'),
-                      ),
-                      h(
-                        Button,
-                        {
-                          size: 'sm',
-                          'aria-pressed': part.decision === 'reject',
-                          onClick: () => decide(index, 'reject'),
-                        },
-                        t('review.reject'),
-                      ),
-                    ),
-                  part.decision &&
-                    h(
-                      'span',
-                      null,
-                      t(part.decision === 'accept' ? 'review.accepted' : 'review.rejected'),
-                    ),
-                ),
-                h(
-                  'div',
-                  { className: css.pair },
-                  h('pre', { className: css.before }, part.before || t('review.empty')),
-                  h('pre', { className: css.after }, part.after || t('review.empty')),
-                ),
-              ),
+        h(
+          'div',
+          null,
+          h('span', null, t('review.targetVersion')),
+          h('strong', null, newLabel || t('DiffViewer.message004')),
         ),
-        !changes.length && h('p', { role: 'status' }, t('review.identical')),
       ),
+      !changes.length
+        ? h(
+            Disclosure,
+            { title: t('review.showDocument'), lazy: true, className: css.document },
+            h('pre', { className: css.fullText }, oldContent || t('review.empty')),
+          )
+        : h(
+            'div',
+            { className: css.comparison },
+            h(
+              'div',
+              { className: css.toolbar },
+              h('h3', null, t('review.changesTitle')),
+              h(
+                Button,
+                {
+                  size: 'sm',
+                  variant: 'ghost',
+                  'aria-pressed': changesOnly,
+                  onClick: () => setChangesOnly((value) => !value),
+                },
+                t('review.changesOnly'),
+              ),
+            ),
+            parts.map((part, index) =>
+              part.text !== undefined
+                ? !changesOnly &&
+                  h(
+                    'div',
+                    { className: css.pair, key: index },
+                    h('pre', { 'data-label': t('review.baseVersion') }, part.text),
+                    h('pre', { 'data-label': t('review.targetVersion') }, part.text),
+                  )
+                : h(
+                    'section',
+                    {
+                      key: index,
+                      className: css.change,
+                      'aria-label': t('review.change', { index: changes.indexOf(part) + 1 }),
+                    },
+                    h(
+                      'div',
+                      { className: css.actions },
+                      h('span', null, t('review.change', { index: changes.indexOf(part) + 1 })),
+                      onComplete &&
+                        h(
+                          React.Fragment,
+                          null,
+                          h(
+                            Button,
+                            {
+                              size: 'sm',
+                              'aria-pressed': part.decision === 'accept',
+                              onClick: () => decide(index, 'accept'),
+                            },
+                            t('review.accept'),
+                          ),
+                          h(
+                            Button,
+                            {
+                              size: 'sm',
+                              'aria-pressed': part.decision === 'reject',
+                              onClick: () => decide(index, 'reject'),
+                            },
+                            t('review.reject'),
+                          ),
+                        ),
+                      part.decision &&
+                        h(
+                          'span',
+                          null,
+                          t(part.decision === 'accept' ? 'review.accepted' : 'review.rejected'),
+                        ),
+                    ),
+                    h(
+                      'div',
+                      { className: css.pair },
+                      h(
+                        'pre',
+                        { className: css.before, 'data-label': t('review.baseVersion') },
+                        part.before || t('review.empty'),
+                      ),
+                      h(
+                        'pre',
+                        { className: css.after, 'data-label': t('review.targetVersion') },
+                        part.after || t('review.empty'),
+                      ),
+                    ),
+                  ),
+            ),
+          ),
     ),
   );
 }
@@ -251,7 +318,7 @@ function DiffReviewProvider({ children }) {
 
 // The fallback keeps independently mounted plugin components usable in tests.
 /**
- * Read the active document-review request API.
+ * Read the review API; requests may retain an explicit opener across asynchronous preparation.
  * @returns The review API supplied by the provider.
  */
 function useDiffReview() {
@@ -260,7 +327,7 @@ function useDiffReview() {
   const [local, setLocal] = React.useState(null);
   React.useEffect(() => () => provider?.close(owner), [provider, owner]);
   const open = (value) => {
-    const config = { ...value, owner, returnFocus: document.activeElement };
+    const config = { ...value, owner, returnFocus: value.returnFocus ?? document.activeElement };
     if (provider) {
       provider.open(config);
     } else {

@@ -75,3 +75,19 @@ it('keeps checks unavailable when the source is not imported, dirty or enhanceme
   context.enabled = true; context.documentRefs = [doc]; await render({ dirty: true });
   expect(button('结构检查').disabled).toBe(true);
 });
+
+it('keeps related sources and checks in the document assistant without graph administration', async () => {
+  const onOpenSource = vi.fn();
+  await render({ assistant: true, onOpenSource });
+  expect(container.textContent).toContain('相关资料');
+  expect(container.textContent).toContain('检查文档');
+  expect(container.textContent).not.toContain('高级关联操作');
+  expect(container.textContent).not.toContain('影响查询深度');
+  expect(container.textContent).not.toContain('GitNexus');
+  expect(container.querySelector('input, select')).toBeNull();
+  expect(calls.every(call => !call.body)).toBe(true);
+  await click(button('bob/req/design.md'));
+  expect(onOpenSource).toHaveBeenCalledWith({ relativePath: 'bob/req/design.md', workspaceId: 'w', title: 'Design' });
+  await click(button('结构检查'));
+  expect(calls.find(call => call.body?.kind === 'quality-check').body.context).toEqual({ path: 'alice/req/requirement.md' });
+});

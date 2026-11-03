@@ -52,6 +52,7 @@ function parseBranchName(branch) {
  * @param {string} props.docsDir - The path to the documents directory
  * @param {Function} props.onClose - Callback invoked when the form is closed
  * @param {boolean} [props.initialCreateBranch=false] - Whether to initially check the "create branch" option
+ * @param {number} [props.refreshVersion=0] - Refresh branch status after explicit navigation.
  * @param {Function} [props.onCreated] - Callback invoked after successful directory creation with requirement info
  * @returns {JSX.Element} A form with developer, date, title fields and branch creation options
  */
@@ -60,6 +61,7 @@ function CreateDirForm({
   docsDir,
   onClose,
   initialCreateBranch,
+  refreshVersion = 0,
   onCreated,
   onExisting,
 }) {
@@ -89,12 +91,13 @@ function CreateDirForm({
     const controller = new AbortController();
     setChecking(true);
     setCreation(null);
+    setCurrentBranch('');
     setError(null);
     (async () => {
       try {
         const res = await fetch(
           `${ROUTE}/create-status?workspaceId=${encodeURIComponent(workspaceId)}`,
-          { signal: controller.signal },
+          { signal: controller.signal, cache: 'no-store' },
         );
         if (!res.ok) {
           throw new Error('CREATE_FAILED');
@@ -144,7 +147,7 @@ function CreateDirForm({
       }
     })();
     return () => controller.abort();
-  }, [workspaceId, checkRevision]);
+  }, [workspaceId, checkRevision, refreshVersion]);
 
   const updateMain = async () => {
     const controller = new AbortController();
@@ -543,4 +546,4 @@ function CreateDirForm({
   );
 }
 
-module.exports = { CreateDirForm };
+module.exports = { CreateDirForm, parseBranchName };

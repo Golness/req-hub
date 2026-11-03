@@ -1,6 +1,7 @@
 import { WikiService } from '../knowledge/wiki/service.js';
 import { bounded, digest, fail, now } from '../knowledge/wiki/store.js';
 import { randomUUID } from 'node:crypto';
+import { dailySettings } from '../knowledge/wiki/daily-scheduler.js';
 import { loadConfig, saveConfig } from '../config.js';
 import { json, readBody } from '../utils.js';
 
@@ -39,7 +40,9 @@ export function createWikiRoutes(knowledge, ctx, options = {}) {
       }
       const scope = await knowledge.scope(input.workspaceId);
       const db = service.database();
-      await knowledge.refreshSources(scope);
+      if (path !== '/update-status') {
+        await knowledge.refreshSources(scope);
+      }
       const method = req.method;
       const id = path.split('/')[2];
       const action = path.split('/')[3];
@@ -53,9 +56,47 @@ export function createWikiRoutes(knowledge, ctx, options = {}) {
           fail('WIKI_USER_REQUIRED', 403);
         }
       };
+      if (method === 'GET' && path === '/update-status') {
+        return json(res, await service.updateStatus(scope));
+      }
+      if (method === 'POST' && path === '/update') {
+        return json(res, await service.update(scope, sessionId), 202);
+      }
+      if (method === 'GET' && path === '/source-state') {
+        if (typeof input.documentId !== 'string') {
+          fail('WIKI_INVALID_INPUT');
+        }
+        return json(res, service.sourceState(scope, input.documentId));
+      }
+      if (method === 'GET' && path === '/events') {
+        const after = input.after === undefined ? undefined : Number(input.after);
+        const before = input.before === undefined ? undefined : Number(input.before);
+        if (
+          [after, before].some(
+            (value) => value !== undefined && (!Number.isSafeInteger(value) || value < 0),
+          ) ||
+          (after !== undefined && before !== undefined) ||
+          (input.jobId !== undefined && !/^[a-zA-Z0-9-]{1,128}$/.test(input.jobId))
+        ) {
+          fail('WIKI_INVALID_INPUT');
+        }
+        return json(
+          res,
+          db.events(scope.identity, {
+            after,
+            before,
+            jobId: input.jobId,
+            limit,
+          }),
+        );
+      }
       if (method === 'GET' && path === '/settings') {
         const values = await service.settings();
-        return json(res, { values, version: digest(values) });
+        return json(res, {
+          values,
+          version: digest(values),
+          schedule: service.dailyScheduler?.state || { state: 'not_started' },
+        });
       }
       if (method === 'PUT' && path === '/settings') {
         const update = settingsWrite
@@ -76,12 +117,14 @@ export function createWikiRoutes(knowledge, ctx, options = {}) {
               fail('WIKI_INVALID_INPUT');
             }
             const config = await (options.configLoader || loadConfig)();
+            dailySettings({ ...values, ...input.values });
             await (options.configSaver || saveConfig)({
               ...config,
               wiki: { ...values, ...input.values },
             });
             const saved = await service.settings();
-            return { values: saved, version: digest(saved) };
+            const schedule = await service.refreshDailySchedule();
+            return { values: saved, version: digest(saved), schedule };
           });
         settingsWrite = update;
         return json(res, await update);

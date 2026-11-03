@@ -202,3 +202,46 @@ it('loads Wiki settings on expansion and submits their concurrency version', asy
     values: { autoManage: false },
   });
 });
+it('saves daily time and time zone separately from source-save automation', async () => {
+  fetch.mockImplementation(async (_url, init) =>
+    response(
+      init?.method === 'PUT'
+        ? { values: JSON.parse(init.body).values, version: 'next', schedule: { state: 'enabled' } }
+        : {
+            values: {
+              autoManage: false,
+              dailyUpdateEnabled: false,
+              dailyUpdateTime: '10:00',
+              dailyUpdateTimeZone: 'Asia/Shanghai',
+            },
+            version: 'original',
+            schedule: { state: 'disabled' },
+          },
+    ),
+  );
+  await act(async () => root.render(React.createElement(WikiSettings, { workspaceId: 'ws' })));
+  await act(async () => container.querySelector('[data-rh-disclosure-trigger]').click());
+  const time = container.querySelector('input[type="time"]');
+  expect(time.disabled).toBe(true);
+  await act(async () => container.querySelector('fieldset input[type="checkbox"]').click());
+  expect(time.disabled).toBe(false);
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(
+      time,
+      '23:15',
+    );
+    time.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await click('保存');
+  const call = fetch.mock.calls.find(([, init]) => init?.method === 'PUT');
+  expect(JSON.parse(call[1].body)).toMatchObject({
+    expectedVersion: 'original',
+    values: {
+      autoManage: false,
+      dailyUpdateEnabled: true,
+      dailyUpdateTime: '23:15',
+      dailyUpdateTimeZone: 'Asia/Shanghai',
+    },
+  });
+  expect(container.textContent).toContain('每日调度已启用');
+});

@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Scenario Screenshots</title>
+<style>
+  /* Mock DSH host tokens — light theme */
+  :root {
+    --dsw-alias-brand-primary-new-colorprimary-new-color: #2563eb;
+    --dsw-alias-label-primary: #1a1a1a;
+    --dsw-alias-label-secondary: #6b7280;
+    --dsw-alias-label-tertiary: #9ca3af;
+    --dsw-alias-label-primary-foreground: #ffffff;
+    --dsw-alias-bg-base: #f7f8fa;
+    --dsw-alias-bg-layer-1: #ffffff;
+    --dsw-alias-bg-layer-2: #f3f4f6;
+    --dsw-alias-bg-mask-1: rgba(0,0,0,0.35);
+    --dsw-alias-border-l1: #e5e7eb;
+    --dsw-alias-border-l3: #d1d5db;
+    --dsw-alias-interactive-bg-hover: rgba(37,99,235,0.08);
+    --dsw-alias-interactive-bg-active: rgba(37,99,235,0.14);
+    --dsw-alias-button-elevated-fill: #ffffff;
+    --dsw-alias-button-floating-hover: #f3f4f6;
+    --dsw-alias-button-primary-fill: #2563eb;
+    --dsw-alias-button-primary-hover: #1d4ed8;
+    --dsw-alias-button-tool-bar-fill: #f9fafb;
+    --dsw-alias-button-tool-bar-hover: #f3f4f6;
+    --dsw-alias-state-success-primary: #16a34a;
+    --dsw-alias-state-success-bg: #f0fdf4;
+    --dsw-alias-state-error-primary: #dc2626;
+    --dsw-alias-state-error-bg: #fef2f2;
+    --dsw-alias-state-warn-primary: #d97706;
+    --dsw-alias-state-business-primary: #2563eb;
+    --dsw-alias-toast-bg: #1f2937;
+    --dsw-alias-toast-label: #ffffff;
+    --dsw-elevation-soft: 0 1px 2px rgba(0,0,0,0.05);
+    --dsw-elevation-prominent: 0 8px 24px rgba(0,0,0,0.18);
+    --dsw-elevation-panel: 0 4px 16px rgba(0,0,0,0.14);
+    --dsw-radius-xs: 4px;
+    --dsw-radius-sm: 6px;
+    --dsw-radius-md: 8px;
+    --dsw-radius-lg: 12px;
+    --dsw-radius-panel: 12px;
+    --dsw-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --ds-font-family-code: "SF Mono", Menlo, Consolas, monospace;
+    --dsw-menu-surface-fill: #ffffff;
+    --dsw-menu-backdrop-filter: none;
+    --dsw-static-neutral-bluish-00: #ffffff;
+  }
+  body {
+    margin: 0;
+    padding: 40px;
+    background: #e5e7eb;
+    font-family: var(--dsw-font-family);
+    display: flex;
+    flex-direction: column;
+    gap: 48px;
+  }
+  .scene {
+    background: #fff;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  .scene-title {
+    padding: 12px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #6b7280;
+    background: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  .scene-body {
+    position: relative;
+    height: 520px;
+    overflow: hidden;
+  }
+</style>
+<link rel="stylesheet" href="../src/client/styles/tokens.css" />
+<link rel="stylesheet" href="../src/client/styles/base.css" />
+<link rel="stylesheet" href="../src/client/styles/layout.css" />
+<link rel="stylesheet" href="../src/client/styles/markdown.css" />
+<link rel="stylesheet" href="../src/client/styles/selects.css" />
+<link rel="stylesheet" href="../src/client/styles/animations.css" />
+<link rel="stylesheet" href="../src/client/components/shared/controls.module.css" />
+<link rel="stylesheet" href="../src/client/components/CreateDirForm.module.css" />
+<link rel="stylesheet" href="../src/client/components/RequirementDirModal.module.css" />
+<link rel="stylesheet" href="../src/client/components/WorkspaceModal.module.css" />
+<link rel="stylesheet" href="../src/client/components/TopBar.module.css" />
+</head>
+<body>
+
+<!-- ============ Scene 1: 手动新建（feature 分支） ============ -->
+<div class="scene" id="scene-1">
+  <div class="scene-title">场景一：手动新建需求目录（当前分支 feature/zhangsan/2026-03-20-报表导出）</div>
+  <div class="scene-body">
+    <div class="rh-root">
+      <!-- TopBar -->
+      <div class="rh-topbar">
+        <div class="rh-topbar-locate">
+          <button class="rh-rail-btn" type="button" aria-label="定位会话需求">
+            <span>◎</span><span class="rh-rail-label">定位</span>
+          </button>
+        </div>
+        <div class="rh-topbar-left">
+          <div class="rh-topbar-field">
+            <span class="rh-topbar-label">工作区</span>
+            <button class="rh-btn rh-btn-sm rh-topbar-value selected">报价管理系统</button>
+          </div>
+          <div class="rh-topbar-field">
+            <span class="rh-topbar-label">项目路径</span>
+            <button class="rh-btn rh-btn-sm rh-topbar-value selected">docs</button>
+          </div>
+          <div class="rh-topbar-field">
+            <span class="rh-topbar-label">需求</span>
+            <button class="rh-btn rh-btn-sm rh-topbar-value unselected">未选择</button>
+          </div>
+        </div>
+      </div>
+      <div class="rh-three-zone">
+        <!-- Rail -->
+        <div class="rh-rail">
+          <button class="rh-rail-btn active"><span>＋</span><span class="rh-rail-label">新建</span></button>
+          <button class="rh-rail-btn"><span>✎</span><span class="rh-rail-label">写作</span></button>
+          <button class="rh-rail-btn"><span>▦</span><span class="rh-rail-label">知识库</span></button>
+          <button class="rh-rail-btn"><span>⇄</span><span class="rh-rail-label">同步</span></button>
+          <div class="rh-rail-bottom">
+            <button class="rh-rail-btn"><span>☰</span><span class="rh-rail-label">日志</span></button>
+            <button class="rh-rail-btn"><span>⚙</span><span class="rh-rail-label">设置</span></button>
+          </div>
+        </div>
+        <!-- Main panel: CreateDirForm -->
+        <div style="flex:1;overflow:auto;padding:20px;background:var(--dsw-alias-bg-base);">
+          <div class="rh-op-hint" style="margin-bottom:12px;color:var(--dsw-alias-label-secondary);font-size:12px;">基于 Git 分支命名规范创建需求文档目录</div>
+          <div class="rh-op-panel" style="padding:16px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+              <div>
+                <label style="display:block;margin-bottom:4px;font-size:12px;color:var(--dsw-alias-label-secondary);">开发者</label>
+                <input class="rh-form-input" type="text" value="zhangsan" style="width:100%;height:32px;padding:0 8px;border:0;box-shadow:var(--dsw-elevation-soft);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);font:inherit;font-size:13px;color:var(--dsw-alias-label-primary);" />
+              </div>
+              <div>
+                <label style="display:block;margin-bottom:4px;font-size:12px;color:var(--dsw-alias-label-secondary);">日期</label>
+                <input class="rh-form-input" type="text" value="2026-03-20" style="width:100%;height:32px;padding:0 8px;border:0;box-shadow:var(--dsw-elevation-soft);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);font:inherit;font-size:13px;color:var(--dsw-alias-label-primary);" />
+              </div>
+              <div style="grid-column:1/-1;">
+                <label style="display:block;margin-bottom:4px;font-size:12px;color:var(--dsw-alias-label-secondary);">需求简述</label>
+                <input class="rh-form-input" type="text" value="报表导出" placeholder="新增报表导出功能" style="width:100%;height:32px;padding:0 8px;border:0;box-shadow:var(--dsw-elevation-soft);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);font:inherit;font-size:13px;color:var(--dsw-alias-label-primary);" />
+              </div>
+            </div>
+            <div style="padding:10px 12px;background:var(--dsw-alias-bg-layer-2);border-radius:var(--dsw-radius-sm);margin-bottom:12px;">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;">
+                <input type="checkbox" style="accent-color:var(--rh-accent);" />
+                同时新建 Git 分支
+              </label>
+              <div style="padding-left:24px;margin-top:4px;font-size:13px;color:var(--dsw-alias-label-secondary);">
+                当前分支: <code style="color:var(--rh-accent);font-family:var(--ds-font-family-code);">feature/zhangsan/2026-03-20-报表导出</code>
+              </div>
+            </div>
+            <div style="padding:10px 12px;background:var(--dsw-alias-bg-layer-2);border-radius:var(--dsw-radius-sm);margin-bottom:12px;font-size:13px;line-height:1.6;">
+              <div style="display:flex;align-items:center;gap:6px;color:var(--dsw-alias-label-secondary);margin-bottom:6px;">
+                <span>将创建目录:</span>
+                <code style="flex:1;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);padding:2px 6px;border-radius:var(--dsw-radius-xs);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">docs/zhangsan/2026-03-20-报表导出/</code>
+              </div>
+            </div>
+            <div style="display:flex;gap:12px;">
+              <button class="rh-btn rh-btn-primary" style="flex:1;height:32px;border:0;border-radius:var(--dsw-radius-md);background:var(--dsw-alias-button-primary-fill);color:#fff;font:inherit;font-size:13px;cursor:pointer;"> 创建</button>
+              <button class="rh-btn" style="flex:1;height:32px;border:0;border-radius:var(--dsw-radius-md);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;">取消</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Scene 2: main 分支 + 拉取远端 ============ -->
+<div class="scene" id="scene-2">
+  <div class="scene-title">场景二：在 main 分支新建（显示「拉取并合并远端 main」）</div>
+  <div class="scene-body">
+    <div class="rh-root">
+      <div class="rh-topbar">
+        <div class="rh-topbar-locate">
+          <button class="rh-rail-btn" type="button"><span>◎</span><span class="rh-rail-label">定位</span></button>
+        </div>
+        <div class="rh-topbar-left">
+          <div class="rh-topbar-field"><span class="rh-topbar-label">工作区</span><button class="rh-btn rh-btn-sm rh-topbar-value selected">报价管理系统</button></div>
+          <div class="rh-topbar-field"><span class="rh-topbar-label">项目路径</span><button class="rh-btn rh-btn-sm rh-topbar-value selected">docs</button></div>
+          <div class="rh-topbar-field"><span class="rh-topbar-label">需求</span><button class="rh-btn rh-btn-sm rh-topbar-value unselected">未选择</button></div>
+        </div>
+      </div>
+      <div class="rh-three-zone">
+        <div class="rh-rail">
+          <button class="rh-rail-btn active"><span>＋</span><span class="rh-rail-label">新建</span></button>
+          <button class="rh-rail-btn"><span>✎</span><span class="rh-rail-label">写作</span></button>
+          <button class="rh-rail-btn"><span>▦</span><span class="rh-rail-label">知识库</span></button>
+          <button class="rh-rail-btn"><span>⇄</span><span class="rh-rail-label">同步</span></button>
+          <div class="rh-rail-bottom">
+            <button class="rh-rail-btn"><span>☰</span><span class="rh-rail-label">日志</span></button>
+            <button class="rh-rail-btn"><span>⚙</span><span class="rh-rail-label">设置</span></button>
+          </div>
+        </div>
+        <div style="flex:1;overflow:auto;padding:20px;background:var(--dsw-alias-bg-base);">
+          <div class="rh-op-hint" style="margin-bottom:12px;color:var(--dsw-alias-label-secondary);font-size:12px;">基于 Git 分支命名规范创建需求文档目录</div>
+          <div class="rh-op-panel" style="padding:16px;">
+            <!-- Main update action -->
+            <div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;padding:10px 12px;background:var(--dsw-alias-bg-layer-2);border-radius:var(--dsw-radius-sm);">
+              <button class="rh-btn" style="height:32px;padding:0 12px;border:0;border-radius:var(--dsw-radius-md);background:var(--dsw-alias-button-elevated-fill);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;box-shadow:var(--dsw-elevation-soft);">拉取并合并远端 main</button>
+              <small style="color:var(--dsw-alias-label-secondary);font-size:12px;">将本地 main 更新到最新远端代码，再新建需求目录</small>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+              <div>
+                <label style="display:block;margin-bottom:4px;font-size:12px;color:var(--dsw-alias-label-secondary);">开发者</label>
+                <input type="text" placeholder="zhangsan" style="width:100%;height:32px;padding:0 8px;border:0;box-shadow:var(--dsw-elevation-soft);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);font:inherit;font-size:13px;" />
+              </div>
+              <div>
+                <label style="display:block;margin-bottom:4px;font-size:12px;color:var(--dsw-alias-label-secondary);">日期</label>
+                <input type="text" value="2026-03-20" style="width:100%;height:32px;padding:0 8px;border:0;box-shadow:var(--dsw-elevation-soft);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);font:inherit;font-size:13px;" />
+              </div>
+              <div style="grid-column:1/-1;">
+                <label style="display:block;margin-bottom:4px;font-size:12px;color:var(--dsw-alias-label-secondary);">需求简述</label>
+                <input type="text" placeholder="新增报表导出功能" style="width:100%;height:32px;padding:0 8px;border:0;box-shadow:var(--dsw-elevation-soft);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);font:inherit;font-size:13px;" />
+              </div>
+            </div>
+            <div style="padding:10px 12px;background:var(--dsw-alias-bg-layer-2);border-radius:var(--dsw-radius-sm);margin-bottom:12px;">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;">
+                <input type="checkbox" style="accent-color:var(--rh-accent);" checked />
+                同时新建 Git 分支
+              </label>
+              <div style="padding-left:24px;margin-top:4px;font-size:13px;color:var(--dsw-alias-label-secondary);">
+                当前分支: <code style="color:var(--rh-accent);">main</code>
+              </div>
+              <div style="padding-left:24px;margin-top:2px;font-size:13px;">
+                <span style="color:var(--dsw-alias-label-secondary);">将创建分支:</span>
+                <code style="color:var(--dsw-alias-state-success-primary);background:var(--dsw-alias-bg-layer-1);padding:2px 6px;border-radius:var(--dsw-radius-xs);">feature//2026-03-20-</code>
+              </div>
+            </div>
+            <div style="display:flex;gap:12px;">
+              <button style="flex:1;height:32px;border:0;border-radius:var(--dsw-radius-md);background:var(--dsw-alias-button-primary-fill);color:#fff;font:inherit;font-size:13px;cursor:pointer;"> 创建</button>
+              <button style="flex:1;height:32px;border:0;border-radius:var(--dsw-radius-md);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;">取消</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Scene 3: 定位会话需求 → 分支不规范 → 跳转新建 ============ -->
+<div class="scene" id="scene-3">
+  <div class="scene-title">场景三：定位会话需求（分支名不规范，跳转新建并提示）</div>
+  <div class="scene-body">
+    <div class="rh-root">
+      <div class="rh-topbar">
+        <div class="rh-topbar-locate">
+          <button class="rh-rail-btn" type="button"><span>◎</span><span class="rh-rail-label">定位</span></button>
+        </div>
+        <div class="rh-topbar-left">
+          <div class="rh-topbar-field"><span class="rh-topbar-label">工作区</span><button class="rh-btn rh-btn-sm rh-topbar-value selected">报价管理系统</button></div>
+          <div class="rh-topbar-field"><span class="rh-topbar-label">项目路径</span><button class="rh-btn rh-btn-sm rh-topbar-value selected">docs</button></div>
+          <div class="rh-topbar-field"><span class="rh-topbar-label">需求</span><button class="rh-btn rh-btn-sm rh-topbar-value unselected">未选择</button></div>
+        </div>
+      </div>
+      <div class="rh-three-zone">
+        <div class="rh-rail">
+          <button class="rh-rail-btn active"><span>＋</span><span class="rh-rail-label">新建</span></button>
+          <button class="rh-rail-btn"><span>✎</span><span class="rh-rail-label">写作</span></button>
+          <button class="rh-rail-btn"><span>▦</span><span class="rh-rail-label">知识库</span></button>
+          <button class="rh-rail-btn"><span>⇄</span><span class="rh-rail-label">同步</span></button>
+          <div class="rh-rail-bottom">
+            <button class="rh-rail-btn"><span>☰</span><span class="rh-rail-label">日志</span></button>
+            <button class="rh-rail-btn"><span>⚙</span><span class="rh-rail-label">设置</span></button>
+          </div>
+        </div>
+        <div style="flex:1;overflow:auto;padding:20px;background:var(--dsw-alias-bg-base);">
+          <!-- Toast warning -->
+          <div style="position:absolute;top:16px;left:50%;transform:translateX(-50%);z-index:10;display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-toast-bg);color:var(--dsw-alias-toast-label);font-size:13px;box-shadow:var(--dsw-elevation-prominent);white-space:nowrap;">
+            ⚠ 当前分支 "fix/login-bug" 不符合命名规范，请新建分支和需求目录
+          </div>
+          <div class="rh-op-hint" style="margin-bottom:12px;color:var(--dsw-alias-label-secondary);font-size:12px;">基于 Git 分支命名规范创建需求文档目录</div>
+          <div class="rh-op-panel" style="padding:16px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+              <div>
+                <label style="display:block;margin-bottom:4px;font-size:12px;color:var(--dsw-alias-label-secondary);">开发者</label>
+                <input type="text" placeholder="zhangsan" style="width:100%;height:32px;padding:0 8px;border:0;box-shadow:var(--dsw-elevation-soft);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);font:inherit;font-size:13px;" />
+              </div>
+              <div>
+                <label style="display:block;margin-bottom:4px;font-size:12px;color:var(--dsw-alias-label-secondary);">日期</label>
+                <input type="text" value="2026-03-20" style="width:100%;height:32px;padding:0 8px;border:0;box-shadow:var(--dsw-elevation-soft);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);font:inherit;font-size:13px;" />
+              </div>
+              <div style="grid-column:1/-1;">
+                <label style="display:block;margin-bottom:4px;font-size:12px;color:var(--dsw-alias-label-secondary);">需求简述</label>
+                <input type="text" placeholder="新增报表导出功能" style="width:100%;height:32px;padding:0 8px;border:0;box-shadow:var(--dsw-elevation-soft);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);font:inherit;font-size:13px;" />
+              </div>
+            </div>
+            <div style="padding:10px 12px;background:var(--dsw-alias-bg-layer-2);border-radius:var(--dsw-radius-sm);margin-bottom:12px;">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;">
+                <input type="checkbox" style="accent-color:var(--rh-accent);" checked />
+                同时新建 Git 分支
+              </label>
+              <div style="padding-left:24px;margin-top:4px;font-size:13px;color:var(--dsw-alias-label-secondary);">
+                当前分支: <code style="color:var(--rh-accent);">fix/login-bug</code>
+              </div>
+              <div style="padding-left:24px;margin-top:2px;font-size:13px;">
+                <span style="color:var(--dsw-alias-label-secondary);">将创建分支:</span>
+                <code style="color:var(--dsw-alias-state-success-primary);background:var(--dsw-alias-bg-layer-1);padding:2px 6px;border-radius:var(--dsw-radius-xs);">feature//2026-03-20-</code>
+              </div>
+            </div>
+            <div style="display:flex;gap:12px;">
+              <button style="flex:1;height:32px;border:0;border-radius:var(--dsw-radius-md);background:var(--dsw-alias-button-primary-fill);color:#fff;font:inherit;font-size:13px;cursor:pointer;"> 创建</button>
+              <button style="flex:1;height:32px;border:0;border-radius:var(--dsw-radius-md);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;">取消</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Scene 4: 浏览需求目录弹窗 ============ -->
+<div class="scene" id="scene-4">
+  <div class="scene-title">场景四：浏览已有需求目录（RequirementDirModal）</div>
+  <div class="scene-body" style="display:flex;align-items:center;justify-content:center;background:var(--dsw-alias-bg-base);">
+    <!-- Backdrop -->
+    <div style="position:absolute;inset:0;background:var(--dsw-alias-bg-mask-1);"></div>
+    <!-- Dimmed root behind -->
+    <div class="rh-root" style="position:absolute;inset:0;opacity:0.3;">
+      <div class="rh-topbar" style="height:60px;">
+        <div class="rh-topbar-locate"><button class="rh-rail-btn"><span>◎</span><span class="rh-rail-label">定位</span></button></div>
+        <div class="rh-topbar-left">
+          <div class="rh-topbar-field"><span class="rh-topbar-label">工作区</span><button class="rh-btn rh-btn-sm rh-topbar-value selected">报价管理系统</button></div>
+        </div>
+      </div>
+    </div>
+    <!-- Modal -->
+    <div style="position:relative;z-index:10;width:min(440px,100%);max-height:100%;overflow:auto;border-radius:var(--dsw-radius-panel);background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-elevation-prominent);padding:20px;">
+      <div style="font-size:14px;font-weight:500;margin-bottom:16px;color:var(--dsw-alias-label-primary);">选择需求目录</div>
+      <div style="max-height:340px;overflow:auto;">
+        <!-- Developer 1 expanded -->
+        <div style="margin-bottom:4px;">
+          <button style="display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;font-weight:500;cursor:pointer;text-align:left;">
+            <span style="display:inline-block;transform:rotate(90deg);transition:transform 0.15s;font-size:10px;">▶</span>
+            <span>zhangsan</span>
+            <span style="color:var(--dsw-alias-label-secondary);font-weight:400;">(3)</span>
+          </button>
+          <div style="padding-left:32px;">
+            <button style="display:flex;align-items:center;gap:8px;width:100%;padding:6px 12px;border:0;border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;text-align:left;">
+              <span>📂</span>
+              <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">03-15 报价单导出</span>
+              <span style="flex-shrink:0;color:var(--dsw-alias-label-secondary);font-size:12px;">(4 文件)</span>
+            </button>
+            <button style="display:flex;align-items:center;gap:8px;width:100%;padding:6px 12px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;text-align:left;">
+              <span>📂</span>
+              <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">03-18 审批流程优化</span>
+              <span style="flex-shrink:0;color:var(--dsw-alias-label-secondary);font-size:12px;">(2 文件)</span>
+            </button>
+            <button style="display:flex;align-items:center;gap:8px;width:100%;padding:6px 12px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;text-align:left;">
+              <span>📂</span>
+              <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">03-20 报表导出</span>
+              <span style="flex-shrink:0;color:var(--dsw-alias-label-secondary);font-size:12px;">(0 文件)</span>
+            </button>
+          </div>
+        </div>
+        <!-- Developer 2 collapsed -->
+        <div style="margin-bottom:4px;">
+          <button style="display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;font-weight:500;cursor:pointer;text-align:left;">
+            <span style="display:inline-block;transition:transform 0.15s;font-size:10px;">▶</span>
+            <span>lisi</span>
+            <span style="color:var(--dsw-alias-label-secondary);font-weight:400;">(1)</span>
+          </button>
+        </div>
+        <!-- Developer 3 collapsed -->
+        <div style="margin-bottom:4px;">
+          <button style="display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;font-weight:500;cursor:pointer;text-align:left;">
+            <span style="display:inline-block;transition:transform 0.15s;font-size:10px;">▶</span>
+            <span>wangwu</span>
+            <span style="color:var(--dsw-alias-label-secondary);font-weight:400;">(2)</span>
+          </button>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+        <button style="height:32px;padding:0 12px;border:0;border-radius:var(--dsw-radius-md);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;">关闭</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Scene 5: 切换工作区弹窗 ============ -->
+<div class="scene" id="scene-5">
+  <div class="scene-title">场景五：切换工作区（WorkspaceModal）</div>
+  <div class="scene-body" style="display:flex;align-items:center;justify-content:center;background:var(--dsw-alias-bg-base);">
+    <div style="position:absolute;inset:0;background:var(--dsw-alias-bg-mask-1);"></div>
+    <div class="rh-root" style="position:absolute;inset:0;opacity:0.3;">
+      <div class="rh-topbar" style="height:60px;">
+        <div class="rh-topbar-locate"><button class="rh-rail-btn"><span>◎</span><span class="rh-rail-label">定位</span></button></div>
+        <div class="rh-topbar-left">
+          <div class="rh-topbar-field"><span class="rh-topbar-label">工作区</span><button class="rh-btn rh-btn-sm rh-topbar-value selected">报价管理系统</button></div>
+        </div>
+      </div>
+    </div>
+    <div style="position:relative;z-index:10;width:min(440px,100%);border-radius:var(--dsw-radius-panel);background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-elevation-prominent);padding:20px;">
+      <div style="font-size:14px;font-weight:500;margin-bottom:16px;color:var(--dsw-alias-label-primary);">选择工作区</div>
+      <div style="display:flex;flex-direction:column;gap:2px;">
+        <button style="display:flex;align-items:center;gap:8px;width:100%;padding:10px 12px;border:0;border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;text-align:left;">
+          <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">报价管理系统</span>
+        </button>
+        <button style="display:flex;align-items:center;gap:8px;width:100%;padding:10px 12px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;text-align:left;">
+          <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">订单中心重构</span>
+        </button>
+        <button style="display:flex;align-items:center;gap:8px;width:100%;padding:10px 12px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;text-align:left;">
+          <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">用户权限平台</span>
+        </button>
+        <button style="display:flex;align-items:center;gap:8px;width:100%;padding:10px 12px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;text-align:left;">
+          <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">数据同步中间件</span>
+        </button>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+        <button style="height:32px;padding:0 12px;border:0;border-radius:var(--dsw-radius-md);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;">关闭</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Scene 6: 已有需求拦截 ============ -->
+<div class="scene" id="scene-6">
+  <div class="scene-title">场景六：已有需求拦截（分支已对应已创建目录）</div>
+  <div class="scene-body" style="display:flex;align-items:center;justify-content:center;background:var(--dsw-alias-bg-base);">
+    <div style="position:absolute;inset:0;background:var(--dsw-alias-bg-mask-1);"></div>
+    <div class="rh-root" style="position:absolute;inset:0;opacity:0.3;">
+      <div class="rh-topbar" style="height:60px;">
+        <div class="rh-topbar-locate"><button class="rh-rail-btn"><span>◎</span><span class="rh-rail-label">定位</span></button></div>
+        <div class="rh-topbar-left">
+          <div class="rh-topbar-field"><span class="rh-topbar-label">工作区</span><button class="rh-btn rh-btn-sm rh-topbar-value selected">报价管理系统</button></div>
+        </div>
+      </div>
+    </div>
+    <div style="position:relative;z-index:10;width:min(440px,100%);border-radius:var(--dsw-radius-panel);background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-elevation-prominent);padding:20px;">
+      <div style="font-size:14px;font-weight:500;margin-bottom:16px;color:var(--dsw-alias-label-primary);">当前需求已创建</div>
+      <div style="font-size:13px;line-height:1.6;color:var(--dsw-alias-label-primary);">
+        <dl style="margin:0;padding:0 0 0 12px;">
+          <div style="display:flex;gap:8px;margin-bottom:4px;">
+            <dt style="color:var(--dsw-alias-label-secondary);font-weight:400;min-width:72px;">当前分支</dt>
+            <dd style="margin:0;"><code style="background:var(--dsw-alias-bg-layer-1);padding:2px 6px;border-radius:var(--dsw-radius-xs);color:var(--dsw-alias-label-primary);">feature/zhangsan/2026-03-15-报价单导出</code></dd>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <dt style="color:var(--dsw-alias-label-secondary);font-weight:400;min-width:72px;">需求目录</dt>
+            <dd style="margin:0;"><code style="background:var(--dsw-alias-bg-layer-1);padding:2px 6px;border-radius:var(--dsw-radius-xs);color:var(--dsw-alias-label-primary);">zhangsan/2026-03-15-报价单导出</code></dd>
+          </div>
+        </dl>
+        <p style="margin:12px 0 0;color:var(--dsw-alias-label-secondary);font-size:12px;">如需新建其他分支或需求目录，请先更换工作区。</p>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+        <button style="height:32px;padding:0 12px;border:0;border-radius:var(--dsw-radius-md);background:var(--dsw-alias-button-primary-fill);color:#fff;font:inherit;font-size:13px;cursor:pointer;">确认</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

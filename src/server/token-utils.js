@@ -115,3 +115,12 @@ export function formatTokens(tokens) {
   }
   return tokens.toLocaleString();
 }
+
+/**
+ * Include the skill body and metadata that DSH loads outside the delegation prompt.
+ * @param prepared - Prepared delegation text and optional frozen skill reserve.
+ * @returns A conservative estimate including native skill context.
+ */
+export function estimatePreparedPromptTokens(prepared) {
+  return estimateSubagentInputTokens(prepared.fullPrompt) + (prepared.skillTokenReserve || 0);
+}

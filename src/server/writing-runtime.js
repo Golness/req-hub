@@ -247,7 +247,8 @@ export function installWritingTools(ctx) {
     {
       overview: {
         type: 'string',
-        description: 'Separate review summary; never insert it into document content',
+        description:
+          'Separate review summary in English; never insert it into final document content',
       },
       content: { type: 'string' },
       evidenceIds: { type: 'array', items: { type: 'string' } },

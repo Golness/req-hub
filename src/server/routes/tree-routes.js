@@ -508,7 +508,12 @@ export function createTreeRoutes(registry, options = {}) {
 
           const config = await loadConfig();
           const current = await creationStatus(workspace, config);
-          if (current.existingRequirement) {
+          if (
+            current.existingRequirement &&
+            (createBranch ||
+              (current.existingRequirement.id === `${date}-${title}` &&
+                current.existingRequirement.developer === developer))
+          ) {
             json(
               res,
               {

@@ -38,6 +38,70 @@ export class SyncSupervisor {
     );
     return owner;
   }
+  /**
+   * Start one Host-owned sequence using the existing reservation and cancellation signal.
+   * @param owner - The acquired execution lease.
+   * @returns The observable sequence identity and document outcomes.
+   */
+  beginQuick(owner) {
+    this.assert(owner);
+    owner.quickSync = {
+      id: owner.notificationId,
+      workspaceId: owner.fields.workspaceId,
+      requirementId: owner.fields.requirementId,
+      status: 'running',
+      stage: 'requirement',
+      startedAt: owner.startedAt,
+      documents: [],
+    };
+    owner.fields.quickSyncId = owner.quickSync.id;
+    return owner.quickSync;
+  }
+  /**
+   * Advance within the same lease only after the previous document has settled.
+   * @param owner - The sequence lease; deletion or cancellation rejects advancement.
+   * @param docType - The next document type.
+   * @returns No value; the shared reservation remains held.
+   */
+  advanceQuick(owner, docType) {
+    this.assert(owner);
+    this.remember(owner.task);
+    owner.task = null;
+    owner.recover = null;
+    owner.quickSync.stage = docType;
+    Object.assign(owner.fields, {
+      docType,
+      docTypeName: docType === 'design' ? '技术方案' : '需求文档',
+    });
+    this.preparing(owner, { stage: 'preparing' });
+  }
+  /**
+   * Settle a sequence once; late completions cannot replace an aborted or failed outcome.
+   * @param owner - The sequence's execution lease.
+   * @param status - Explicit terminal outcome.
+   * @param error - Optional stable failure reason.
+   * @returns The terminal sequence snapshot, if this is a quick sync.
+   */
+  finishQuick(owner, status, error) {
+    const sequence = owner?.quickSync;
+    if (!sequence || sequence.status !== 'running') {
+      return sequence;
+    }
+    Object.assign(sequence, { status, completedAt: this.now(), ...(error ? { error } : {}) });
+    this.latestQuickSync = structuredClone(sequence);
+    if (!owner.task || (status !== 'completed' && !model.isSyncActive(owner.task))) {
+      owner.notice = {
+        ...owner.fields,
+        notificationId: owner.notificationId,
+        status,
+        startedAt: sequence.startedAt,
+        completedAt: sequence.completedAt,
+        steps: [],
+        ...(error ? { error } : {}),
+      };
+    }
+    return sequence;
+  }
   attach(owner, task, recover) {
     this.assert(owner);
     owner.task = task;
@@ -122,7 +186,7 @@ export class SyncSupervisor {
     if (owner.recovering && !recovered) {
       return;
     }
-    const task = owner.task || owner.notice;
+    const task = owner.notice || owner.task;
     this.remember(task);
     if (this.owner === owner) {
       this.owner = null;
@@ -156,7 +220,13 @@ export class SyncSupervisor {
       return task.id === target.id;
     };
     const owner = this.owner;
+    const sequenceMember = owner?.quickSync?.documents.some((task) => matches(task));
+    if (owner && sequenceMember && !matches(owner.task)) {
+      owner.controller.abort(new Error('SYNC_TASK_DELETED'));
+      this.finishQuick(owner, 'aborted', 'SYNC_TASK_DELETED');
+    }
     if (owner && matches(owner.task || { ...owner.fields, notificationId: owner.notificationId })) {
+      this.finishQuick(owner, 'aborted', 'SYNC_TASK_DELETED');
       owner.deleted = true;
       if (owner.task) {
         owner.task.removed = true;
@@ -208,6 +278,7 @@ export class SyncSupervisor {
       latest: this.latest,
       lastProgressAt: owner?.lastProgressAt,
       limits: this.limits,
+      quickSync: owner?.quickSync ? structuredClone(owner.quickSync) : this.latestQuickSync || null,
     };
   }
 }

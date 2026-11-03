@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>ReqHub Component Screenshots</title>
+<style>
+  /* Mock DSH host tokens */
+  :root {
+    --dsw-alias-brand-primary-new-colorprimary-new-color: #2563eb;
+    --dsw-alias-label-primary: #1a1a1a;
+    --dsw-alias-label-secondary: #6b7280;
+    --dsw-alias-label-tertiary: #9ca3af;
+    --dsw-alias-label-primary-foreground: #ffffff;
+    --dsw-alias-bg-base: #f7f8fa;
+    --dsw-alias-bg-layer-1: #ffffff;
+    --dsw-alias-bg-layer-2: #f3f4f6;
+    --dsw-alias-bg-mask-1: rgba(0,0,0,0.35);
+    --dsw-alias-border-l1: #e5e7eb;
+    --dsw-alias-border-l3: #d1d5db;
+    --dsw-alias-interactive-bg-hover: rgba(37,99,235,0.08);
+    --dsw-alias-interactive-bg-active: rgba(37,99,235,0.14);
+    --dsw-alias-button-elevated-fill: #ffffff;
+    --dsw-alias-button-floating-hover: #f3f4f6;
+    --dsw-alias-button-primary-fill: #2563eb;
+    --dsw-alias-button-primary-hover: #1d4ed8;
+    --dsw-alias-button-tool-bar-fill: #f9fafb;
+    --dsw-alias-button-tool-bar-hover: #f3f4f6;
+    --dsw-alias-state-success-primary: #16a34a;
+    --dsw-alias-state-success-bg: #f0fdf4;
+    --dsw-alias-state-error-primary: #dc2626;
+    --dsw-alias-state-error-bg: #fef2f2;
+    --dsw-alias-state-warn-primary: #d97706;
+    --dsw-alias-state-business-primary: #2563eb;
+    --dsw-alias-toast-bg: #1f2937;
+    --dsw-alias-toast-label: #ffffff;
+    --dsw-elevation-soft: 0 1px 2px rgba(0,0,0,0.05);
+    --dsw-elevation-prominent: 0 8px 24px rgba(0,0,0,0.18);
+    --dsw-elevation-panel: 0 4px 16px rgba(0,0,0,0.14);
+    --dsw-radius-xs: 4px;
+    --dsw-radius-sm: 6px;
+    --dsw-radius-md: 8px;
+    --dsw-radius-lg: 12px;
+    --dsw-radius-panel: 12px;
+    --dsw-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --ds-font-family-code: "SF Mono", Menlo, Consolas, monospace;
+    --dsw-menu-surface-fill: #ffffff;
+    --dsw-menu-backdrop-filter: none;
+    --dsw-static-neutral-bluish-00: #ffffff;
+  }
+  body {
+    margin: 0;
+    padding: 0;
+    background: #e5e7eb;
+    font-family: var(--dsw-font-family);
+  }
+  #root {
+    width: 900px;
+    height: 600px;
+    margin: 40px auto;
+    background: #fff;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.3.1",
+    "react-dom": "https://esm.sh/react-dom@18.3.1",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client"
+  }
+}
+</script>
+</head>
+<body>
+<div id="root"></div>
+<script type="module">
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+
+// Mock fetch for API calls
+const originalFetch = window.fetch;
+window.fetch = async (url, options) => {
+  const urlStr = typeof url === 'string' ? url : url.url;
+  
+  // Mock create-status
+  if (urlStr.includes('/create-status')) {
+    return {
+      ok: true,
+      json: async () => ({
+        branch: 'feature/zhangsan/2026-03-20-报表导出',
+        head: 'abc123def456',
+        dirty: false,
+        inProgress: false,
+        canUpdateMain: false,
+        existingRequirement: null,
+      }),
+    };
+  }
+  
+  // Mock tree
+  if (urlStr.includes('/tree')) {
+    return {
+      ok: true,
+      json: async () => ({
+        tree: {
+          developers: [
+            {
+              name: 'zhangsan',
+              requirementCount: 3,
+              requirements: [
+                { id: '2026-03-15-报价单导出', date: '2026-03-15', title: '报价单导出', path: 'zhangsan/2026-03-15-报价单导出', fileCount: 4 },
+                { id: '2026-03-18-审批流程优化', date: '2026-03-18', title: '审批流程优化', path: 'zhangsan/2026-03-18-审批流程优化', fileCount: 2 },
+                { id: '2026-03-20-报表导出', date: '2026-03-20', title: '报表导出', path: 'zhangsan/2026-03-20-报表导出', fileCount: 0 },
+              ],
+            },
+            {
+              name: 'lisi',
+              requirementCount: 1,
+              requirements: [
+                { id: '2026-03-10-用户管理', date: '2026-03-10', title: '用户管理', path: 'lisi/2026-03-10-用户管理', fileCount: 3 },
+              ],
+            },
+          ],
+        },
+      }),
+    };
+  }
+  
+  return originalFetch(url, options);
+};
+
+// Mock locale
+window.__DSH_LOCALE__ = {
+  t: (key, params) => {
+    const dict = {
+      'CreateDirForm.message005': '基于 Git 分支命名规范创建需求文档目录',
+      'CreateDirForm.message006': '开发者',
+      'CreateDirForm.message007': '日期',
+      'CreateDirForm.message008': '需求简述',
+      'CreateDirForm.message009': '新增报表导出功能',
+      'CreateDirForm.message010': '同时新建 Git 分支',
+      'CreateDirForm.message011': '当前分支: ',
+      'CreateDirForm.message012': '将创建分支:',
+      'CreateDirForm.message014': '将创建目录:',
+      'CreateDirForm.message015': '创建中...',
+      'CreateDirForm.message016': ' 创建',
+      'common.cancel': '取消',
+      'common.loading': '加载中...',
+      'RequirementDirModal.message001': '选择需求目录',
+      'RequirementDirModal.message002': '暂无需求目录',
+      'WorkspaceModal.message002': '选择工作区',
+      'WorkspaceModal.message003': '暂无工作区',
+      'common.close': '关闭',
+      'files.count': '{value0} 文件',
+      'create.developerExample': 'zhangsan',
+    };
+    let text = dict[key] || key;
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        text = text.replace(`{${k}}`, v);
+      });
+    }
+    return text;
+  },
+};
+
+// Import components (will be bundled)
+const { CreateDirForm } = await import('/src/client/components/CreateDirForm.js');
+const { RequirementDirModal } = await import('/src/client/components/RequirementDirModal.js');
+const { WorkspaceModal } = await import('/src/client/components/WorkspaceModal.js');
+
+const root = createRoot(document.getElementById('root'));
+
+// Scene 1: CreateDirForm
+root.render(
+  React.createElement('div', { style: { padding: '20px' } },
+    React.createElement(CreateDirForm, {
+      workspaceId: 'ws-1',
+      docsDir: 'docs',
+      onClose: () => console.log('close'),
+      initialCreateBranch: false,
+      refreshVersion: 0,
+    })
+  )
+);
+</script>
+</body>
+</html>

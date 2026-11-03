@@ -46,6 +46,7 @@ vi.mock('../../src/server/token-utils.js', () => ({
   estimateTextTokens: (s) => Math.ceil(s.length / 4),
   formatTokens: (n) => `${n}`,
   MAX_SYNC_INPUT_TOKENS: 150000,
+  estimatePreparedPromptTokens: prepared => Buffer.byteLength(prepared.fullPrompt || '', 'utf8') + 8 + (prepared.skillTokenReserve || 0),
   estimateSubagentInputTokens: s => Buffer.byteLength(s || '', 'utf8') + 8,
 }));
 

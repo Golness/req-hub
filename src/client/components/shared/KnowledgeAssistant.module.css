@@ -1,0 +1,36 @@
+.aside {
+  width: 284px;
+  flex: 0 0 284px;
+  min-height: 0;
+  overflow: auto;
+  border-left: 0.5px solid var(--dsw-alias-border-l1);
+}
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 16px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+.heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.body h3,
+.body h4 {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+}
+.drawer {
+  width: min(420px, 100%);
+  margin-left: auto;
+  height: 100%;
+  max-height: 100%;
+  overflow: auto;
+}

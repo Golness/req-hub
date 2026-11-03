@@ -47,6 +47,62 @@ it('generates and publishes Wiki pages with versioned evidence through isolated 
   expect(wiki.database().db.prepare('SELECT count(*) n FROM knowledge_page_sources').get().n).toBe(1);
   expect(wiki.search(scope,'knowledge').items).toHaveLength(1);
 });
+
+it('publishes updates and relations addressed by frozen Wiki document IDs', async () => {
+  await wiki.start(scope, { kind: 'ingest', documentIds: [doc] }, 'parent');
+  await settle();
+  const original = wiki.database().pages(scope.identity).items[0];
+  runTask.mockImplementation(async (_ctx, _llm, _config, { runtime }) => {
+    for (const entry of runtime.documents) {
+      runtime.read({ documentId: entry.id });
+    }
+    const evidence = [{ documentId: doc, version: 1, startLine: 1, endLine: 2 }];
+    runtime.submit({ result: {
+      pages: [
+        { title: 'Updated topic', pageType: 'concept', pageId: 'wiki:' + original.id,
+          body: 'Updated fact.', evidence },
+        { title: 'New topic', pageType: 'entity', entityKey: 'entity:new', body: 'Related fact.', evidence },
+      ],
+      refs: [{ fromKey: 'entity:new', toKey: 'wiki:' + original.id, refType: 'related', evidence }],
+    } });
+    return { isError: false };
+  });
+  const job = await wiki.start(scope, { kind: 'ingest', documentIds: [doc] }, 'parent');
+  await settle();
+  const saved = wiki.database().job(scope.identity, job.id);
+  expect(saved.status).toBe('completed');
+  expect(wiki.database().candidate(scope.identity, saved.candidateId).status).toBe('published');
+  const updated = wiki.database().page(scope.identity, original.id);
+  expect(updated.body).toBe('Updated fact.');
+  expect(updated.refs).toHaveLength(1);
+  expect(updated.refs[0].toPageId).toBe(original.id);
+});
+
+it('accepts legacy pending candidates using Wiki evidence aliases without weakening scope checks', async () => {
+  await wiki.start(scope, { kind: 'ingest', documentIds: [doc] }, 'parent');
+  await settle();
+  const original = wiki.database().pages(scope.identity).items[0];
+  const originalJob = wiki.database().jobs(scope.identity)[0];
+  const page = wiki.database().page(scope.identity, original.id);
+  const snapshotId = wiki.database().snapshot(scope.identity, {
+    id: 'wiki:' + page.id, pageId: page.id, kind: 'wiki', version: page.version, body: page.body,
+  });
+  const job = { ...originalJob, manifest: [...originalJob.manifest, {
+    id: 'wiki:' + page.id, pageId: page.id, kind: 'wiki', version: page.version,
+    scopeId: scope.identity, hash: digest(page.body), snapshotId,
+  }] };
+  const evidence = page.revision.evidence;
+  const candidate = wiki.stage(scope, job, {
+    pages: [{ title: 'New', pageType: 'concept', entityKey: 'new', body: 'New fact.', evidence }],
+    refs: [{ fromKey: 'new', toKey: 'wiki:foreign', refType: 'related', evidence }],
+  }, await wiki.settings());
+  await expect(wiki.publish(scope, candidate.id, candidate.version)).rejects.toThrow('WIKI_REFERENCE_INVALID');
+  expect(wiki.database().pages(scope.identity).items).toHaveLength(1);
+  candidate.refs[0].toKey = 'wiki:' + original.id;
+  wiki.database().saveCandidate(candidate);
+  await expect(wiki.publish(scope, candidate.id, candidate.version)).resolves.toMatchObject({ status: 'succeeded' });
+  expect(wiki.database().page(scope.identity, original.id).refs).toHaveLength(1);
+});
 it('keeps human edits and rejects stale candidate publication',async()=>{
   await wiki.start(scope,{kind:'ingest',documentIds:[doc]},'parent');await settle();
   let page=wiki.database().pages(scope.identity).items[0];
@@ -67,9 +123,12 @@ it('queries frozen evidence and saves the answer as a reviewable candidate',asyn
   await wiki.publish(scope,candidate.id,candidate.version);
   expect(wiki.database().pages(scope.identity).items).toHaveLength(1);
 });
-it('skips disabled automation and retains a reason',async()=>{
-  await wiki.consume(scope);expect(wiki.database().outbox(scope.identity)).toHaveLength(0);
-  expect(wiki.database().logs(scope.identity).items).toMatchObject([{operation:'auto_skipped',detail:{reason:'disabled'}}]);
+it('defers disabled automation and retains a reason', async () => {
+  await wiki.consume(scope);
+  expect(wiki.database().outbox(scope.identity)).toHaveLength(0);
+  expect(wiki.database().logs(scope.identity).items).toMatchObject([
+    { operation: 'update_deferred', detail: { reason: 'manual_update' } },
+  ]);
 });
 it('rejects unread evidence and invalid line references',()=>{
   const runtime=new WikiRuntime([{id:'d',version:1,body:'Fact',kind:'source'}],{maxResultBytes:10000,maxAffectedPages:30,maxSourceDocuments:30},{limit:200000},new AbortController().signal,'query');

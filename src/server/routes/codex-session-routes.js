@@ -3,7 +3,7 @@ import { codexError } from '../codex-sessions/source.js';
 import { matchesWorkspacePath } from '../conversations/workspace-path.js';
 
 /**
- * Create routes for read-only Codex session discovery.
+ * Discover Codex metadata and constrain session reads and refreshes to the Host workspace path.
  * @param registry - The Host workspace registry.
  * @param service - The service owning this operation.
  * @returns Route definitions for the caller to authenticate and register.
@@ -50,7 +50,7 @@ export function createCodexSessionRoutes(registry, service) {
         if (input.codexWorkspaceId !== undefined && typeof input.codexWorkspaceId !== 'string') {
           throw codexError('Codex 工作区标识无效');
         }
-        if (input.matchWorkspace === true || input.matchWorkspace === 'true') {
+        if (action !== 'workspaces') {
           matchedPath = workspace.path;
           const inventory = await service.workspaces();
           const matches = inventory.workspaces.filter(

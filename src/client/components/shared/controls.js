@@ -155,7 +155,7 @@ function Modal({ open, title, onClose, className, children, role = 'dialog' }) {
     ? createPortal(
         h(
           'div',
-          { className: css.modalRoot, role: 'presentation' },
+          { className: css.modalRoot, role: 'presentation', 'data-rh-modal': '' },
           h('div', { className: css.mask, 'aria-hidden': true, onClick: () => close.current?.() }),
           h(
             'div',
@@ -225,6 +225,7 @@ function usePlacement(open, anchor, surface, gap = 4, anchorPoint, side = 'botto
           ? rect.bottom + gap
           : Math.max(inset, rect.top - box.height - gap);
       setPosition({
+        '--rh-overlay-anchor-width': rect.width + 'px',
         '--rh-overlay-left': Math.max(12, Math.min(rect.left, width - box.width - 12)) + 'px',
         '--rh-overlay-top': Math.min(top, height - 24) + 'px',
         '--rh-overlay-height': Math.max(40, height - top - 12) + 'px',
@@ -267,6 +268,10 @@ function Menu({
   autoFocus = true,
   anchorPoint,
   containerTag = 'span',
+  role = 'menu',
+  id,
+  label,
+  activeId,
 }) {
   const trigger = React.useRef(null);
   const list = React.useRef(null);
@@ -372,7 +377,9 @@ function Menu({
           'div',
           {
             ref: list,
-            role: 'menu',
+            role,
+            id,
+            'aria-label': label,
             className: join(css.menu, listClassName),
             style: position,
             onKeyDown: keyboard,
@@ -384,7 +391,12 @@ function Menu({
               {
                 key: item.id,
                 type: 'button',
-                role: 'menuitem',
+                role: role === 'listbox' ? 'option' : 'menuitem',
+                id: item.domId,
+                title: item.title,
+                'aria-selected': role === 'listbox' ? selectedId === item.id : undefined,
+                'data-active': activeId === item.id,
+                onMouseDown: role === 'listbox' ? (event) => event.preventDefault() : undefined,
                 tabIndex: -1,
                 disabled: item.disabled,
                 'data-value': item.id,

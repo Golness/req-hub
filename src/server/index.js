@@ -144,7 +144,7 @@ export function apply(ctx, config = {}) {
     ...enhancements.routes,
     ...knowledge.routes,
 
-    ...createConfigRoutes(workspaceRegistry, llm),
+    ...createConfigRoutes(workspaceRegistry, llm, ctx),
 
     ...createTreeRoutes(workspaceRegistry, { knowledgeService: knowledge.service }),
     ...creation.routes,
@@ -542,6 +542,7 @@ export function apply(ctx, config = {}) {
   for (const route of operations.routes) {
     disposers.push(webServer.register(authenticatedRoute(ctx.connection, route)));
   }
+  wiki.service.startDailyScheduler();
   log.startup.info(`已注册 ${routes.length} 个路由`);
   return cleanup;
 }

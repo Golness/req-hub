@@ -1,4 +1,10 @@
 import { freezeKnowledgeContext } from '../knowledge/enhancements/knowledge-context.js';
+import { matchesWorkspacePath } from '../conversations/workspace-path.js';
+import {
+  listDesignReferences,
+  freezeDesignReference,
+  publishedRequirementReference,
+} from '../sync-design-reference.js';
 import { safeDocumentPath } from '../safe-path.js';
 import taskModel from '../../shared/sync-task.cjs';
 import { SyncLifecycle } from '../sync-lifecycle.js';
@@ -20,7 +26,7 @@ import { join } from 'node:path';
 import { loadConfig } from '../config.js';
 import { findRequirementDir } from '../doc-reader.js';
 import { findBranchByRequirement, beginCommitSync } from '../sync-engine.js';
-import { defaultSyncBaseBranch, listSyncCommits } from '../sync-branches.js';
+import { defaultSyncBaseBranch, listSyncCommits, listSyncBranches } from '../sync-branches.js';
 import { buildSyncTimeline } from '../sync-timeline.js';
 import { compareSyncSnapshots } from '../sync-snapshots.js';
 import { PhasedSyncEngine } from '../phased-sync-engine.js';
@@ -34,7 +40,7 @@ import { createConversationRoutes } from './conversation-routes.js';
 import { createConversationKnowledgeRoutes } from './conversation-knowledge-routes.js';
 import { removeRetiredCodexStore } from '../conversations/retired-storage.js';
 import { homedir } from 'node:os';
-import { json, readBody } from '../utils.js';
+import { json, readBody, parseBranchName } from '../utils.js';
 import { log } from '../logger.js';
 import {
   loadState as loadSyncState,
@@ -66,6 +72,22 @@ import { estimateTextTokens } from '../token-utils.js';
 export function createSyncRoutes(registry, llm, sessions, agents, ctx, options = {}) {
   const storageLease = retainSyncStorage(options.syncStorageRoot);
   const storage = storageLease.store;
+  const referenceDirectory = async (workspaceId, requirementId) => {
+    const workspace = registry.list().find((item) => item.id === workspaceId);
+    if (!workspace || typeof requirementId !== 'string' || !requirementId) {
+      throw Object.assign(new Error('SYNC_REFERENCE_INVALID'), { status: 404 });
+    }
+    const config = await loadConfig();
+    const docsRoot = resolve(workspace.path, config.docsDir || 'docs');
+    if (docsRoot !== resolve(workspace.path)) {
+      await safeDocumentPath(workspace.path, config.docsDir || 'docs');
+    }
+    const directory = await findRequirementDir(docsRoot, requirementId);
+    if (!directory) {
+      throw Object.assign(new Error('SYNC_REQUIREMENT_NOT_FOUND'), { status: 404 });
+    }
+    return safeDocumentPath(docsRoot, relative(docsRoot, directory));
+  };
   const releaseDeleted = async (workspaceKey) => {
     for (const task of storage.deleted(workspaceKey)) {
       await library.store.unpin(
@@ -312,6 +334,88 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
     },
     {
       kind: 'exact',
+      path: '/req-hub/sync-design-references',
+      async handler(req, res) {
+        if (req.method !== 'GET') {
+          return json(res, { error: 'METHOD_NOT_ALLOWED' }, 405);
+        }
+        const input = Object.fromEntries(new URL(req.url, 'http://localhost').searchParams);
+        const directory = await referenceDirectory(input.workspaceId, input.requirementId);
+        const files = await listDesignReferences(directory, input.query || '');
+        return json(res, { files });
+      },
+    },
+    {
+      kind: 'exact',
+      path: '/req-hub/quick-sync-status',
+      async handler(req, res) {
+        if (req.method !== 'GET') {
+          return json(res, { error: 'METHOD_NOT_ALLOWED' }, 405);
+        }
+        const input = Object.fromEntries(new URL(req.url, 'http://localhost').searchParams);
+        const workspace = registry.list().find((item) => item.id === input.workspaceId);
+        if (!workspace || !input.requirementId || !input.id) {
+          return json(res, { error: 'SYNC_WORKSPACE_NOT_FOUND' }, 404);
+        }
+        const config = await loadConfig();
+        const reqDir = await findRequirementDir(
+          resolve(workspace.path, config.docsDir || 'docs'),
+          input.requirementId,
+        );
+        if (!reqDir) {
+          return json(res, { error: 'SYNC_REQUIREMENT_NOT_FOUND' }, 404);
+        }
+        await loadState(workspace.id, input.requirementId, reqDir);
+        await syncSupervisor.check();
+        await reconcileOrphans();
+        const snapshot = syncSupervisor.snapshot();
+        const belongs = (item) =>
+          item?.id === input.id &&
+          item.workspaceId === workspace.id &&
+          item.requirementId === input.requirementId;
+        const tasks = [
+          await getActiveSync(workspace.id, input.requirementId),
+          ...(await getSyncHistory(workspace.id, input.requirementId)),
+        ].filter((task) => task?.quickSyncId === input.id);
+        let quickSync = [snapshot.quickSync, syncSupervisor.latestQuickSync].find(belongs);
+        if (!quickSync && tasks.length) {
+          const latest = tasks.find((task) => task.docType === 'design') || tasks[0];
+          const finished = latest.docType === 'design' && latest.status === 'completed';
+          let status = 'failed';
+          if (finished) {
+            status = 'completed';
+          } else if (latest.status === 'aborted') {
+            status = 'aborted';
+          }
+          quickSync = {
+            id: input.id,
+            workspaceId: workspace.id,
+            requirementId: input.requirementId,
+            stage: latest.docType,
+            status,
+            error: finished ? undefined : latest.error || 'SYNC_SEQUENCE_INTERRUPTED',
+            documents: tasks.map(({ id, docType, status, snapshotDir }) => ({
+              id,
+              docType,
+              status,
+              snapshotDir,
+            })),
+          };
+        }
+        if (!quickSync) {
+          return json(res, { error: 'SYNC_SEQUENCE_NOT_FOUND' }, 404);
+        }
+        const current = [snapshot.active, snapshot.latest].find(
+          (task) =>
+            task?.quickSyncId === input.id &&
+            task.workspaceId === workspace.id &&
+            task.requirementId === input.requirementId,
+        );
+        return json(res, { quickSync, sync: current || tasks[0] || null });
+      },
+    },
+    {
+      kind: 'exact',
       path: '/req-hub/sync-storage',
       async handler(req, res) {
         if (!['GET', 'POST'].includes(req.method)) {
@@ -386,6 +490,45 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
 
     {
       kind: 'exact',
+      path: '/req-hub/sync-branches',
+      async handler(req, res) {
+        if (req.method !== 'GET') {
+          return json(res, { error: 'METHOD_NOT_ALLOWED' }, 405);
+        }
+        const url = new URL(req.url, 'http://localhost');
+        const workspace = registry
+          .list()
+          .find((item) => item.id === url.searchParams.get('workspaceId'));
+        if (!workspace) {
+          return json(res, { error: 'SYNC_WORKSPACE_NOT_FOUND' }, 404);
+        }
+        try {
+          const query = (url.searchParams.get('query') || '').trim().toLowerCase();
+          const branches = (await listSyncBranches(workspace.path)).filter(
+            (name) => parseBranchName(name)?.developer && name.toLowerCase().includes(query),
+          );
+          const result = { branches };
+          if (Buffer.byteLength(JSON.stringify(result), 'utf8') > 2 * 1024 * 1024) {
+            return json(res, { error: 'SYNC_BRANCH_LIST_TOO_LARGE' }, 413);
+          }
+          return json(res, result);
+        } catch (error) {
+          return json(
+            res,
+            {
+              error:
+                error.message === 'SYNC_WORKSPACE_REPOSITORY_MISMATCH'
+                  ? error.message
+                  : 'SYNC_BRANCH_LIST_FAILED',
+            },
+            400,
+          );
+        }
+      },
+    },
+
+    {
+      kind: 'exact',
       path: '/req-hub/sync-branch-info',
       async handler(req, res) {
         if (req.method !== 'GET') {
@@ -417,7 +560,12 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
           let targetBranch = null;
           let targetBranchError = null;
           try {
-            targetBranch = await findBranchByRequirement(workspace.path, requirementId);
+            targetBranch = await findBranchByRequirement(
+              workspace.path,
+              requirementId,
+              undefined,
+              url.searchParams.get('targetBranch') ?? undefined,
+            );
           } catch (error) {
             targetBranchError = error.message;
           }
@@ -452,7 +600,12 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
           return json(res, { error: 'missing requirementId' }, 400);
         }
         try {
-          const targetBranch = await findBranchByRequirement(workspace.path, requirementId);
+          const targetBranch = await findBranchByRequirement(
+            workspace.path,
+            requirementId,
+            undefined,
+            url.searchParams.get('targetBranch') ?? undefined,
+          );
           const baseBranch =
             url.searchParams.get('baseBranch')?.trim() ||
             (await defaultSyncBaseBranch(workspace.path));
@@ -761,9 +914,12 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
           let workspaceId;
           let requirementId;
           let lease;
+          let quickRequirementReference;
           try {
             const input = JSON.parse(body);
-            const { docType, sessionIds = [] } = input;
+            const { docType: requestedDocType, sessionIds: requestedSessionIds = [] } = input;
+            const docType = input.quick === true ? 'requirement' : requestedDocType;
+            const sessionIds = input.quick === true ? [] : requestedSessionIds;
             ({ workspaceId, requirementId } = input);
 
             if (!workspaceId || !requirementId || !docType) {
@@ -777,6 +933,20 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
             if (!workspace) {
               json(res, { error: 'Workspace not found' }, 404);
               return;
+            }
+
+            let quickBaseBranch;
+            if (input.quick === true) {
+              await findBranchByRequirement(
+                workspace.path,
+                requirementId,
+                undefined,
+                input.targetBranch ?? '',
+              );
+              quickBaseBranch = await defaultSyncBaseBranch(workspace.path);
+              if (!quickBaseBranch) {
+                return json(res, { error: 'SYNC_BASE_BRANCH_MISSING' }, 400);
+              }
             }
 
             await syncSupervisor.check();
@@ -798,7 +968,11 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
               );
             }
             lease.scope = ownerScope;
+            if (input.quick === true) {
+              syncSupervisor.beginQuick(lease);
+            }
             lease.onRecovered = (reason) => {
+              syncSupervisor.finishQuick(lease, lease.deleted ? 'aborted' : 'failed', reason);
               if (syncTask) {
                 deleteAbortController(workspaceId, requirementId, syncId, abortController);
               }
@@ -806,7 +980,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
               if (res.headersSent && !res.writableEnded && !res.destroyed) {
                 try {
                   res.write(
-                    `data: ${JSON.stringify(lease.deleted ? { type: 'deleted', syncId, snapshotDir: syncTask?.snapshotDir } : { type: 'error', error: reason, sync: syncTask })}\n\n`,
+                    `data: ${JSON.stringify(lease.deleted ? { type: 'deleted', syncId, snapshotDir: syncTask?.snapshotDir } : { type: 'error', error: reason, sync: lease.notice || syncTask, quickSync: lease.quickSync })}\n\n`,
                   );
                 } catch (error) {
                   // A disconnected client cannot receive the terminal event; cleanup still proceeds.
@@ -824,449 +998,566 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
             const onPreparation = (activity) => syncSupervisor.preparing(lease, activity);
             onPreparation({ stage: 'preparing' });
 
-            const config = await loadConfig();
-            const docsRoot = resolve(workspace.path, config.docsDir || 'docs');
-            const reqDir = await findRequirementDir(docsRoot, requirementId);
-            if (!reqDir) {
-              json(res, { error: '需求目录未找到' }, 404);
-              return;
-            }
-            if (!llm) {
-              json(res, { error: 'LLM 不可用' }, 503);
-              return;
-            }
-            if (
-              !Array.isArray(sessionIds) ||
-              sessionIds.some((id) => typeof id !== 'string') ||
-              new Set(sessionIds).size !== sessionIds.length
-            ) {
-              return json(res, { error: 'SESSION_SELECTION_INVALID: 会话选择无效' }, 400);
-            }
-            onPreparation({ stage: 'sessions' });
-            const codexSnapshots = new Map(
-              (
-                await codex.snapshots(
-                  sessionIds.filter((id) => id.startsWith('codex:')),
-                  workspaceId,
-                )
-              ).map((snapshot) => [snapshot.sessionId, snapshot]),
-            );
-            const dshIds = sessionIds.filter((id) => !id.startsWith('codex:'));
-            if (dshIds.length && !(await library.list(workspaceId, dsh)).workspace) {
-              await library.refresh(workspaceId, workspaceId, dsh);
-            }
-            const dshSnapshots = new Map(
-              (await library.snapshots(workspaceId, dshIds, dsh)).map((snapshot) => [
-                snapshot.sessionId,
-                snapshot,
-              ]),
-            );
-            const sessionInput = await extractMultipleSessionTurns(sessionQuery, sessionIds, {
-              sessions,
-              readSnapshot: (id) => codexSnapshots.get(id) || dshSnapshots.get(id),
-            });
-            for (const snapshot of sessionInput.snapshots) {
-              if (input.sessionVersions?.[snapshot.sessionId] !== snapshot.version) {
-                return json(
-                  res,
-                  { error: 'SESSION_CHANGED: 会话已变化，请刷新会话列表后重新选择' },
-                  409,
-                );
+            const documentTypes = input.quick === true ? ['requirement', 'design'] : [docType];
+            for (const docType of documentTypes) {
+              syncSupervisor.assert(lease);
+              syncTask = undefined;
+              syncId = undefined;
+              lifecycle = undefined;
+              const config = await loadConfig();
+              const docsRoot = resolve(workspace.path, config.docsDir || 'docs');
+              const reqDir = await findRequirementDir(docsRoot, requirementId);
+              if (!reqDir) {
+                throw Object.assign(new Error('SYNC_REQUIREMENT_NOT_FOUND'), { statusCode: 404 });
               }
-              if (!snapshot.syncTurnCount) {
-                return json(
-                  res,
-                  { error: `SESSION_EMPTY: ${snapshot.sessionId} 没有可同步的完整轮次` },
-                  400,
-                );
+              if (!llm) {
+                throw Object.assign(new Error('SYNC_LLM_UNAVAILABLE'), { statusCode: 503 });
               }
-            }
-            const docTypeName = docType === 'requirement' ? '需求文档' : '技术方案';
-
-            const hasSessions = sessionIds.length > 0;
-            const fields = {
-              workspaceId,
-              workspace,
-              docsRoot,
-              requirementId,
-              docType,
-              docTypeName,
-              requirementPath: relative(docsRoot, reqDir).replaceAll('\\', '/'),
-              sessionIds,
-              conversationStorageVersion: 1,
-              ownerProfile: library.owner,
-              sessionSnapshots: sessionInput.snapshots.map(
-                ({ sessionId, conversationId, version, syncTurnCount }) => ({
-                  sessionId,
-                  conversationId,
-                  version,
-                  syncTurnCount,
-                }),
-              ),
-              baseBranch: input.baseBranch?.trim() || (await defaultSyncBaseBranch(workspace.path)),
-              commitHashes: input.commitHashes,
-              branchTip: input.branchTip,
-              baseCommit: input.baseCommit,
-              includeWorkingChanges: input.includeWorkingChanges !== false,
-              startedAt: lease.startedAt,
-              status: 'running', // running | completed | failed
-              steps: taskModel.createSyncSteps({ sessionIds }),
-              generatedFiles: [],
-            };
-
-            if (closed) {
-              throw new Error('插件正在卸载，无法启动同步');
-            }
-            syncSupervisor.assert(lease);
-            await loadState(workspaceId, requirementId, reqDir);
-            const orphan = await getActiveSync(workspaceId, requirementId);
-            if (orphan) {
-              await recoverSyncTask(
-                orphan,
-                'SYNC_OWNER_MISSING: 原同步任务已无执行者，已回收残留状态',
+              if (
+                !Array.isArray(sessionIds) ||
+                sessionIds.some((id) => typeof id !== 'string') ||
+                new Set(sessionIds).size !== sessionIds.length
+              ) {
+                return json(res, { error: 'SESSION_SELECTION_INVALID: 会话选择无效' }, 400);
+              }
+              onPreparation({ stage: 'sessions' });
+              const codexIds = sessionIds.filter((id) => id.startsWith('codex:'));
+              if (codexIds.length) {
+                const cached = await codex.list(workspaceId);
+                const allowed = new Set(
+                  (cached.sessions || [])
+                    .filter((entry) => matchesWorkspacePath({ path: entry.cwd }, workspace.path))
+                    .map((entry) => entry.id),
+                );
+                if (codexIds.some((id) => !allowed.has(id))) {
+                  throw Object.assign(new Error('CODEX_SESSION_WORKSPACE_MISMATCH'), {
+                    statusCode: 403,
+                  });
+                }
+              }
+              const codexSnapshots = new Map(
+                (await codex.snapshots(codexIds, workspaceId)).map((snapshot) => [
+                  snapshot.sessionId,
+                  snapshot,
+                ]),
               );
-            }
-            const staleController = getAbortController(workspaceId, requirementId);
-            if (staleController) {
-              staleController.controller.abort();
-              deleteAbortController(
+              const dshIds = sessionIds.filter((id) => !id.startsWith('codex:'));
+              if (dshIds.length && !(await library.list(workspaceId, dsh)).workspace) {
+                await library.refresh(workspaceId, workspaceId, dsh);
+              }
+              const dshSnapshots = new Map(
+                (await library.snapshots(workspaceId, dshIds, dsh)).map((snapshot) => [
+                  snapshot.sessionId,
+                  snapshot,
+                ]),
+              );
+              const sessionInput = await extractMultipleSessionTurns(sessionQuery, sessionIds, {
+                sessions,
+                readSnapshot: (id) => codexSnapshots.get(id) || dshSnapshots.get(id),
+              });
+              for (const snapshot of sessionInput.snapshots) {
+                if (input.sessionVersions?.[snapshot.sessionId] !== snapshot.version) {
+                  return json(
+                    res,
+                    { error: 'SESSION_CHANGED: 会话已变化，请刷新会话列表后重新选择' },
+                    409,
+                  );
+                }
+                if (!snapshot.syncTurnCount) {
+                  return json(
+                    res,
+                    { error: `SESSION_EMPTY: ${snapshot.sessionId} 没有可同步的完整轮次` },
+                    400,
+                  );
+                }
+              }
+              const docTypeName = docType === 'requirement' ? '需求文档' : '技术方案';
+
+              let designReference;
+              if (docType === 'design') {
+                if (input.quick === true) {
+                  if (!quickRequirementReference) {
+                    throw new Error('SYNC_REFERENCE_MISSING');
+                  }
+                  designReference = quickRequirementReference;
+                } else if (
+                  input.designReferencePath !== undefined &&
+                  input.designReferencePath !== ''
+                ) {
+                  const directory = await referenceDirectory(workspaceId, requirementId);
+                  designReference = await freezeDesignReference(
+                    directory,
+                    input.designReferencePath,
+                    abortController.signal,
+                  );
+                }
+              }
+              const referenceMetadata = designReference
+                ? { ...designReference, text: undefined }
+                : undefined;
+
+              const hasSessions = sessionIds.length > 0;
+              const fields = {
                 workspaceId,
+                workspace,
+                docsRoot,
                 requirementId,
-                staleController.syncId,
-                staleController.controller,
-              );
-            }
-            let prepared = await beginCommitSync(workspace.path, reqDir, fields, {
-              signal: abortController.signal,
-              onProgress: onPreparation,
-            });
-            syncSupervisor.assert(lease);
-            if (prepared.active) {
-              await recoverSyncTask(
-                prepared.sync,
-                'SYNC_OWNER_MISSING: 原同步任务已无执行者，已回收残留状态',
-              );
-              prepared = await beginCommitSync(workspace.path, reqDir, fields, {
+                docType,
+                docTypeName,
+                ...(referenceMetadata ? { designReference: referenceMetadata } : {}),
+                requirementPath: relative(docsRoot, reqDir).replaceAll('\\', '/'),
+                sessionIds,
+                conversationStorageVersion: 1,
+                ownerProfile: library.owner,
+                sessionSnapshots: sessionInput.snapshots.map(
+                  ({ sessionId, conversationId, version, syncTurnCount }) => ({
+                    sessionId,
+                    conversationId,
+                    version,
+                    syncTurnCount,
+                  }),
+                ),
+                targetBranch: input.targetBranch,
+                baseBranch:
+                  quickBaseBranch ||
+                  input.baseBranch?.trim() ||
+                  (await defaultSyncBaseBranch(workspace.path)),
+                commitHashes: input.commitHashes,
+                branchTip: input.branchTip,
+                baseCommit: input.baseCommit,
+                includeWorkingChanges:
+                  input.quick === true ? false : input.includeWorkingChanges !== false,
+                startedAt: Date.now(),
+                ...(lease.quickSync ? { quickSyncId: lease.quickSync.id } : {}),
+                status: 'running', // running | completed | failed
+                steps: taskModel.createSyncSteps({ sessionIds }),
+                generatedFiles: [],
+              };
+
+              if (closed) {
+                throw new Error('插件正在卸载，无法启动同步');
+              }
+              syncSupervisor.assert(lease);
+              await loadState(workspaceId, requirementId, reqDir);
+              const orphan = await getActiveSync(workspaceId, requirementId);
+              if (orphan) {
+                await recoverSyncTask(
+                  orphan,
+                  'SYNC_OWNER_MISSING: 原同步任务已无执行者，已回收残留状态',
+                );
+              }
+              const staleController = getAbortController(workspaceId, requirementId);
+              if (staleController) {
+                staleController.controller.abort();
+                deleteAbortController(
+                  workspaceId,
+                  requirementId,
+                  staleController.syncId,
+                  staleController.controller,
+                );
+              }
+              let prepared = await beginCommitSync(workspace.path, reqDir, fields, {
                 signal: abortController.signal,
                 onProgress: onPreparation,
               });
-            }
-            if (prepared.active || prepared.skipped) {
-              json(res, prepared);
-              return;
-            }
-            syncTask = prepared.sync;
-            await library.store.pin(
-              JSON.stringify([workspaceId, requirementId, syncTask.snapshotDir]),
-              sessionInput.snapshots.filter((snapshot) => snapshot.conversationId),
-            );
-            syncId = syncTask.id;
-            syncSupervisor.attach(lease, syncTask, (reason) => recoverSyncTask(syncTask, reason));
-            controllers.set(abortController, syncTask);
-            if (closed) {
-              abortController.abort();
-            }
-            setAbortController(workspaceId, requirementId, abortController, syncId);
-            const { branchName, commits, codeDiff, uncommittedChanges, sourceSnapshots } = prepared;
-
-            // Set up SSE
-            res.writeHead(200, {
-              'Content-Type': 'text/event-stream',
-              'Cache-Control': 'no-cache',
-              Connection: 'keep-alive',
-            });
-
-            sendEvent = (data) => {
-              if (syncSupervisor.owner !== lease) {
+              syncSupervisor.assert(lease);
+              if (prepared.active) {
+                await recoverSyncTask(
+                  prepared.sync,
+                  'SYNC_OWNER_MISSING: 原同步任务已无执行者，已回收残留状态',
+                );
+                prepared = await beginCommitSync(workspace.path, reqDir, fields, {
+                  signal: abortController.signal,
+                  onProgress: onPreparation,
+                });
+              }
+              if (prepared.skipped && lease.quickSync) {
+                lease.quickSync.documents.push({ docType, status: 'skipped' });
+                if (docType === 'requirement') {
+                  const directory = await referenceDirectory(workspaceId, requirementId);
+                  quickRequirementReference = await freezeDesignReference(
+                    directory,
+                    'requirement.md',
+                    abortController.signal,
+                  );
+                  syncSupervisor.advanceQuick(lease, 'design');
+                  continue;
+                }
+                syncSupervisor.finishQuick(lease, 'completed');
+                if (res.headersSent) {
+                  sendEvent({
+                    type: 'done',
+                    sync: lease.notice,
+                    quickSync: lease.quickSync,
+                    skipped: true,
+                  });
+                  res.end();
+                } else {
+                  json(res, { ...prepared, quickSync: lease.quickSync });
+                }
                 return;
               }
-              syncSupervisor.touch(lease);
-              if (res.destroyed || res.writableEnded) {
+              if (prepared.active && lease.quickSync) {
+                throw Object.assign(new Error('SYNC_SEQUENCE_CONFLICT'), { statusCode: 409 });
+              }
+              if (prepared.active || prepared.skipped) {
+                json(res, prepared);
                 return;
               }
-              try {
-                res.write(`data: ${JSON.stringify(data)}\n\n`);
-              } catch (error) {
-                log.sync.debug('同步连接已断开，任务继续持久化执行：' + error.message);
+              syncTask = prepared.sync;
+              await library.store.pin(
+                JSON.stringify([workspaceId, requirementId, syncTask.snapshotDir]),
+                sessionInput.snapshots.filter((snapshot) => snapshot.conversationId),
+              );
+              syncId = syncTask.id;
+              syncSupervisor.attach(lease, syncTask, (reason) => recoverSyncTask(syncTask, reason));
+              controllers.set(abortController, syncTask);
+              if (closed) {
+                abortController.abort();
               }
-            };
-            lifecycle = new SyncLifecycle(syncTask, sendEvent);
-            const updateStep = (phase, updates) => lifecycle.step(phase, updates);
-            const addFile = (phase, fileName, logicalId) =>
-              lifecycle.file(phase, storage.artifact(syncTask, fileName, { logicalId }));
+              setAbortController(workspaceId, requirementId, abortController, syncId);
+              const { branchName, commits, codeDiff, uncommittedChanges, sourceSnapshots } =
+                prepared;
 
-            sendEvent({ type: 'sync_started', syncId, commitHash: syncTask.commitHash });
-            await updateStep('init', { status: 'running', text: '读取已冻结的需求分支提交...' });
-
-            // Read current document
-            const docFileName = docType === 'requirement' ? 'requirement.md' : 'design.md';
-            const docPath = join(reqDir, docFileName);
-
-            const originalVersion = await readDocumentVersion(docPath);
-            const currentDoc = originalVersion.bytes.toString('utf8');
-            const isNewDoc = !originalVersion.exists;
-
-            let initText = '';
-            if (commits && commits.length > 0) {
-              initText = `${commits.length} 个提交`;
-            } else {
-              initText = '无提交记录';
-            }
-            if (uncommittedChanges.hasChanges) {
-              const parts = [];
-              if (uncommittedChanges.staged) {
-                parts.push('已暂存');
+              // Set up SSE
+              if (!res.headersSent) {
+                res.writeHead(200, {
+                  'Content-Type': 'text/event-stream',
+                  'Cache-Control': 'no-cache',
+                  Connection: 'keep-alive',
+                });
               }
-              if (uncommittedChanges.unstaged) {
-                parts.push('未暂存');
-              }
-              if (uncommittedChanges.untracked.length > 0) {
-                parts.push(`${uncommittedChanges.untracked.length} 个新文件`);
-              }
-              initText += `，未提交变更: ${parts.join('、')}`;
-            }
-            if (isNewDoc) {
-              initText += '，新建文档';
-            }
 
-            // ─── Step 2: Session Extract ──────────────────────────
-            const sessionTurns = sessionInput.turns;
-            if (sessionIds.length > 0) {
-              await updateStep('init', {
-                status: 'running',
-                text: `提取 ${sessionIds.length} 个会话内容...`,
-              });
+              sendEvent = (data) => {
+                if (syncSupervisor.owner !== lease) {
+                  return;
+                }
+                syncSupervisor.touch(lease);
+                if (res.destroyed || res.writableEnded) {
+                  return;
+                }
+                try {
+                  res.write(
+                    `data: ${JSON.stringify({
+                      ...data,
+                      ...(lease.quickSync ? { quickSync: lease.quickSync } : {}),
+                    })}\n\n`,
+                  );
+                } catch (error) {
+                  log.sync.debug('同步连接已断开，任务继续持久化执行：' + error.message);
+                }
+              };
+              lifecycle = new SyncLifecycle(syncTask, sendEvent);
+              const updateStep = (phase, updates) => lifecycle.step(phase, updates);
+              const addFile = (phase, fileName, logicalId) =>
+                lifecycle.file(phase, storage.artifact(syncTask, fileName, { logicalId }));
 
-              try {
+              sendEvent({ type: 'sync_started', syncId, commitHash: syncTask.commitHash });
+              await updateStep('init', { status: 'running', text: '读取已冻结的需求分支提交...' });
+
+              // Read current document
+              const docFileName = docType === 'requirement' ? 'requirement.md' : 'design.md';
+              const docPath = join(reqDir, docFileName);
+
+              const originalVersion = await readDocumentVersion(docPath);
+              const currentDoc = originalVersion.bytes.toString('utf8');
+              const isNewDoc = !originalVersion.exists;
+
+              let initText = '';
+              if (commits && commits.length > 0) {
+                initText = `${commits.length} 个提交`;
+              } else {
+                initText = '无提交记录';
+              }
+              if (uncommittedChanges.hasChanges) {
+                const parts = [];
+                if (uncommittedChanges.staged) {
+                  parts.push('已暂存');
+                }
+                if (uncommittedChanges.unstaged) {
+                  parts.push('未暂存');
+                }
+                if (uncommittedChanges.untracked.length > 0) {
+                  parts.push(`${uncommittedChanges.untracked.length} 个新文件`);
+                }
+                initText += `，未提交变更: ${parts.join('、')}`;
+              }
+              if (isNewDoc) {
+                initText += '，新建文档';
+              }
+
+              // ─── Step 2: Session Extract ──────────────────────────
+              const sessionTurns = sessionInput.turns;
+              if (sessionIds.length > 0) {
                 await updateStep('init', {
                   status: 'running',
-                  text: `${sessionTurns.length} 个轮次已提取，正在检查分块输入预算...`,
+                  text: `提取 ${sessionIds.length} 个会话内容...`,
                 });
-              } catch (e) {
-                log.sync.warn(`提取会话内容失败: ${e.message}`);
-                throw new Error(`会话提取失败: ${e.message}`);
-              }
-            }
 
-            // ─── Step 3-5: Run phased sync engine ────────────────
-
-            const syncDir = storage.attemptRoot(syncTask, true);
-
-            const parentAgent = agents?.get(sessionId);
-            if (!parentAgent) {
-              throw new Error('会话不存在或已结束，请在活跃的 DSH 会话中调用此功能');
-            }
-
-            if (abortController.signal.aborted) {
-              throw new Error('同步已终止');
-            }
-
-            const engine = new PhasedSyncEngine({
-              llm,
-              config,
-              cwd: workspace.path,
-              ctx,
-              parentAgent,
-              signal: abortController.signal,
-              storage,
-              task: syncTask,
-              onActivity: () => syncSupervisor.touch(lease),
-              assertActive: () => {
-                syncSupervisor.assert(lease);
-                storage.assert(syncTask);
-              },
-            });
-
-            await updateStep('init', {
-              status: 'running',
-              text: '根据子代理模型容量检查文档与必读证据，计算分块预算...',
-            });
-            const knowledgeContext = await freezeKnowledgeContext(
-              options.knowledgeService,
-              input.knowledgeScopeIds,
-              input.knowledgeQuery || requirementId,
-              abortController.signal,
-              input.knowledgeReferenceRefs,
-            );
-            const preparedChunks = await engine.prepareSyncChunks({
-              docType,
-              currentDoc,
-              originalVersion,
-              commits,
-              codeDiff,
-              sourceSnapshots,
-              sessionTurns,
-              knowledgeContext,
-              syncContext: {
-                taskId: syncId,
-                branchName,
-                targetSha: syncTask.commitHash,
-                baseSha: syncTask.baselineCommit,
-                attempt: syncTask.snapshotDir,
-              },
-              hasUncommitted: uncommittedChanges.hasChanges,
-              syncDir,
-              onPreparation: (activity) => updateStep('init', { activity }),
-            });
-            if (knowledgeContext.length) {
-              await lifecycle.metadata({
-                knowledgeRefs: knowledgeContext.map(({ text, ...reference }) => reference),
-              });
-            }
-            for (const reference of knowledgeContext) {
-              await addFile('init', reference.id + '.json', reference.id);
-            }
-            await addFile('init', 'input-code.diff', 'code.input');
-            await addFile('init', 'manifest.json');
-            for (const entry of preparedChunks.store.entries.values()) {
-              if (entry.file.startsWith('sessions/')) {
-                await addFile('init', entry.file.replaceAll('/', '-'), entry.id);
-              }
-            }
-            await updateStep('code_analysis', {
-              chunks: preparedChunks.code.map((c) => ({
-                index: c.index,
-                tokens: c.tokens,
-                inputBudget: c.inputBudget,
-                files: c.details.map((d) => ({ file: d.file, tokens: d.tokens })),
-              })),
-            });
-            if (hasSessions) {
-              await updateStep('discussion_analysis', {
-                chunks: preparedChunks.discussion.map((c) => ({
-                  index: c.index,
-                  tokens: c.tokens,
-                  inputBudget: c.inputBudget,
-                  turns: c.details,
-                })),
-              });
-            }
-            await updateStep('init', {
-              status: 'completed',
-              text:
-                initText +
-                `，代码 ${preparedChunks.code.length} 块、会话 ${preparedChunks.discussion.length} 块，输入预算检查通过`,
-              inputBudget: preparedChunks.budget,
-              sourceTokens: estimateTextTokens(codeDiff),
-              hasUncommitted: uncommittedChanges.hasChanges,
-            });
-
-            const result = await engine.sync({
-              preparedChunks,
-              originalVersion,
-              sourceSnapshots,
-              docType,
-              currentDoc,
-              commits,
-              codeDiff,
-              sessionTurns,
-              hasUncommitted: uncommittedChanges.hasChanges,
-              reqDir,
-              syncDir,
-              onProgress: async (progress) => {
-                if (progress.status === 'output_file') {
-                  return addFile(progress.phase, progress.fileName);
+                try {
+                  await updateStep('init', {
+                    status: 'running',
+                    text: `${sessionTurns.length} 个轮次已提取，正在检查分块输入预算...`,
+                  });
+                } catch (e) {
+                  log.sync.warn(`提取会话内容失败: ${e.message}`);
+                  throw new Error(`会话提取失败: ${e.message}`);
                 }
-                await lifecycle.progress(progress);
-              },
-            });
-
-            if (result.aborted || abortController.signal.aborted) {
-              throw new Error('同步已终止');
-            }
-            if (result.errors?.length || typeof result.mergedDoc !== 'string') {
-              const failure = new Error(
-                result.errors?.map((item) => item.error).join('；') || '未生成有效文档快照',
-              );
-              failure.phase = result.errors?.[0]?.phase;
-              throw failure;
-            }
-            if (result.patchFile) {
-              await addFile('merge', result.patchFile);
-            }
-            if (result.appliedDiffFile) {
-              await addFile('merge', result.appliedDiffFile);
-            }
-            if (
-              result.schemaVersion !== 2 ||
-              !result.validation ||
-              !Buffer.isBuffer(result.candidateBytes)
-            ) {
-              throw new Error('SYNC_V2_RESULT_REQUIRED');
-            }
-            await lifecycle.metadata({
-              originalHash: result.validation.originalHash,
-              candidateHash: result.validation.candidateHash,
-              publishState: 'prepared',
-            });
-            await updateStep('publish', { status: 'running', text: '检查文档版本并发布...' });
-            syncSupervisor.assert(lease);
-            await publishDocument({
-              docPath,
-              syncDir: join(syncDir, 'outputs'),
-              fileName: docFileName,
-              original: originalVersion,
-              candidateBytes: result.candidateBytes,
-              validation: result.validation,
-              signal: abortController.signal,
-              assertActive: () => {
-                syncSupervisor.assert(lease);
-                storage.assert(syncTask);
-              },
-            });
-            await lifecycle.metadata({ publishState: 'document_written' });
-            if (options.knowledgeService?.wiki) {
-              try {
-                await options.knowledgeService.wiki.capture(
-                  workspaceId,
-                  relative(docsRoot, docPath),
-                  sessionId,
-                  abortController.signal,
-                );
-              } catch (error) {
-                await lifecycle.metadata({
-                  wiki: { status: 'failed', code: 'WIKI_INGEST_FAILED' },
-                });
               }
-            }
-            await updateStep('publish', { status: 'completed', text: '正式文档与成功快照一致' });
-            await addFile('merge', docFileName);
 
-            await lifecycle.metadata({ stats: result.stats, publishState: 'state_committed' });
+              // ─── Step 3-5: Run phased sync engine ────────────────
 
-            try {
-              const journalPath = storage.file(syncTask, 'publish-journal.json');
-              const journal = JSON.parse(await readFile(journalPath, 'utf8'));
-              await atomicWrite(
-                journalPath,
-                JSON.stringify({ ...journal, stage: 'state_committed' }, null, 2),
-                abortController.signal,
-                () => {
+              const syncDir = storage.attemptRoot(syncTask, true);
+
+              const parentAgent = agents?.get(sessionId);
+              if (!parentAgent) {
+                throw new Error('会话不存在或已结束，请在活跃的 DSH 会话中调用此功能');
+              }
+
+              if (abortController.signal.aborted) {
+                throw new Error('同步已终止');
+              }
+
+              const engine = new PhasedSyncEngine({
+                llm,
+                config,
+                cwd: workspace.path,
+                ctx,
+                parentAgent,
+                signal: abortController.signal,
+                storage,
+                task: syncTask,
+                onActivity: () => syncSupervisor.touch(lease),
+                assertActive: () => {
                   syncSupervisor.assert(lease);
                   storage.assert(syncTask);
                 },
+              });
+
+              await updateStep('init', {
+                status: 'running',
+                text: '根据子代理模型容量检查文档与必读证据，计算分块预算...',
+              });
+              const knowledgeContext = await freezeKnowledgeContext(
+                options.knowledgeService,
+                input.knowledgeScopeIds,
+                input.knowledgeQuery || requirementId,
+                abortController.signal,
+                input.knowledgeReferenceRefs,
               );
-            } catch (error) {
-              log.sync.warn('发布日志收尾失败，可在重启时核验: ' + error.message);
+              const preparedChunks = await engine.prepareSyncChunks({
+                docType,
+                currentDoc,
+                originalVersion,
+                commits,
+                codeDiff,
+                sourceSnapshots,
+                sessionTurns,
+                knowledgeContext,
+                designReference,
+                syncContext: {
+                  taskId: syncId,
+                  branchName,
+                  targetSha: syncTask.commitHash,
+                  baseSha: syncTask.baselineCommit,
+                  attempt: syncTask.snapshotDir,
+                },
+                hasUncommitted: uncommittedChanges.hasChanges,
+                syncDir,
+                onPreparation: (activity) => updateStep('init', { activity }),
+              });
+              if (knowledgeContext.length) {
+                await lifecycle.metadata({
+                  knowledgeRefs: knowledgeContext.map(({ text, ...reference }) => reference),
+                });
+              }
+              for (const reference of knowledgeContext) {
+                await addFile('init', reference.id + '.json', reference.id);
+              }
+              if (designReference) {
+                await addFile('init', 'design-reference.json', 'design.reference');
+              }
+              await addFile('init', 'input-code.diff', 'code.input');
+              await addFile('init', 'manifest.json');
+              for (const entry of preparedChunks.store.entries.values()) {
+                if (entry.file.startsWith('sessions/')) {
+                  await addFile('init', entry.file.replaceAll('/', '-'), entry.id);
+                }
+              }
+              await updateStep('code_analysis', {
+                chunks: preparedChunks.code.map((c) => ({
+                  index: c.index,
+                  tokens: c.tokens,
+                  inputBudget: c.inputBudget,
+                  files: c.details.map((d) => ({ file: d.file, tokens: d.tokens })),
+                })),
+              });
+              if (hasSessions) {
+                await updateStep('discussion_analysis', {
+                  chunks: preparedChunks.discussion.map((c) => ({
+                    index: c.index,
+                    tokens: c.tokens,
+                    inputBudget: c.inputBudget,
+                    turns: c.details,
+                  })),
+                });
+              }
+              await updateStep('init', {
+                status: 'completed',
+                text:
+                  initText +
+                  `，代码 ${preparedChunks.code.length} 块、会话 ${preparedChunks.discussion.length} 块，输入预算检查通过`,
+                inputBudget: preparedChunks.budget,
+                sourceTokens: estimateTextTokens(codeDiff),
+                hasUncommitted: uncommittedChanges.hasChanges,
+              });
+
+              const result = await engine.sync({
+                preparedChunks,
+                originalVersion,
+                sourceSnapshots,
+                docType,
+                currentDoc,
+                commits,
+                codeDiff,
+                sessionTurns,
+                hasUncommitted: uncommittedChanges.hasChanges,
+                reqDir,
+                syncDir,
+                onProgress: async (progress) => {
+                  if (progress.status === 'output_file') {
+                    return addFile(progress.phase, progress.fileName);
+                  }
+                  await lifecycle.progress(progress);
+                },
+              });
+
+              if (result.aborted || abortController.signal.aborted) {
+                throw new Error('同步已终止');
+              }
+              if (result.errors?.length || typeof result.mergedDoc !== 'string') {
+                const failure = new Error(
+                  result.errors?.map((item) => item.error).join('；') || '未生成有效文档快照',
+                );
+                failure.phase = result.errors?.[0]?.phase;
+                throw failure;
+              }
+              if (result.patchFile) {
+                await addFile('merge', result.patchFile);
+              }
+              if (result.appliedDiffFile) {
+                await addFile('merge', result.appliedDiffFile);
+              }
+              if (
+                result.schemaVersion !== 2 ||
+                !result.validation ||
+                !Buffer.isBuffer(result.candidateBytes)
+              ) {
+                throw new Error('SYNC_V2_RESULT_REQUIRED');
+              }
+              await lifecycle.metadata({
+                originalHash: result.validation.originalHash,
+                candidateHash: result.validation.candidateHash,
+                publishState: 'prepared',
+              });
+              await updateStep('publish', { status: 'running', text: '检查文档版本并发布...' });
+              syncSupervisor.assert(lease);
+              await publishDocument({
+                docPath,
+                syncDir: join(syncDir, 'outputs'),
+                fileName: docFileName,
+                original: originalVersion,
+                candidateBytes: result.candidateBytes,
+                validation: result.validation,
+                signal: abortController.signal,
+                assertActive: () => {
+                  syncSupervisor.assert(lease);
+                  storage.assert(syncTask);
+                },
+              });
+              await lifecycle.metadata({ publishState: 'document_written' });
+              if (options.knowledgeService?.wiki) {
+                try {
+                  await options.knowledgeService.wiki.capture(
+                    workspaceId,
+                    relative(docsRoot, docPath),
+                    sessionId,
+                    abortController.signal,
+                  );
+                } catch (error) {
+                  await lifecycle.metadata({
+                    wiki: { status: 'failed', code: 'WIKI_INGEST_FAILED' },
+                  });
+                }
+              }
+              await updateStep('publish', { status: 'completed', text: '正式文档与成功快照一致' });
+              await addFile('merge', docFileName);
+
+              await lifecycle.metadata({ stats: result.stats, publishState: 'state_committed' });
+
+              try {
+                const journalPath = storage.file(syncTask, 'publish-journal.json');
+                const journal = JSON.parse(await readFile(journalPath, 'utf8'));
+                await atomicWrite(
+                  journalPath,
+                  JSON.stringify({ ...journal, stage: 'state_committed' }, null, 2),
+                  abortController.signal,
+                  () => {
+                    syncSupervisor.assert(lease);
+                    storage.assert(syncTask);
+                  },
+                );
+              } catch (error) {
+                log.sync.warn('发布日志收尾失败，可在重启时核验: ' + error.message);
+              }
+
+              abortController.signal.throwIfAborted();
+              await lifecycle.finish();
+              log.sync.info(`${docTypeName}分阶段同步结束：${syncTask.status}`);
+
+              if (lease.quickSync) {
+                lease.quickSync.documents.push({
+                  docType,
+                  status: syncTask.status,
+                  id: syncTask.id,
+                  snapshotDir: syncTask.snapshotDir,
+                  workspaceId,
+                  requirementId,
+                });
+                if (syncTask.status !== 'completed') {
+                  throw new Error(syncTask.error || 'SYNC_DOCUMENT_NOT_COMPLETED');
+                }
+                if (docType === 'requirement') {
+                  quickRequirementReference = publishedRequirementReference(
+                    result.candidateBytes,
+                    syncTask.id,
+                  );
+                  sendEvent({ type: 'document_done', sync: syncTask });
+                  deleteAbortController(workspaceId, requirementId, syncId, abortController);
+                  controllers.delete(abortController);
+                  syncSupervisor.advanceQuick(lease, 'design');
+                  continue;
+                }
+                syncSupervisor.finishQuick(lease, 'completed');
+              }
+              sendEvent({
+                type: 'done',
+                sync: syncTask,
+                status: syncTask.status,
+                syncId,
+                docType,
+                stats: result.stats,
+                files: syncTask.generatedFiles,
+              });
+              res.end();
             }
-
-            abortController.signal.throwIfAborted();
-            await lifecycle.finish();
-            log.sync.info(`${docTypeName}分阶段同步结束：${syncTask.status}`);
-
-            sendEvent({
-              type: 'done',
-              sync: syncTask,
-              status: syncTask.status,
-              syncId,
-              docType,
-              stats: result.stats,
-              files: syncTask.generatedFiles,
-            });
-
-            res.end();
           } catch (e) {
             log.sync.error(`分阶段同步失败: ${e.message}`);
+            syncSupervisor.finishQuick(
+              lease,
+              abortController?.signal.aborted ? 'aborted' : 'failed',
+              e.message,
+            );
 
             if (syncTask && !isSyncTaskRemoved(syncTask)) {
               lifecycle ||= new SyncLifecycle(syncTask, sendEvent);
@@ -1283,13 +1574,22 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
 
             if (res.headersSent) {
               try {
-                sendEvent({ type: 'error', error: e.message, sync: syncTask });
+                sendEvent({
+                  type: 'error',
+                  error: e.message,
+                  sync: lease?.notice || syncTask,
+                  quickSync: lease?.quickSync,
+                });
               } catch (error) {
                 // A disconnected client cannot receive the error event; cleanup still proceeds.
               }
             } else {
               let status;
-              if (/^(?:COMMIT_LIST_CHANGED|INPUT_CHANGED):/.test(e.message)) {
+              if (
+                ['SYNC_BRANCH_INVALID', 'SYNC_WORKSPACE_REPOSITORY_MISMATCH'].includes(e.message)
+              ) {
+                status = 400;
+              } else if (/^(?:COMMIT_LIST_CHANGED|INPUT_CHANGED):/.test(e.message)) {
                 status = 409;
               } else if (
                 /^(?:COMMIT_OUT_OF_RANGE|COMMIT_SELECTION_INVALID|BASE_BRANCH_)/.test(e.message)
@@ -1298,7 +1598,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
               } else {
                 status = 500;
               }
-              json(res, { error: e.message }, e.statusCode || status);
+              json(res, { error: e.message }, e.statusCode || e.status || status);
             }
             try {
               res.end();
@@ -1311,6 +1611,11 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
             }
             controllers.delete(abortController);
             if (lease) {
+              syncSupervisor.finishQuick(
+                lease,
+                abortController?.signal.aborted ? 'aborted' : 'failed',
+                'SYNC_SEQUENCE_INCOMPLETE',
+              );
               syncSupervisor.release(lease);
             }
             if (lease?.deleted) {
@@ -1363,6 +1668,22 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
           const parentAgent = sessionId ? agents?.get(sessionId) : null;
 
           // Pass ctx and parentAgent for interrupting subagent
+          const owner = syncSupervisor.owner;
+          if (
+            owner?.quickSync &&
+            owner.fields.workspaceId === workspaceId &&
+            owner.fields.requirementId === requirementId &&
+            owner.quickSync.documents.some(
+              (task) => task.id === syncId && (!snapshotDir || task.snapshotDir === snapshotDir),
+            )
+          ) {
+            owner.controller.abort();
+            const activeId = owner.task?.id;
+            if (activeId) {
+              await abortSync(activeId, workspaceId, requirementId, ctx, parentAgent);
+            }
+            return json(res, { success: true, status: 'cancelling' });
+          }
           const result = await abortSync(syncId, workspaceId, requirementId, ctx, parentAgent);
           json(res, result, result.success ? 200 : 400);
         } catch (e) {

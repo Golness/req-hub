@@ -1,6 +1,8 @@
 'use strict';
 const { Disclosure } = require('./shared/Disclosure.js');
 const React = require('react');
+const { createPortal } = require('react-dom');
+const layoutCss = require('./ConversationSources.module.css').default;
 const { ROUTE } = require('../constants.js');
 const { t } = require('../locale.js');
 const { Button } = require('./shared/Button.js');
@@ -13,7 +15,7 @@ const EMPTY = { ids: [], versions: {} };
 
 /**
  * Browse Host session snapshots within the selected workspace.
- * @param props - Data, state and callbacks supplied by the owning surface.
+ * @param props - Owned selections and callbacks, including the unfiltered session count.
  * @returns The rendered component content.
  */
 function DshSessionsSection({
@@ -26,9 +28,16 @@ function DshSessionsSection({
   onChanged,
   onRefreshStart,
   onBusyChange,
+  onCountChange,
   onManage,
+  embedded = false,
+  active = true,
+  toolbarTarget,
 }) {
   const [sessions, setSessions] = React.useState([]);
+  React.useEffect(() => {
+    onCountChange?.(sessions.length);
+  }, [sessions.length, onCountChange]);
   const [search, setSearch] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState('');
@@ -138,40 +147,54 @@ function DshSessionsSection({
   const visible = sessions.filter((row) =>
     `${row.title} ${row.id}`.toLowerCase().includes(search.trim().toLowerCase()),
   );
-  return h(
-    'section',
+  const actions = h(
+    'div',
     {
-      className: 'rh-sync-source-section rh-sync-sessions',
-      'aria-label': t('SyncPanel.message086'),
+      className: layoutCss.sourceActions,
+      hidden: embedded && !active,
     },
     h(
-      'div',
-      { className: 'rh-sync-section-heading' },
-      h(
-        'h3',
-        { className: 'rh-sync-section-title' },
-        t(acquireOnly ? 'conversationSources.dsh' : 'SyncPanel.message087'),
-      ),
+      Button,
+      {
+        size: 'sm',
+        variant: 'ghost',
+        disabled: disabled || loading,
+        onClick: () => load(true),
+      },
+      t('SyncPanel.message088'),
+    ),
+    onManage &&
       h(
         Button,
         {
-          className: 'rh-btn rh-btn-ghost rh-btn-sm',
+          size: 'sm',
+          variant: 'ghost',
           disabled: disabled || loading,
-          onClick: () => load(true),
+          onClick: onManage,
         },
-        t('SyncPanel.message088'),
+        t('conversations.manage'),
       ),
-      onManage &&
-        h(
-          Button,
-          {
-            className: 'rh-btn rh-btn-ghost rh-btn-sm',
-            disabled: disabled || loading,
-            onClick: onManage,
-          },
-          t('conversations.manage'),
+  );
+  return h(
+    'section',
+    {
+      className:
+        'rh-sync-source-section rh-sync-sessions' + (embedded ? ' ' + layoutCss.embedded : ''),
+      'aria-label': t('SyncPanel.message086'),
+    },
+    embedded && toolbarTarget
+      ? createPortal(actions, toolbarTarget)
+      : h(
+          'div',
+          { className: 'rh-sync-section-heading' },
+          !embedded &&
+            h(
+              'h3',
+              { className: 'rh-sync-section-title' },
+              t(acquireOnly ? 'conversationSources.dsh' : 'SyncPanel.message087'),
+            ),
+          actions,
         ),
-    ),
     h(
       'p',
       { className: 'rh-sync-hint' },

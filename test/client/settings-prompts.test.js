@@ -8,7 +8,7 @@ const React = require('react');
 const { act } = React;
 const { createRoot } = require('react-dom/client');
 const { SettingsPanel } = require('../../src/client/components/SettingsPanel.js');
-const { DocsViewerContext } = require('../../src/client/context.js');
+const { DocsViewerContext, SessionSelectionContext } = require('../../src/client/context.js');
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let root;
 let config;
@@ -17,7 +17,14 @@ let failRegistry;
 let fetchMock;
 
 beforeEach(() => {
-  config = { ai: { selectedModel: 'model', prompts: {}, skillBindings: {}, syncV2: { prompts: {}, skillBindings: {} } } };
+  config = {
+    ai: {
+      selectedModel: 'model',
+      prompts: {},
+      skillBindings: {},
+      syncV2: { prompts: {}, skillBindings: {} },
+    },
+  };
   failSave = false;
   failRegistry = false;
   fetchMock = vi.fn(async (url, options) => {
@@ -28,15 +35,23 @@ beforeEach(() => {
         ok = !failSave;
         if (ok) {
           const incoming = JSON.parse(options.body);
-          config.ai = { ...config.ai, ...incoming.ai, prompts: { ...config.ai.prompts, ...incoming.ai.prompts } };
+          config.ai = {
+            ...config.ai,
+            ...incoming.ai,
+            prompts: { ...config.ai.prompts, ...incoming.ai.prompts },
+          };
         }
       }
       data = structuredClone(config);
     } else if (url.endsWith('/llm-config')) data = { provider: 'Provider', models: ['model'] };
-    else if (url.includes('/knowledge/enhancements/jobs')) data = { enabled: false, jobs: [], mcpServers: [], mcpAvailable: false };
-    else if (url.endsWith('/prompt-registry')) { data = PROMPT_REGISTRY; ok = !failRegistry; }
-    else if (url.includes('/skill-content?')) data = { content: '# Skill', description: '' };
-    else if (url.includes('/skills?')) data = { skills: [{ name: 'review', description: 'Review skill' }] };
+    else if (url.includes('/knowledge/enhancements/jobs'))
+      data = { enabled: false, jobs: [], mcpServers: [], mcpAvailable: false };
+    else if (url.endsWith('/prompt-registry')) {
+      data = PROMPT_REGISTRY;
+      ok = !failRegistry;
+    } else if (url.includes('/skill-content?')) data = { content: '# Skill', description: '' };
+    else if (url.includes('/skills?'))
+      data = { skills: [{ name: 'review', description: 'Review skill' }] };
     else throw new Error(`Unexpected request: ${url}`);
     return { ok, status: ok ? 200 : 500, json: async () => data };
   });
@@ -51,40 +66,69 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-async function renderSettings() {
+async function renderSettings(sessionId = null, initialTab = 'prompts') {
   const container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
   const header = document.createElement('header');
   document.body.prepend(header);
-  await act(async () => root.render(React.createElement(DocsViewerContext.Provider, { value: { headerBackTarget: header } },
-    React.createElement(SettingsPanel, { workspaceId: 'ws', onClose: vi.fn() }))));
+  await act(async () =>
+    root.render(
+      React.createElement(
+        SessionSelectionContext.Provider,
+        { value: () => sessionId },
+        React.createElement(
+          DocsViewerContext.Provider,
+          { value: { headerBackTarget: header } },
+          React.createElement(SettingsPanel, { workspaceId: 'ws', onClose: vi.fn() }),
+        ),
+      ),
+    ),
+  );
+  if (initialTab === 'prompts') {
+    await act(async () => document.querySelector('#settings-tab-prompts').click());
+  }
 }
 
-const click = async element => act(async () => element.click());
-const tab = name => [...document.querySelectorAll('[role="tab"]')].find(el => el.textContent.startsWith(name));
-const prompt = name => [...document.querySelectorAll('.rh-prompt-item')].find(el => el.textContent === name);
+const click = async (element) => act(async () => element.click());
+const tab = (name) =>
+  [...document.querySelectorAll('[role="tab"]')].find((el) => el.textContent.startsWith(name));
+const prompt = (name) =>
+  [...document.querySelectorAll('.rh-prompt-item')].find((el) => el.textContent === name);
 const save = () => document.querySelector('.rh-settings-actions .rh-btn-primary');
 async function edit(value) {
   const textarea = document.querySelector('.rh-prompt-textarea');
   await act(async () => {
-    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(textarea, value);
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(
+      textarea,
+      value,
+    );
     textarea.dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
 
 it('groups every registered prompt by rail feature and supports keyboard tabs', async () => {
   await renderSettings();
-  expect([...document.querySelectorAll('[role="tab"]')].map(el => el.textContent)).toEqual(['同步10', '知识库2', '写作1']);
+  expect(
+    [...document.querySelectorAll('.rh-prompt-tabs [role="tab"]')].map((el) => el.textContent),
+  ).toEqual(['同步10', '知识库2', '写作1']);
   expect(document.querySelectorAll('.rh-prompt-item')).toHaveLength(10);
   expect(document.querySelectorAll('textarea')).toHaveLength(1);
   expect(document.body.textContent).not.toContain('Prompt 结构说明');
-  expect(document.querySelector('.rh-prompt-reference [data-rh-disclosure-trigger]').getAttribute('aria-expanded')).toBe('false');
+  expect(
+    document
+      .querySelector('.rh-prompt-reference [data-rh-disclosure-trigger]')
+      .getAttribute('aria-expanded'),
+  ).toBe('false');
   expect(save().disabled).toBe(true);
-  await act(async () => tab('同步').dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })));
+  await act(async () =>
+    tab('同步').dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })),
+  );
   expect(document.activeElement).toBe(tab('写作'));
   expect(document.querySelectorAll('.rh-prompt-item')).toHaveLength(1);
-  expect(document.querySelector('[role="tabpanel"]').getAttribute('aria-labelledby')).toBe(tab('写作').id);
+  expect(document.querySelector('.rh-prompt-workspace').getAttribute('aria-labelledby')).toBe(
+    tab('写作').id,
+  );
   await click(tab('写作'));
   expect(prompt('文档优化')).toBeTruthy();
 });
@@ -122,12 +166,20 @@ it('preserves the editor when returning from a skill preview', async () => {
   await click(tab('写作'));
   await edit('写作草稿');
   await click(document.querySelector('.rh-prompt-skill .rh-select-trigger'));
-  await click([...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent === 'review'));
-  await click([...document.querySelectorAll('.rh-prompt-skill button')].find(button => button.textContent === '预览 Skill'));
+  await click(
+    [...document.querySelectorAll('[role="menuitem"]')].find(
+      (item) => item.textContent === 'review',
+    ),
+  );
+  await click(
+    [...document.querySelectorAll('.rh-prompt-skill button')].find(
+      (button) => button.textContent === '预览 Skill',
+    ),
+  );
   expect(document.querySelector('.rh-settings-panel').hidden).toBe(true);
-  expect(document.querySelectorAll('header .rh-header-back')).toHaveLength(1);
+  expect(document.querySelectorAll('header .rh-header-back')).toHaveLength(0);
   expect(document.querySelector('.rh-preview .rh-header-back')).toBeNull();
-  await click(document.querySelector('header [aria-label="返回设置"]'));
+  await click(document.querySelector('[aria-label="返回设置"]'));
   expect(document.querySelector('header').childElementCount).toBe(0);
   expect(document.querySelector('.rh-settings-panel').style.display).toBe('');
   expect(tab('写作').getAttribute('aria-selected')).toBe('true');
@@ -141,7 +193,9 @@ it('persists reset through the merging config API and retains drafts on save fai
   await click(tab('同步'));
   await click(prompt('代码差异分析（需求文档）'));
   await click(document.querySelector('.rh-prompt-editor-heading button'));
-  expect(document.querySelector('textarea').value).toBe(PROMPT_REGISTRY['phased-code-analysis-requirement'].default);
+  expect(document.querySelector('textarea').value).toBe(
+    PROMPT_REGISTRY['phased-code-analysis-requirement'].default,
+  );
   expect(document.querySelector('.rh-prompt-skill .rh-select-trigger').textContent).toBe('不绑定');
   failSave = true;
   await click(save());
@@ -156,7 +210,9 @@ it('persists reset through the merging config API and retains drafts on save fai
   await renderSettings();
   await click(tab('同步'));
   await click(prompt('代码差异分析（需求文档）'));
-  expect(document.querySelector('textarea').value).toBe(PROMPT_REGISTRY['phased-code-analysis-requirement'].default);
+  expect(document.querySelector('textarea').value).toBe(
+    PROMPT_REGISTRY['phased-code-analysis-requirement'].default,
+  );
 });
 
 it('retries prompt registry failures without losing loaded settings', async () => {
@@ -164,7 +220,97 @@ it('retries prompt registry failures without losing loaded settings', async () =
   await renderSettings();
   expect(document.querySelector('[role="alert"]').textContent).toContain('Prompt 加载失败');
   failRegistry = false;
-  await click([...document.querySelectorAll('button')].find(el => el.textContent === '重试'));
-  expect(document.querySelectorAll('[role="tab"]')).toHaveLength(3);
+  await click([...document.querySelectorAll('button')].find((el) => el.textContent === '重试'));
+  expect(document.querySelectorAll('.rh-prompt-tabs [role="tab"]')).toHaveLength(3);
   expect(save().disabled).toBe(true);
+});
+
+it('shows the effective native binding and uses one session scope for config and skill discovery', async () => {
+  config.ai.syncV2.skillBindings['phased-discussion-analysis-requirement'] = 'asd-ste100';
+  const fallback = fetchMock.getMockImplementation();
+  fetchMock.mockImplementation(async (url, options) =>
+    String(url).includes('/skills?')
+      ? {
+          ok: true,
+          json: async () => ({
+            skills: [{ name: 'asd-ste100', description: 'Native skill', userInvocable: true }],
+          }),
+        }
+      : fallback(url, options),
+  );
+  await renderSettings('current-parent');
+  await click(prompt('讨论差异分析（需求文档）'));
+  expect(document.querySelector('.rh-prompt-skill .rh-select-trigger').textContent).toBe(
+    'asd-ste100',
+  );
+  expect(document.body.textContent).toContain('默认加载 asd-ste100');
+  const configRead = fetchMock.mock.calls.find(
+    ([url, options]) => String(url).endsWith('/config') && !options?.method,
+  );
+  expect(configRead[1].headers).toMatchObject({
+    'x-session-id': 'current-parent',
+    'x-workspace-id': 'ws',
+  });
+  expect(
+    fetchMock.mock.calls.some(([url]) => String(url).includes('/skills?sessionId=current-parent')),
+  ).toBe(true);
+});
+
+it('separates settings features and retains prompt drafts across top-level tabs', async () => {
+  await renderSettings(null, 'model');
+  const tabs = [...document.querySelectorAll('[aria-label="设置功能"] [role="tab"]')];
+  expect(tabs.map((item) => item.textContent)).toEqual([
+    '模型',
+    '知识关联与代码索引',
+    'Wiki 管理',
+    'Prompt 管理',
+  ]);
+  expect(document.querySelector('#settings-tab-model').getAttribute('aria-selected')).toBe('true');
+  expect(document.querySelector('#settings-content-prompts').hidden).toBe(true);
+  expect(document.querySelector('textarea')).toBeNull();
+  expect(document.querySelectorAll('.rh-settings-panel button').length).toBeGreaterThan(0);
+  await act(async () =>
+    tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })),
+  );
+  expect(document.activeElement).toBe(document.querySelector('#settings-tab-prompts'));
+  await click(tab('写作'));
+  await edit('保留未保存的正文模板');
+  await click(document.querySelector('#settings-tab-model'));
+  expect(document.querySelector('#settings-content-prompts').hidden).toBe(true);
+  expect(save().disabled).toBe(false);
+  await click(document.querySelector('#settings-tab-prompts'));
+  expect(document.querySelector('textarea').value).toBe('保留未保存的正文模板');
+  expect(tab('写作').getAttribute('aria-selected')).toBe('true');
+});
+
+it('opens Wiki configuration directly and keeps edits when another tab is selected', async () => {
+  const fallback = fetchMock.getMockImplementation();
+  fetchMock.mockImplementation(async (url, options) => {
+    if (String(url).includes('/knowledge/wiki/settings')) {
+      return {
+        ok: true,
+        json: async () => ({
+          version: 1,
+          values: { dailyUpdateEnabled: true, dailyUpdateTime: '02:00' },
+        }),
+      };
+    }
+    return fallback(url, options);
+  });
+  await renderSettings(null, 'model');
+  await click(document.querySelector('#settings-tab-wiki'));
+  const panel = document.querySelector('#settings-content-wiki');
+  expect(panel.querySelector('[data-rh-disclosure-trigger]')).toBeNull();
+  const time = panel.querySelector('input[type="time"]');
+  expect(time.value).toBe('02:00');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(time, '03:30');
+    time.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await click(document.querySelector('#settings-tab-model'));
+  await click(document.querySelector('#settings-tab-wiki'));
+  expect(panel.querySelector('input[type="time"]').value).toBe('03:30');
+  expect(
+    fetchMock.mock.calls.filter(([url]) => String(url).includes('/knowledge/wiki/settings')),
+  ).toHaveLength(1);
 });

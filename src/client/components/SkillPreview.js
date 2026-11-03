@@ -5,6 +5,7 @@ const css = require('./SkillPreview.module.css').default;
 const React = require('react');
 const h = React.createElement;
 const { HeaderBack } = require('./shared/HeaderBack.js');
+const { Button } = require('./shared/Button.js');
 const { useState, useEffect, useLayoutEffect, useRef } = React;
 
 const {
@@ -30,9 +31,10 @@ const { Spinner } = require('./Spinner.js');
  * @param {string} props.skillName - The name of the skill to load and display
  * @param {string} props.workspaceId - The workspace ID for fetching skill content
  * @param {Function} props.onBack - Callback invoked when the back button is clicked
+ * @param {boolean} [props.inlineBack] - Keep navigation local when the parent has no shell header.
  * @returns {JSX.Element}
  */
-function SkillPreview({ skillName, workspaceId, onBack }) {
+function SkillPreview({ skillName, workspaceId, onBack, inlineBack = false }) {
   const [text, setText] = useState('');
   const [description, setDescription] = useState('');
   const [error, setError] = useState(null);
@@ -230,7 +232,18 @@ function SkillPreview({ skillName, workspaceId, onBack }) {
     h(
       'div',
       { className: css.row },
-      h(HeaderBack, { onBack: onBack, label: t('SettingsPanel.message001') }),
+      inlineBack
+        ? h(
+            Button,
+            {
+              size: 'sm',
+              variant: 'ghost',
+              onClick: onBack,
+              'aria-label': t('SettingsPanel.message001'),
+            },
+            t('SettingsPanel.message001'),
+          )
+        : h(HeaderBack, { onBack: onBack, label: t('SettingsPanel.message001') }),
       h(
         'div',
         { className: css.content },

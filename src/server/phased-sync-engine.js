@@ -5,6 +5,7 @@ import { executeTask, prepareTaskPrompt, TaskExecutorConfig } from './task-execu
 import {
   estimateTextTokens,
   estimateSubagentInputTokens,
+  estimatePreparedPromptTokens,
   MAX_SYNC_INPUT_TOKENS,
 } from './token-utils.js';
 import {
@@ -65,7 +66,7 @@ export async function packSyncChunks(
       preparedPromptData,
       tokens: measureTokens
         ? await measureTokens(variables)
-        : estimateSubagentInputTokens(preparedPromptData.fullPrompt),
+        : estimatePreparedPromptTokens(preparedPromptData),
       readPages: measureReadPages ? await measureReadPages(variables) : 0,
     };
   };
@@ -256,7 +257,8 @@ export class PhasedSyncEngine {
           ...this.config.ai.syncV2,
           prompts: {
             ...this.config.ai.syncV2.prompts,
-            [key]: custom + '\n\n以下 v2 契约必须遵守：\n' + PROMPT_REGISTRY[key].default,
+            [key]:
+              custom + '\n\nFollow this required v2 contract:\n' + PROMPT_REGISTRY[key].default,
           },
         },
       },
@@ -269,7 +271,6 @@ export class PhasedSyncEngine {
       cwd: this.cwd,
       parentAgent: this.parentAgent,
     });
-    const binding = this.config.ai?.syncV2?.skillBindings?.[key];
     // Missing skills use the business protocol and retain an unavailable status.
     return prompt;
   }
@@ -311,6 +312,10 @@ export class PhasedSyncEngine {
     await store.put('document.blocks', JSON.stringify(blocks));
     await store.put('commits', JSON.stringify(commits));
     const common = ['document.original', 'document.blocks', 'commits'];
+    if (docType === 'design' && options.designReference) {
+      await store.put('design.reference', JSON.stringify(options.designReference));
+      common.push('design.reference');
+    }
     const knowledgeIds = [];
     for (const document of options.knowledgeContext || []) {
       if (!/^knowledge\.\d+$/.test(document.id)) {
@@ -419,7 +424,7 @@ export class PhasedSyncEngine {
     const readPageLimit = Math.max(maxReadPages, commonPages + manifestPageReserve + 4);
     const optionalContextTokens = Math.min(8192, Math.floor(budget.limit * 0.08));
     const promptTokens = Math.max(
-      ...Object.values(templates).map((prompt) => estimateSubagentInputTokens(prompt.fullPrompt)),
+      ...Object.values(templates).map((prompt) => estimatePreparedPromptTokens(prompt)),
     );
     const fixed = promptTokens + REQUEST_RESERVE + 4096 + 2 * OUTPUT_LIMIT + optionalContextTokens;
     if (fixed + commonCost * 2 >= budget.limit) {
@@ -581,6 +586,9 @@ export class PhasedSyncEngine {
       task: options.syncContext || {},
       knowledgeIds,
       knowledgeContext: (options.knowledgeContext || []).map(({ text, ...reference }) => reference),
+      designReference: options.designReference
+        ? { ...options.designReference, text: undefined }
+        : undefined,
       store,
       code,
       discussion,
@@ -603,6 +611,7 @@ export class PhasedSyncEngine {
       docType,
       task: plan.task,
       knowledgeContext: plan.knowledgeContext,
+      designReference: plan.designReference,
       blocks,
       codeChunks: code.map((c) => c.id),
       discussionChunks: discussion.map((c) => c.id),
@@ -890,18 +899,19 @@ export class PhasedSyncEngine {
         const id = 'summary-' + mergeNumber++;
         const manifestId = 'manifest.' + id;
         const required = [
-          ...common,
+          'document.blocks',
           ...inputs.flatMap((input) => [input.reportId, input.changesId]),
         ];
+        const context = common.filter((artifactId) => !required.includes(artifactId));
         await store.put(
           manifestId,
-          JSON.stringify({ schemaVersion: 2, required, outputIds: ['report', 'changes'] }),
+          JSON.stringify({ schemaVersion: 2, required, context, outputIds: ['report', 'changes'] }),
         );
         const stage = {
           id,
           manifestId,
           required: [manifestId, ...required],
-          allowed: [manifestId, ...required],
+          allowed: [manifestId, ...required, ...context],
         };
         return run(`phased-${source}-analysis-merge-${docType}`, stage, targetPhase, inputs);
       };
@@ -956,13 +966,15 @@ export class PhasedSyncEngine {
       if (changes.length) {
         const planId = 'validated.plan';
         await store.put(planId, JSON.stringify(combined.index));
-        const required = [...common, planId, combined.reportId];
+        const required = ['document.blocks', planId, combined.reportId];
+        const context = common.filter((artifactId) => !required.includes(artifactId));
         const manifestId = 'manifest.edit';
         await store.put(
           manifestId,
           JSON.stringify({
             schemaVersion: 2,
             required,
+            context,
             candidateId: 'candidate',
             allowedBlockIds: [...new Set(changes.map((change) => change.blockId))],
           }),
@@ -973,7 +985,7 @@ export class PhasedSyncEngine {
             id: 'edit',
             manifestId,
             required: [manifestId, ...required],
-            allowed: [manifestId, ...required],
+            allowed: [manifestId, ...required, ...context],
           },
           phase,
           null,
@@ -1015,6 +1027,7 @@ export class PhasedSyncEngine {
         docType,
         task: plan.task,
         knowledgeContext: plan.knowledgeContext,
+        designReference: plan.designReference,
         validation,
         blocks,
         budget: plan.budget,

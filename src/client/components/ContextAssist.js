@@ -409,6 +409,7 @@ function EnhancementSettings({ workspaceId }) {
 
 /**
  * Show scoped document associations and user-requested analysis.
+ * Assistant presentation omits graph editing and index administration.
  * @param props - Data, state and callbacks supplied by the owning surface.
  * @returns The rendered component content.
  */
@@ -426,6 +427,7 @@ function DocumentAssist({
   onReferencesChange,
   disabled,
   compact = false,
+  assistant = false,
 }) {
   const context = {
     ...(path ? { path } : {}),
@@ -475,12 +477,13 @@ function DocumentAssist({
     promptKey = 'assist.document';
   }
   return h(
-    compact ? 'section' : Disclosure,
+    compact || assistant ? 'section' : Disclosure,
     {
-      className: compact ? css.compact : css.assist,
-      title: compact
-        ? undefined
-        : t(promptKey) + (api.locked ? ` · ${state(api.job?.status || 'preparing')}` : ''),
+      className: compact || assistant ? css.compact : css.assist,
+      title:
+        compact || assistant
+          ? undefined
+          : t(promptKey) + (api.locked ? ` · ${state(api.job?.status || 'preparing')}` : ''),
     },
     h(
       'div',
@@ -515,6 +518,7 @@ function DocumentAssist({
                 { className: css.hint },
                 t('assist.selectedReferences', { count: references.length }),
               ),
+            assistant && h('h4', null, t('assist.relatedTitle')),
             !compact &&
               data.related?.map((doc) =>
                 h(
@@ -549,6 +553,7 @@ function DocumentAssist({
                 ),
               ),
             !compact && !data.related?.length && h('p', null, t('assist.noRelated')),
+            assistant && h('h4', null, t('assist.checkDocument')),
             h(
               'div',
               { className: css.actions },
@@ -586,6 +591,7 @@ function DocumentAssist({
             h(TaskResult, { api }),
             !compact && h(TaskHistory, { api }),
             !compact &&
+              !assistant &&
               graph?.relations?.length > 0 &&
               h(
                 Disclosure,
@@ -634,6 +640,7 @@ function DocumentAssist({
                 ),
               ),
             !compact &&
+              !assistant &&
               h(
                 Disclosure,
                 { title: t('assist.advanced') },

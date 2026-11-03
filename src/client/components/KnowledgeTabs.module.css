@@ -1,6 +1,38 @@
 .strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
   flex-shrink: 0;
   min-width: 0;
   padding: 0 var(--rh-panel-padding);
   border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+}
+
+.secondary {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: 8px;
+  padding: 8px var(--rh-panel-padding);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+}
+.secondary [aria-current='page'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.strip > :global([data-rh-button]) {
+  font-size: var(--rh-font-size);
+  line-height: var(--rh-line-height);
+}
+
+.strip :global(.rh-workbench-tabs) {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+.close {
+  flex-shrink: 0;
+  margin-left: auto;
 }

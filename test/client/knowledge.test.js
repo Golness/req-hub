@@ -317,6 +317,7 @@ it('opens knowledge search as its fourth tab with Ctrl+K and no independent rail
   expect(button('知识库').className).toContain('active');
   expect(button('查看')).toBeUndefined();
   expect([...container.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)).toEqual([
+    '查看文档',
     'Wiki',
     '来源',
     '待审阅',

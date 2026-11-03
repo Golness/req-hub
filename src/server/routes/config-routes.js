@@ -20,9 +20,10 @@ import { log } from '../logger.js';
  * Create configuration routes.
  * @param {Object} registry - Workspace registry service
  * @param {Object} llm - LLM service
+ * @param {Object} ctx - Host services used to resolve the active skill scope.
  * @returns {Array<Object>} Array of route definitions
  */
-export function createConfigRoutes(registry, llm) {
+export function createConfigRoutes(registry, llm, ctx = {}) {
   return [
     // GET and POST share one registration because the router matches paths before methods.
     {
@@ -33,8 +34,17 @@ export function createConfigRoutes(registry, llm) {
           try {
             let config = await loadConfig();
             config = await autoDefaultConfig(config, registry);
-            config = await defaultSkillBindings(config, undefined, {
-              cwd: registry.list().find((item) => item.id === config.workspaceId)?.path,
+            const sessionId = req.headers?.['x-session-id'];
+            const parent = typeof sessionId === 'string' ? ctx.agents?.get(sessionId) : undefined;
+            const scopedSkills = parent
+              ? ctx.agentPresets?.serviceFor?.(parent, 'skills') || ctx.skills
+              : ctx.skills;
+            const workspaceId = req.headers?.['x-workspace-id'] || config.workspaceId;
+            config = await defaultSkillBindings(config, scopedSkills, {
+              cwd:
+                parent?.session?.header?.cwd ||
+                registry.list().find((item) => item.id === workspaceId)?.path,
+              scope: parent,
             });
 
             res.writeHead(200, {
@@ -201,6 +211,7 @@ export function createConfigRoutes(registry, llm) {
               default: meta.default,
               current: getPrompt(config, key),
               contractVersion: meta.contractVersion || 1,
+              generatesFileContent: !!meta.generatesFileContent,
               isCustom: !!(meta.contractVersion === 2 ? config.ai?.syncV2 : config.ai)?.prompts?.[
                 key
               ]?.trim(),

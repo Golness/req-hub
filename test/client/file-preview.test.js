@@ -184,3 +184,37 @@ it('previews an artifact by ID as read-only and never saves it through the docum
  await act(async()=>document.dispatchEvent(new KeyboardEvent('keydown',{key:'s',ctrlKey:true,bubbles:true})));
  expect(fetchMock.mock.calls.some(([,options])=>options?.method==='POST')).toBe(false);
 });
+
+it('anchors the table-of-contents toggle to the document viewport away from both sidebars', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ text: '# Heading\n\nDocument' }) })));
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({ width: 1000, height: 600, top: 0, left: 0, right: 1000, bottom: 600 }));
+  const container = document.createElement('div');
+  const toolbar = document.createElement('header');
+  document.body.append(toolbar, container);
+  root = createRoot(container);
+  function Preview() {
+    const [showToc, setShowToc] = React.useState(false);
+    return React.createElement(FilePreview, {
+      workspaceId: 'ws', relPath: 'design.md', name: 'design.md', toolbarTarget: toolbar,
+      showToc, onToggleToc: () => setShowToc(value => !value), assist: React.createElement('p', null, 'Related sources'),
+    });
+  }
+  await act(async () => root.render(React.createElement(Preview)));
+  const toggle = container.querySelector('.rh-toc-toggle');
+  expect(toggle).not.toBeNull();
+  expect(toolbar.querySelector('.rh-toc-toggle')).toBeNull();
+  const documentArea = toggle.parentElement;
+  expect(documentArea.querySelector('.rh-preview-body')).not.toBeNull();
+  expect(documentArea.querySelector('aside')).toBeNull();
+  expect(toggle.hasAttribute('style')).toBe(false);
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(container.querySelector('aside[aria-label="知识助手"]')).not.toBeNull();
+  await act(async () => toggle.click());
+  expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  expect(container.querySelector('.rh-toc')).not.toBeNull();
+  expect(documentArea.querySelector('.rh-toc')).toBeNull();
+  expect(toggle.parentElement).toBe(documentArea);
+  await act(async () => toggle.click());
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(container.querySelector('.rh-toc')).toBeNull();
+});

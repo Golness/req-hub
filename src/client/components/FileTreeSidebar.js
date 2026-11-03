@@ -283,6 +283,7 @@ function FileTreeSidebar({
   selectedReq,
   onSelectFile,
   multiSelect = false,
+  selectionActions,
   selectedPaths = [],
   onSelectionChange,
   expanded: controlledExpanded,
@@ -622,17 +623,22 @@ function FileTreeSidebar({
             'div',
             { className: 'rh-knowledge-selection' },
             h(
-              'span',
-              { role: 'status' },
-              t('FileTreeSidebar.message011', {
-                value0: selectedPaths.length,
-                value1:
-                  selectedPaths.length > visibleSelected
-                    ? t('FileTreeSidebar.message010', {
-                        value0: selectedPaths.length - visibleSelected,
-                      })
-                    : '',
-              }),
+              'div',
+              { className: css.selectionSummary },
+              h(
+                'span',
+                { role: 'status' },
+                t('FileTreeSidebar.message011', {
+                  value0: selectedPaths.length,
+                  value1:
+                    selectedPaths.length > visibleSelected
+                      ? t('FileTreeSidebar.message010', {
+                          value0: selectedPaths.length - visibleSelected,
+                        })
+                      : '',
+                }),
+              ),
+              selectionActions,
             ),
             h(
               Button,

@@ -1,4 +1,30 @@
 /* Component presentation; runtime geometry uses local CSS variables. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.tabs {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  min-width: 0;
+  gap: 8px;
+  padding: 0 var(--rh-panel-padding);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+}
+.tabs :global(.rh-workbench-tabs) {
+  flex: 1;
+}
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
 .row {
   display: flex;
   justify-content: space-between;

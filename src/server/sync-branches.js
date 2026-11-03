@@ -1,12 +1,29 @@
 /** Read-only Git comparison shared by the selector and sync preflight. */
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { realpath } from 'node:fs/promises';
 import { filterSyncCodeDiff, isSyncCodeFile } from './sync-code-files.js';
 const exec = promisify(execFile);
 const git = async (cwd, ...args) =>
   (
     await exec('git', args, { cwd, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
   ).stdout.trimEnd();
+
+/**
+ * List local branches only when the selected workspace owns the repository root.
+ * @param cwd - Authorized workspace directory; parent repositories are rejected.
+ * @returns Local branch names without changing the checkout or index.
+ */
+export async function listSyncBranches(cwd) {
+  const root = await realpath(await git(cwd, 'rev-parse', '--show-toplevel'));
+  const workspaceRoot = await realpath(cwd);
+  const canonical = (path) => (process.platform === 'win32' ? path.toLowerCase() : path);
+  if (canonical(root) !== canonical(workspaceRoot)) {
+    throw new Error('SYNC_WORKSPACE_REPOSITORY_MISMATCH');
+  }
+  const output = await git(cwd, 'for-each-ref', '--format=%(refname:lstrip=2)', 'refs/heads');
+  return output.split('\n').filter(Boolean);
+}
 
 /**
  * Resolve a local Git ref to a fixed commit.

@@ -52,6 +52,7 @@ const LOG_TAGS = {
   session: '会话',
   search: '搜索',
   writing: '写作',
+  wiki: 'Wiki',
   doc: '文档',
   state: '状态',
 };

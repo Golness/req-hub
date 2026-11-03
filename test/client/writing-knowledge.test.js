@@ -88,7 +88,7 @@ it('debounces suggestions, preserves scope boundaries and distinguishes unmatche
   await act(async () => vi.advanceTimersByTimeAsync(300));
   const url = new URL(fetch.mock.calls[0][0], 'http://localhost');
   expect(JSON.parse(url.searchParams.get('scopeIds'))).toEqual(['own']);
-  expect(container.textContent).toContain('当前正文尚未匹配到相关主题');
+  expect(container.textContent).toContain('暂无相关主题');
   const signal = fetch.mock.calls[0][1].signal;
   await render({ selected: [] });
   expect(signal.aborted).toBe(true);

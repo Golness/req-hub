@@ -3,19 +3,22 @@ const { t } = require('../locale.js');
 const { Button } = require('./shared/Button.js');
 const { EnhancementSettings } = require('./ContextAssist.js');
 const { WikiSettings } = require('./WikiSettings.js');
+const css = require('./SettingsPanel.module.css').default;
+const SETTINGS_TABS = ['model', 'associations', 'wiki', 'prompts'];
 
 const React = require('react');
 const { Select } = require('./shared/Select.js');
 const h = React.createElement;
 const { useState, useEffect } = React;
 const { ROUTE } = require('../constants.js');
+const { SessionSelectionContext } = require('../context.js');
 const { SkillPreview } = require('./SkillPreview.js');
 const { PromptManager } = require('./PromptManager.js');
 
 // ─── SettingsPanel (4.10) ─────────────────────────────────────────
 /**
  * @component
- * Settings panel for configuring AI/LLM models, prompt templates, and skill bindings.
+ * Settings tabs retain visited content so switching does not discard unsaved edits.
  * Displays the current LLM configuration (provider, available models), allows model selection,
  * and provides a prompt management section where prompts can be customized per category.
  * Supports binding skills as instruction layers and previewing skill content.
@@ -25,6 +28,13 @@ const { PromptManager } = require('./PromptManager.js');
  * @returns {JSX.Element}
  */
 function SettingsPanel({ workspaceId, onClose }) {
+  const [tab, setTab] = useState('model');
+  const [visited, setVisited] = useState(['model']);
+  const selectTab = (id) => {
+    setTab(id);
+    setVisited((previous) => (previous.includes(id) ? previous : [...previous, id]));
+  };
+  const selectedSession = React.useContext(SessionSelectionContext);
   const [settings, setSettings] = useState({
     ai: {
       selectedModel: '',
@@ -56,9 +66,16 @@ function SettingsPanel({ workspaceId, onClose }) {
 
   useEffect(() => {
     const fetchAll = async () => {
+      const sessionId = selectedSession?.();
       try {
         // Fetch config
-        const configRes = await fetch(`${ROUTE}/config`);
+        const configRes = await fetch(`${ROUTE}/config`, {
+          headers: {
+            ...(sessionId ? { 'x-session-id': sessionId } : {}),
+            ...(workspaceId ? { 'x-workspace-id': workspaceId } : {}),
+          },
+          cache: 'no-store',
+        });
         if (configRes.ok) {
           const data = await configRes.json();
           const nextSettings = {
@@ -106,22 +123,6 @@ function SettingsPanel({ workspaceId, onClose }) {
 
       // Fetch available skills
       try {
-        let sessionId = null;
-        try {
-          const ctx = window.__DSH_CTX__;
-          if (ctx) {
-            const uiWorkspace = ctx.get?.('uiWorkspace');
-            if (uiWorkspace?.selection && typeof uiWorkspace.selection.getSnapshot === 'function') {
-              const selection = uiWorkspace.selection.getSnapshot();
-              if (selection?.sessionId) {
-                sessionId = selection.sessionId;
-              }
-            }
-          }
-        } catch (e) {
-          // A missing live session falls back to the workspace-scoped skill list.
-        }
-
         let skillsUrl;
         if (sessionId) {
           skillsUrl = `${ROUTE}/skills?sessionId=${encodeURIComponent(sessionId)}`;
@@ -308,6 +309,39 @@ function SettingsPanel({ workspaceId, onClose }) {
   } else {
     saveStatusMessage = message?.text || '';
   }
+  const renderModelSettings = () =>
+    h(
+      'div',
+      { className: 'rh-settings-model' },
+      h(
+        'label',
+        { htmlFor: 'rh-settings-model', className: 'rh-form-label' },
+        t('SettingsPanel.message005'),
+      ),
+      renderModelStatus(),
+    );
+  const renderFeatureSettings = (id) => {
+    if (id === 'associations') {
+      return h(EnhancementSettings, { key: 'enhancement-' + workspaceId, workspaceId });
+    }
+    if (id === 'wiki') {
+      return h(WikiSettings, { key: 'wiki-' + workspaceId, workspaceId, inline: true });
+    }
+    return h(PromptManager, {
+      key: workspaceId,
+      registry: promptRegistry,
+      error: promptError,
+      onRetry: loadPromptRegistry,
+      prompts: settings.ai.prompts,
+      skillBindings: settings.ai.skillBindings,
+      skills: availableSkills,
+      disabled: savedSettings === null,
+      onChange: handlePromptChange,
+      onBindSkill: handleSkillBindingChange,
+      onReset: handleResetPrompt,
+      onPreviewSkill: handlePreviewSkill,
+    });
+  };
   return h(
     React.Fragment,
     null,
@@ -316,63 +350,99 @@ function SettingsPanel({ workspaceId, onClose }) {
         skillName: previewingSkill,
         workspaceId,
         onBack: handleBackFromPreview,
+        inlineBack: true,
       }),
     h(
       'div',
-      { className: 'rh-op-panel rh-settings-panel', hidden: !!previewingSkill },
+      { className: `rh-settings-panel ${css.panel}`, hidden: !!previewingSkill },
       h(
         'div',
-        { className: 'rh-settings-model' },
+        { className: css.tabs },
         h(
-          'label',
-          { htmlFor: 'rh-settings-model', className: 'rh-form-label' },
-          t('SettingsPanel.message005'),
+          'div',
+          { className: 'rh-workbench-tabs', role: 'tablist', 'aria-label': t('settings.tabs') },
+          SETTINGS_TABS.map((id, index) =>
+            h(
+              'button',
+              {
+                key: id,
+                id: `settings-tab-${id}`,
+                type: 'button',
+                role: 'tab',
+                className: 'rh-workbench-tab',
+                'aria-selected': tab === id,
+                'aria-controls': `settings-content-${id}`,
+                tabIndex: tab === id ? 0 : -1,
+                onClick: () => selectTab(id),
+                onKeyDown: (event) => {
+                  let next;
+                  if (event.key === 'ArrowRight') {
+                    next = (index + 1) % SETTINGS_TABS.length;
+                  } else if (event.key === 'ArrowLeft') {
+                    next = (index + SETTINGS_TABS.length - 1) % SETTINGS_TABS.length;
+                  } else if (event.key === 'Home') {
+                    next = 0;
+                  } else if (event.key === 'End') {
+                    next = SETTINGS_TABS.length - 1;
+                  }
+                  if (next !== undefined) {
+                    event.preventDefault();
+                    selectTab(SETTINGS_TABS[next]);
+                    event.currentTarget.parentElement
+                      .querySelectorAll('[role="tab"]')
+                      [next].focus();
+                  }
+                },
+              },
+              t(`settings.tab.${id}`),
+            ),
+          ),
         ),
-        renderModelStatus(),
+        h(Button, { size: 'sm', variant: 'ghost', onClick: onClose }, t('common.close')),
       ),
-      h(EnhancementSettings, { key: 'enhancement-' + workspaceId, workspaceId }),
-      h(WikiSettings, { key: 'wiki-' + workspaceId, workspaceId }),
-      h(PromptManager, {
-        key: workspaceId,
-        registry: promptRegistry,
-        error: promptError,
-        onRetry: loadPromptRegistry,
-        prompts: settings.ai.prompts,
-        skillBindings: settings.ai.skillBindings,
-        skills: availableSkills,
-        disabled: savedSettings === null,
-        onChange: handlePromptChange,
-        onBindSkill: handleSkillBindingChange,
-        onReset: handleResetPrompt,
-        onPreviewSkill: handlePreviewSkill,
-      }),
       h(
         'div',
-        { className: 'rh-op-actions rh-settings-actions' },
-        h(
-          'span',
-          {
-            className: message?.type === 'error' ? 'rh-error' : 'rh-prompt-description',
-            role: 'status',
-          },
-          saveStatusMessage,
-        ),
-        h(
-          Button,
-          { type: 'button', className: 'rh-btn rh-btn-secondary', onClick: onClose },
-          t('common.close'),
-        ),
-        h(
-          Button,
-          {
-            type: 'button',
-            className: 'rh-btn rh-btn-primary',
-            onClick: handleSave,
-            disabled: saving || !dirty,
-          },
-          saving ? t('SettingsPanel.message008') : t('common.save'),
+        { className: css.body },
+        SETTINGS_TABS.map((id) =>
+          h(
+            'div',
+            {
+              key: id,
+              id: `settings-content-${id}`,
+              role: 'tabpanel',
+              'aria-labelledby': `settings-tab-${id}`,
+              hidden: tab !== id,
+              className: css.content,
+              tabIndex: 0,
+            },
+            visited.includes(id) &&
+              (id === 'model' ? renderModelSettings() : renderFeatureSettings(id)),
+          ),
         ),
       ),
+      (tab === 'model' || tab === 'prompts' || dirty || message) &&
+        h(
+          'div',
+          { className: `rh-op-actions rh-settings-actions ${css.actions}` },
+          h(
+            'span',
+            {
+              className: message?.type === 'error' ? 'rh-error' : 'rh-prompt-description',
+              role: 'status',
+            },
+            saveStatusMessage,
+          ),
+          h(
+            Button,
+            {
+              type: 'button',
+              className: 'rh-btn rh-btn-primary',
+              onClick: handleSave,
+              disabled: saving || !dirty,
+            },
+            saving ? t('SettingsPanel.message008') : t('common.save'),
+          ),
+        ),
     ),
   );
 }

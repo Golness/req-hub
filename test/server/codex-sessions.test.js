@@ -34,26 +34,62 @@ it.each([
 it('matches Codex by current path, ignores unrelated bindings and overrides client-supplied project IDs', async () => {
   const origin = { id: 'native-id', path: 'd:/PROJECT/repo/', title: 'Different title' };
   const refreshed = [];
-  let origins = [origin], bound = { id: 'other', path: 'D:/elsewhere' };
-  const routes = createCodexSessionRoutes({ list: () => [{ id: 'ws', path: 'D:\\project\\repo' }] }, {
-    workspaces: async () => ({ workspaces: origins, warnings: [] }),
-    list: async () => ({ workspace: bound, sessions: [{ id: 'current', cwd: 'D:/project/repo' }, { id: 'other', cwd: 'D:/project/elsewhere' }, { id: 'unknown' }] }),
-    refresh: async (workspace, project) => { refreshed.push([workspace, project]); return { workspace: origin, sessions: [{ id: 'current', cwd: 'D:/project/repo' }, { id: 'other', cwd: 'D:/project/elsewhere' }] }; },
-  });
+  let origins = [origin],
+    bound = { id: 'other', path: 'D:/elsewhere' };
+  const routes = createCodexSessionRoutes(
+    { list: () => [{ id: 'ws', path: 'D:\\project\\repo' }] },
+    {
+      workspaces: async () => ({ workspaces: origins, warnings: [] }),
+      list: async () => ({
+        workspace: bound,
+        sessions: [
+          { id: 'current', cwd: 'D:/project/repo' },
+          { id: 'other', cwd: 'D:/project/elsewhere' },
+          { id: 'unknown' },
+        ],
+      }),
+      refresh: async (workspace, project) => {
+        refreshed.push([workspace, project]);
+        return {
+          workspace: origin,
+          sessions: [
+            { id: 'current', cwd: 'D:/project/repo' },
+            { id: 'other', cwd: 'D:/project/elsewhere' },
+          ],
+        };
+      },
+    },
+  );
   const invoke = async (action, body) => {
     const req = Readable.from(body ? [JSON.stringify(body)] : []);
-    req.method = body ? 'POST' : 'GET'; req.url = '/req-hub/codex/' + action + '?workspaceId=ws&matchWorkspace=true';
-    const res = { writeHead(status) { this.status = status; }, end(raw) { this.value = JSON.parse(raw); } };
-    await routes.find(route => route.path.endsWith('/' + action)).handler(req, res);
+    req.method = body ? 'POST' : 'GET';
+    req.url = '/req-hub/codex/' + action + '?workspaceId=ws&matchWorkspace=false';
+    const res = {
+      writeHead(status) {
+        this.status = status;
+      },
+      end(raw) {
+        this.value = JSON.parse(raw);
+      },
+    };
+    await routes.find((route) => route.path.endsWith('/' + action)).handler(req, res);
     return res;
   };
   expect((await invoke('sessions')).value).toMatchObject({ workspace: origin, sessions: [] });
-  expect((await invoke('refresh', { workspaceId: 'ws', codexWorkspaceId: 'forged', matchWorkspace: true })).value.sessions.map(item => item.id)).toEqual(['current']);
+  expect(
+    (
+      await invoke('refresh', {
+        workspaceId: 'ws',
+        codexWorkspaceId: 'forged',
+        matchWorkspace: false,
+      })
+    ).value.sessions.map((item) => item.id),
+  ).toEqual(['current']);
   expect(refreshed).toEqual([['ws', 'native-id']]);
   bound = origin;
   expect((await invoke('sessions')).value.sessions).toHaveLength(1);
   origins = [{ ...origin, path: 'D:/project', sessionPaths: ['D:/project/repo'] }];
-  expect((await invoke('sessions')).value.sessions.map(item => item.id)).toEqual(['current']);
+  expect((await invoke('sessions')).value.sessions.map((item) => item.id)).toEqual(['current']);
   origins = [{ ...origin, id: 'wrong', path: 'D:/elsewhere', title: 'repo' }];
   expect((await invoke('sessions')).value).toMatchObject({ workspace: null, sessions: [] });
   await invoke('refresh', { workspaceId: 'ws', matchWorkspace: true });
@@ -63,31 +99,51 @@ it('matches Codex by current path, ignores unrelated bindings and overrides clie
 });
 
 it('streams refresh progress before the result and reports errors inside an opened stream', async () => {
-  const run = async fail => {
+  const run = async (fail) => {
     const events = [];
-    const routes = createCodexSessionRoutes({ list: () => [{ id: 'ws' }] }, {
-      async refresh(workspaceId, projectId, onProgress) {
-        expect(workspaceId).toBe('ws'); expect(projectId).toBe('project:p');
-        onProgress({ phase: 'importing', completed: 1, total: 2 });
-        expect(events).toHaveLength(1);
-        if (fail) throw Error('读取失败');
-        return { sessions: [] };
+    const routes = createCodexSessionRoutes(
+      { list: () => [{ id: 'ws', path: 'D:/project' }] },
+      {
+        workspaces: async () => ({
+          workspaces: [{ id: 'project:p', path: 'D:/project' }],
+          warnings: [],
+        }),
+        async refresh(workspaceId, projectId, onProgress) {
+          expect(workspaceId).toBe('ws');
+          expect(projectId).toBe('project:p');
+          onProgress({ phase: 'importing', completed: 1, total: 2 });
+          expect(events).toHaveLength(1);
+          if (fail) throw Error('读取失败');
+          return { sessions: [] };
+        },
       },
-    });
-    const req = Readable.from([JSON.stringify({ workspaceId: 'ws', codexWorkspaceId: 'project:p', stream: true })]);
+    );
+    const req = Readable.from([
+      JSON.stringify({ workspaceId: 'ws', codexWorkspaceId: 'project:p', stream: true }),
+    ]);
     req.method = 'POST';
-    const res = { writeHead(status, headers) { expect(status).toBe(200); expect(headers['Content-Type']).toContain('application/x-ndjson'); },
-      write(line) { events.push(JSON.parse(line)); }, end() { this.ended = true; } };
+    const res = {
+      writeHead(status, headers) {
+        expect(status).toBe(200);
+        expect(headers['Content-Type']).toContain('application/x-ndjson');
+      },
+      write(line) {
+        events.push(JSON.parse(line));
+      },
+      end() {
+        this.ended = true;
+      },
+    };
     await routes[2].handler(req, res);
     expect(res.ended).toBe(true);
     return events;
   };
   expect(await run(false)).toEqual([
-    { type: 'progress', phase: 'importing', completed: 1, total: 2 }, { type: 'result', result: { sessions: [] } },
+    { type: 'progress', phase: 'importing', completed: 1, total: 2 },
+    { type: 'result', result: { sessions: [] } },
   ]);
   expect((await run(true)).at(-1)).toEqual({ type: 'error', error: '读取失败' });
 });
-
 it('keeps full ordered visible replies, human steering and completed turns without mirrored duplicates', () => {
   const final = '最终回复'.repeat(15000), intermediate = '中间回复'.repeat(15000);
   const snapshot = parse(codexRecords({ final, intermediate, incomplete: true }));

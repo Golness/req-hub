@@ -156,3 +156,77 @@ it('keeps a host workspace entity with services and functions out of cloneable t
  class HostWorkspace {get id(){return workspaceId;}get path(){return repo;}get title(){return 'Host workspace';} constructor(){this.requireTable=()=>this.requireTable();this.self=this;}}
  const result=await beginCommitSync(repo,reqDir,{workspaceId,requirementId,docType:'requirement',workspace:new HostWorkspace(),docsRoot:join(repo,'docs')});expect(result.sync.workspace).toBeUndefined();expect(result.sync.docsRoot).toBeUndefined();expect(()=>structuredClone(result.sync)).not.toThrow();await updateSyncProgress(result.sync.id,{status:'failed'});await completeSync(result.sync.id);expect((await getSyncHistory(workspaceId,requirementId))[0].workspace).toBeUndefined();
 });
+
+it('honors an explicitly selected requirement branch when matching branches are ambiguous', async () => {
+  const other = `feature/other/${requirementId}`;
+  git('branch', other, first);
+  git('switch', 'main');
+  await expect(prepareCommitSync(repo, requirementId, 'requirement')).rejects.toThrow('多个需求分支');
+  const result = await prepareCommitSync(repo, requirementId, 'requirement', [], {
+    targetBranch: other,
+    includeWorkingChanges: false,
+  });
+  expect(result.branchName).toBe(other);
+  expect(result.commitHash).toBe(first);
+  expect(git('branch', '--show-current')).toBe('main');
+});
+
+it('rejects explicit branches outside the requirement or absent from local refs', async () => {
+  for (const targetBranch of ['main', 'feature/dev/missing', '--all', 123]) {
+    await expect(prepareCommitSync(repo, requirementId, 'requirement', [], {
+      targetBranch,
+    })).rejects.toThrow('SYNC_BRANCH_INVALID');
+  }
+});
+
+
+it('rejects a branch discovered through a parent repository instead of the selected workspace', async () => {
+  const nested = join(repo, 'nested-workspace');
+  await mkdir(nested);
+  await expect(prepareCommitSync(nested, requirementId, 'requirement', [], {
+    targetBranch: branch,
+    includeWorkingChanges: false,
+  })).rejects.toThrow('SYNC_WORKSPACE_REPOSITORY_MISMATCH');
+});
+
+it('compares the entered branch without changing another dirty branch, index, or source files', async () => {
+  git('switch', 'main');
+  await writeFile(join(repo, 'code.js'), 'STAGED_CURRENT_BRANCH');
+  git('add', 'code.js');
+  await writeFile(join(repo, 'code.js'), 'UNSTAGED_CURRENT_BRANCH');
+  await writeFile(join(repo, 'local.js'), 'UNTRACKED_CURRENT_BRANCH');
+  const before = {
+    branch: git('branch', '--show-current'),
+    head: git('rev-parse', 'HEAD'),
+    status: git('status', '--porcelain=v1'),
+    index: git('ls-files', '--stage'),
+  };
+  const result = await prepareCommitSync(repo, requirementId, 'requirement', [], {
+    targetBranch: branch,
+    includeWorkingChanges: false,
+    commitHashes: [first, second],
+  });
+  expect(result.branchName).toBe(branch);
+  expect(result.codeDiff).toContain('+second');
+  expect(result.codeDiff).not.toContain('CURRENT_BRANCH');
+  expect({
+    branch: git('branch', '--show-current'),
+    head: git('rev-parse', 'HEAD'),
+    status: git('status', '--porcelain=v1'),
+    index: git('ls-files', '--stage'),
+  }).toEqual(before);
+  expect(await readFile(join(repo, 'code.js'), 'utf8')).toBe('UNSTAGED_CURRENT_BRANCH');
+  expect(await readFile(join(repo, 'local.js'), 'utf8')).toBe('UNTRACKED_CURRENT_BRANCH');
+});
+
+
+it('excludes dirty source bytes from snapshots when syncing the checked-out branch without workspace changes', async () => {
+  await writeFile(join(repo, 'code.js'), 'DIRTY_WORKSPACE_ONLY');
+  const result = await prepareCommitSync(repo, requirementId, 'requirement', [], {
+    targetBranch: branch,
+    includeWorkingChanges: false,
+  });
+  expect(result.codeDiff).not.toContain('DIRTY_WORKSPACE_ONLY');
+  expect(result.sourceSnapshots.find((snapshot) => snapshot.file === 'code.js').final).toBe('second');
+  expect(await readFile(join(repo, 'code.js'), 'utf8')).toBe('DIRTY_WORKSPACE_ONLY');
+});

@@ -82,15 +82,18 @@ const rail = (text) =>
   [...container.querySelectorAll('.rh-rail-btn')].find((el) => el.textContent.trim() === text);
 function backCount(count) {
   expect(container.querySelectorAll('.rh-header-back')).toHaveLength(count);
-  expect(
-    container.querySelectorAll('.rh-right-header > .rh-header-back-slot .rh-header-back'),
-  ).toHaveLength(count);
-  expect(container.querySelector('.rh-right-body .rh-header-back')).toBeNull();
+  expect(container.querySelectorAll('.rh-header-back-slot .rh-header-back')).toHaveLength(count);
+  const syncTabs = container.querySelector('[aria-label="同步方式"]');
+  if (!syncTabs) {
+    expect(container.querySelector('.rh-right-body .rh-header-back')).toBeNull();
+  }
 }
 
 it('uses a single header return for nested sync pages and removes it at the root', async () => {
   await open();
   await click(rail('同步'));
+  expect(container.querySelector('.rh-right-header')).toBeNull();
+  await click(button('自定义同步'));
   backCount(0);
   await click(button('同步需求文档'));
   backCount(1);
@@ -104,8 +107,9 @@ it('uses a single header return for nested sync pages and removes it at the root
   backCount(0);
   expect(button('同步需求文档')).toBeTruthy();
   await click(button('同步历史'));
-  backCount(1);
-  await click(button('返回'));
+  expect(container.querySelector('#sync-tab-history').getAttribute('aria-selected')).toBe('true');
+  backCount(0);
+  await click(button('自定义同步'));
   backCount(0);
 });
 

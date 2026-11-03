@@ -81,3 +81,19 @@
   font-size: var(--rh-font-size-sm);
   color: var(--dsw-alias-label-secondary);
 }
+
+.selectionSummary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+  min-width: 0;
+}
+.selectionSummary > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.selectionSummary > button {
+  flex-shrink: 0;
+}

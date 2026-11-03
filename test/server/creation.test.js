@@ -86,3 +86,31 @@ it('shares status and main update operations with the Agent action and drains on
   } finally { await routes.dispose(); }
   expect((await operations.execute({ action: 'create-status', query: { workspaceId: 'w' } }, {})).status).toBe(503);
 });
+
+it('creates the quick-sync directory without changing an unrelated checked-out feature branch', async () => {
+  const current = '2026-10-28-existing';
+  git(local, 'checkout', '-b', `feature/alice/${current}`);
+  await mkdir(join(local, 'docs/alice', current), { recursive: true });
+  const restore = configureStorage({ docsDir: 'docs' }, { filePath: join(root, 'plugin-config.json') });
+  try {
+    const operations = createOperations(createTreeRoutes({ list: () => [workspace] }));
+    const result = await operations.execute({
+      action: 'create-dir',
+      method: 'POST',
+      body: {
+        workspaceId: 'w',
+        developer: 'bob',
+        date: '2026-11-02',
+        title: 'quick-sync',
+        createBranch: false,
+      },
+    }, {});
+    expect(result.status).toBe(200);
+    expect(result.value.path.replaceAll('\\', '/')).toBe('bob/2026-11-02-quick-sync');
+    expect((await stat(join(local, 'docs/bob/2026-11-02-quick-sync'))).isDirectory()).toBe(true);
+    expect(git(local, 'branch', '--show-current')).toBe(`feature/alice/${current}`);
+    expect((await stat(join(local, 'docs/alice', current))).isDirectory()).toBe(true);
+  } finally {
+    restore();
+  }
+});

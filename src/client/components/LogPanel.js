@@ -4,6 +4,7 @@ const { t } = require('../locale.js');
 const css = require('./LogPanel.module.css').default;
 const { cssValue } = require('./shared/presentation.js');
 const { Button } = require('./shared/Button.js');
+const { WikiEvents } = require('./WikiEvents.js');
 
 const React = require('react');
 const h = React.createElement;
@@ -20,7 +21,7 @@ const { ROUTE } = require('../constants.js');
  * @param {Function} props.onClose - Callback invoked when the panel is closed
  * @returns {JSX.Element} A log viewer panel with level/tag filters and a scrollable log list
  */
-function LogPanel({ onClose }) {
+function ApplicationLogs({ onClose }) {
   const [logs, setLogs] = useState([]);
   const [logMeta, setLogMeta] = useState({ levels: {}, tags: {} });
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -28,32 +29,40 @@ function LogPanel({ onClose }) {
   const [selectedTags, setSelectedTags] = useState([]);
 
   useEffect(() => {
+    const controller = new AbortController();
     const fetchLogs = async () => {
       try {
         const [logsRes, metaRes] = await Promise.all([
-          fetch(`${ROUTE}/logs`),
-          fetch(`${ROUTE}/logs/meta`),
+          fetch(`${ROUTE}/logs`, { signal: controller.signal }),
+          fetch(`${ROUTE}/logs/meta`, { signal: controller.signal }),
         ]);
 
         if (logsRes.ok) {
           const data = await logsRes.json();
-          setLogs(data.logs || []);
+          if (!controller.signal.aborted) {
+            setLogs(data.logs || []);
+          }
         }
         if (metaRes.ok) {
           const meta = await metaRes.json();
-          setLogMeta({ levels: meta.levels || {}, tags: meta.tags || {} });
+          if (!controller.signal.aborted) {
+            setLogMeta({ levels: meta.levels || {}, tags: meta.tags || {} });
+          }
         }
       } catch (err) {
-        console.error('Failed to fetch logs:', err);
+        if (!controller.signal.aborted) {
+          console.error('Failed to fetch logs:', err);
+        }
       }
     };
 
     fetchLogs();
 
-    if (autoRefresh) {
-      const interval = setInterval(fetchLogs, 2000);
-      return () => clearInterval(interval);
-    }
+    const interval = autoRefresh ? setInterval(fetchLogs, 2000) : null;
+    return () => {
+      controller.abort();
+      clearInterval(interval);
+    };
   }, [autoRefresh]);
 
   const getLevelColor = (level) => {
@@ -368,4 +377,71 @@ function LogPanel({ onClose }) {
   );
 }
 
+/**
+ * Keep persistent Wiki execution history separate from the application log buffer.
+ * @param props - Current workspace and existing panel callbacks.
+ * @returns The selected log view.
+ */
+function LogPanel({ workspaceId, onClose }) {
+  const [tab, setTab] = useState('application');
+  return h(
+    'div',
+    { className: css.panel },
+    h(
+      'div',
+      { className: css.tabs },
+      h(
+        'div',
+        { className: 'rh-workbench-tabs', role: 'tablist', 'aria-label': t('wiki.events.logTabs') },
+        ['application', 'wiki'].map((id, index, tabs) =>
+          h(
+            'button',
+            {
+              key: id,
+              id: `log-tab-${id}`,
+              type: 'button',
+              role: 'tab',
+              className: 'rh-workbench-tab',
+              'aria-selected': tab === id,
+              'aria-controls': 'log-content',
+              tabIndex: tab === id ? 0 : -1,
+              onClick: () => setTab(id),
+              onKeyDown: (event) => {
+                let next;
+                if (event.key === 'ArrowRight') {
+                  next = (index + 1) % tabs.length;
+                } else if (event.key === 'ArrowLeft') {
+                  next = (index + tabs.length - 1) % tabs.length;
+                } else if (event.key === 'Home') {
+                  next = 0;
+                } else if (event.key === 'End') {
+                  next = tabs.length - 1;
+                }
+                if (next !== undefined) {
+                  event.preventDefault();
+                  setTab(tabs[next]);
+                  event.currentTarget.parentElement.querySelectorAll('[role="tab"]')[next].focus();
+                }
+              },
+            },
+            t(id === 'wiki' ? 'wiki.events.title' : 'wiki.events.application'),
+          ),
+        ),
+      ),
+      h(Button, { size: 'sm', variant: 'ghost', onClick: onClose }, t('common.close')),
+    ),
+    h(
+      'div',
+      {
+        className: css.body,
+        id: 'log-content',
+        role: 'tabpanel',
+        'aria-labelledby': `log-tab-${tab}`,
+      },
+      tab === 'wiki'
+        ? h(WikiEvents, { key: workspaceId, workspaceId })
+        : h(ApplicationLogs, { onClose }),
+    ),
+  );
+}
 module.exports = { LogPanel };

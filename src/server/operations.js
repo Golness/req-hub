@@ -1,4 +1,5 @@
 import { Readable, Writable } from 'node:stream';
+import { finished } from 'node:stream/promises';
 
 // One Host operation implementation, reached by both authenticated HTTP and
 // agent tools. Existing handlers retain their validation and transactional work.
@@ -29,6 +30,10 @@ export function createOperations(routes) {
       'scopes',
       'settings',
       'projection',
+      'events',
+      'source-state',
+      'update-status',
+      'update',
     ].map((action) => ['wiki-' + action, '/req-hub/knowledge/wiki/' + action]),
     ['wiki-revisions', '/req-hub/knowledge/wiki/pages/:id/revisions'],
     ['wiki-evidence', '/req-hub/knowledge/wiki/evidence/:id'],
@@ -135,6 +140,10 @@ export function createOperations(routes) {
       exec.signal?.addEventListener('abort', abort, { once: true });
       try {
         await dispatch(route, request, response);
+        // Sync handlers start owned work when the request body ends; wait for its result.
+        if (action === 'phased-sync' && !response.writableEnded) {
+          await finished(response, { signal: exec.signal, cleanup: true });
+        }
         if (responseError) {
           throw responseError;
         }

@@ -1,4 +1,36 @@
 /* Component presentation; runtime geometry uses local CSS variables. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.tabs {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  min-width: 0;
+  gap: 8px;
+  padding: 0 var(--rh-panel-padding);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+}
+.tabs :global(.rh-workbench-tabs) {
+  flex: 1;
+}
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.body:has(> :global([data-sync-progress])) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* Component presentation; runtime geometry uses local CSS variables. */
 .activeSummary {
   display: flex;
   align-items: center;
@@ -462,4 +494,46 @@
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.quickForm {
+  width: min(100%, 780px);
+  box-sizing: border-box;
+  padding: 24px var(--rh-panel-padding);
+}
+.quickDescription {
+  margin: 0 0 16px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+.quickRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.quickField {
+  flex: 1 1 360px;
+  min-width: 0;
+}
+.quickAction {
+  min-height: 36px;
+  flex: 0 0 auto;
+  gap: 6px;
+  margin-inline-start: auto;
+}
+.referenceField {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.referenceLabel,
+.referenceHint {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 400;
+}
+.referenceHint {
+  color: var(--dsw-alias-label-secondary);
 }

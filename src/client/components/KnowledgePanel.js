@@ -14,7 +14,9 @@ const { ConversationProvenance } = require('./ConversationProvenance.js');
 const { WikiPanel } = require('./WikiPanel.js');
 const { EnhancementSettings } = require('./ContextAssist.js');
 const { WikiSettings } = require('./WikiSettings.js');
-const { GROUPS, knowledgeSection } = require('./knowledge-navigation.js');
+const { WikiEvents } = require('./WikiEvents.js');
+const { WikiUpdateAction } = require('./WikiUpdateAction.js');
+const { knowledgeSection } = require('./knowledge-navigation.js');
 
 const LABELS = {
   pending: t('KnowledgePanel.message001'),
@@ -42,6 +44,7 @@ function KnowledgeContent({
   documentView,
   selectedFile,
   viewHidden = false,
+  refreshKey = 0,
 }) {
   const [data, setData] = React.useState(null);
   const [error, setError] = React.useState(null);
@@ -65,6 +68,9 @@ function KnowledgeContent({
     knowledge.job?.files
       .filter((f) => ['failed', 'stale', 'cancelled', 'interrupted'].includes(f.status))
       .map((f) => f.relativePath) || [];
+  if (tab === 'events') {
+    return h(WikiEvents, { key: workspaceId, workspaceId });
+  }
   if (tab === 'code') {
     return h(
       'div',
@@ -74,7 +80,7 @@ function KnowledgeContent({
     );
   }
   if (['index', 'wiki', 'query', 'review', 'lint', 'rules', 'changes'].includes(tab)) {
-    return h(WikiPanel, { key: workspaceId + ':' + tab, workspaceId, tab });
+    return h(WikiPanel, { key: workspaceId + ':' + tab, workspaceId, tab, refreshKey });
   }
   return h(
     'div',
@@ -105,7 +111,12 @@ function KnowledgeContent({
         className: css.body,
         id: viewHidden || tab === 'search' ? undefined : 'knowledge-content',
         role: tab === 'search' ? undefined : 'tabpanel',
-        'aria-labelledby': tab === 'search' ? undefined : 'knowledge-tab-files',
+        'aria-labelledby':
+          tab === 'search'
+            ? undefined
+            : tab === 'documents'
+              ? 'knowledge-tab-documents'
+              : 'knowledge-tab-files',
       },
       h(
         'div',
@@ -258,51 +269,24 @@ function KnowledgeContent({
  */
 function KnowledgePanel(props) {
   const [asking, setAsking] = React.useState(false);
+  const [wikiRevision, refreshWiki] = React.useReducer((value) => value + 1, 0);
   const sourceMounted = React.useRef(false);
   const section = knowledgeSection(props.tab);
   if (section === 'sources') {
     sourceMounted.current = true;
   }
-  const labels = {
-    files: 'knowledgeLayout.files',
-    sessions: 'knowledgeLayout.sessions',
-    index: 'wiki.tab.index',
-    documents: 'knowledgeLayout.documents',
-    search: 'DocsViewerBody.message055',
-    lint: 'wiki.tab.lint',
-    rules: 'wiki.tab.rules',
-    changes: 'wiki.tab.changes',
-    code: 'knowledge.code',
-  };
-  const navigation =
-    ['sources', 'maintenance'].includes(section) &&
-    h(
-      'nav',
-      {
-        className: css.navigation,
-        'aria-label': t('knowledge.navigation'),
-      },
-      GROUPS[section].map((id) =>
-        h(
-          Button,
-          {
-            key: id,
-            size: 'sm',
-            'aria-current': props.tab === id ? 'page' : undefined,
-            onClick: () => props.onTabChange?.(id),
-          },
-          t(labels[id]),
-        ),
-      ),
-    );
   return h(
     'div',
     { className: css.workspace },
-    navigation,
     section === 'wiki' &&
       h(
-        'div',
-        { className: css.navigation },
+        WikiUpdateAction,
+        {
+          key: props.workspaceId,
+          workspaceId: props.workspaceId,
+          onUpdated: refreshWiki,
+          onOpenEvents: () => props.onTabChange('events'),
+        },
         h(
           Button,
           {
@@ -318,7 +302,7 @@ function KnowledgePanel(props) {
       { className: css.columns },
       h(
         'div',
-        { className: css.primary },
+        { className: `${css.primary}${section === 'sources' ? ` ${css.sourcePrimary}` : ''}` },
         sourceMounted.current &&
           h(
             'div',
@@ -327,9 +311,10 @@ function KnowledgePanel(props) {
               ...props,
               tab: section === 'sources' ? props.tab : 'documents',
               viewHidden: section !== 'sources',
+              refreshKey: wikiRevision,
             }),
           ),
-        section !== 'sources' && h(KnowledgeContent, props),
+        section !== 'sources' && h(KnowledgeContent, { ...props, refreshKey: wikiRevision }),
       ),
       asking &&
         section === 'wiki' &&

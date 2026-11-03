@@ -5,16 +5,13 @@ const { Button } = require('./Button.js');
 const React = require('react');
 const h = React.createElement;
 const { ROUTE } = require('../../constants.js');
-const { DiffViewer } = require('./DiffViewer.js');
+const { useDiffReview } = require('./DiffReviewPage.js');
+const { SyncDocTypeTabs } = require('./SyncDocTypeTabs.js');
 const { VersionSelect } = require('./VersionSelect.js');
 const { hasPublishedDocument } = require('../../../shared/sync-task.cjs');
-const DOC_TYPES = [
-  ['requirement', t('DocsViewerBody.message073')],
-  ['design', t('documents.design')],
-];
 
 /**
- * Compare recorded requirement or design versions with accessible tabs.
+ * Compare recorded versions with optional type tabs and open the read-only review directly.
  * @param props - Data, state and callbacks supplied by the owning surface.
  * @returns The rendered component content.
  */
@@ -24,6 +21,7 @@ function SyncVersionCompare({
   requirementId,
   docType: selectedDocType,
   onDocTypeChange,
+  showTypeTabs = true,
 }) {
   const id = React.useId();
   const [localDocType, setLocalDocType] = React.useState('requirement');
@@ -34,7 +32,7 @@ function SyncVersionCompare({
   };
   const versions = history.filter((sync) => hasPublishedDocument(sync) && sync.docType === docType);
   const [selection, setSelection] = React.useState(null);
-  const [result, setResult] = React.useState(null);
+  const review = useDiffReview();
   const [error, setError] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const request = React.useRef(0);
@@ -43,7 +41,6 @@ function SyncVersionCompare({
   React.useEffect(() => {
     request.current++;
     setSelection(null);
-    setResult(null);
     setError('');
     setLoading(false);
     return () => {
@@ -53,15 +50,14 @@ function SyncVersionCompare({
   const change = (side, id) => {
     request.current++;
     setSelection({ oldId, newId, [side]: id });
-    setResult(null);
     setError('');
     setLoading(false);
   };
-  const compare = async () => {
+  const compare = async (event) => {
+    const returnFocus = event.currentTarget;
     const token = ++request.current;
     setLoading(true);
     setError('');
-    setResult(null);
     try {
       const params = new URLSearchParams({
         workspaceId,
@@ -75,7 +71,11 @@ function SyncVersionCompare({
         throw new Error(data.error || t('SyncVersionCompare.message001'));
       }
       if (token === request.current) {
-        setResult(data);
+        review.open({
+          ...data,
+          returnFocus,
+          fileName: docType === 'requirement' ? 'requirement.md' : 'design.md',
+        });
       }
     } catch (error) {
       if (token === request.current) {
@@ -87,58 +87,22 @@ function SyncVersionCompare({
       }
     }
   };
+  if (review.page) {
+    return review.page;
+  }
   return h(
     'section',
     { className: css.spacing, 'aria-label': t('SyncVersionCompare.message002') },
     h('h3', null, t('SyncVersionCompare.message002')),
+    showTypeTabs &&
+      h(SyncDocTypeTabs, { value: docType, onChange: setDocType, panelId: id + '-panel' }),
     h(
       'div',
       {
-        className: 'rh-workbench-tabs rh-prompt-tabs',
-        role: 'tablist',
-        'aria-label': t('FileTreeSidebar.message020'),
+        role: showTypeTabs ? 'tabpanel' : undefined,
+        id: `${id}-panel`,
+        'aria-labelledby': showTypeTabs ? `${id}-panel-tab-${docType}` : undefined,
       },
-      DOC_TYPES.map(([type, text], index) =>
-        h(
-          'button',
-          {
-            key: type,
-            id: `${id}-tab-${type}`,
-            type: 'button',
-            role: 'tab',
-            className: 'rh-workbench-tab',
-            'aria-selected': docType === type,
-            'aria-controls': `${id}-panel`,
-            tabIndex: docType === type ? 0 : -1,
-            onClick: () => setDocType(type),
-            onKeyDown: (event) => {
-              let next;
-              if (event.key === 'ArrowRight') {
-                next = (index + 1) % DOC_TYPES.length;
-              } else if (event.key === 'ArrowLeft') {
-                next = (index + DOC_TYPES.length - 1) % DOC_TYPES.length;
-              } else if (event.key === 'Home') {
-                next = 0;
-              } else if (event.key === 'End') {
-                next = DOC_TYPES.length - 1;
-              } else {
-                next = null;
-              }
-              if (next === null) {
-                return;
-              }
-              event.preventDefault();
-              setDocType(DOC_TYPES[next][0]);
-              event.currentTarget.parentElement.children[next].focus();
-            },
-          },
-          text,
-        ),
-      ),
-    ),
-    h(
-      'div',
-      { role: 'tabpanel', id: `${id}-panel`, 'aria-labelledby': `${id}-tab-${docType}` },
       h('p', { className: css.mutedText }, t('SyncVersionCompare.message003')),
       versions.length < 2
         ? h(
@@ -166,14 +130,20 @@ function SyncVersionCompare({
                 value: newId,
                 onChange: (id) => change('newId', id),
               }),
+            ),
+            h(
+              'div',
+              { className: css.actions },
               h(
                 Button,
                 {
-                  className: 'rh-btn',
+                  variant: 'ghost',
+                  className: css.action,
                   disabled: loading,
                   onClick: () => {
+                    request.current++;
                     setSelection({ oldId: newId, newId: oldId });
-                    setResult(null);
+                    setError('');
                   },
                 },
                 t('SyncVersionCompare.message007'),
@@ -181,7 +151,8 @@ function SyncVersionCompare({
               h(
                 Button,
                 {
-                  className: 'rh-btn rh-btn-primary',
+                  variant: 'primary',
+                  className: css.action,
                   disabled: loading || !oldId || !newId || oldId === newId,
                   onClick: compare,
                 },
@@ -191,11 +162,6 @@ function SyncVersionCompare({
             oldId === newId && h('p', { role: 'status' }, t('SyncVersionCompare.message010')),
           ),
       error && h('p', { role: 'alert' }, error),
-      result &&
-        h(DiffViewer, {
-          ...result,
-          fileName: docType === 'requirement' ? 'requirement.md' : 'design.md',
-        }),
     ),
   );
 }

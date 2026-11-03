@@ -74,7 +74,7 @@ it('refuses applying when the source changed and retains decisions until returni
     return React.createElement('button', { onClick: () => review.open({ oldContent: 'old', newContent: 'new', onComplete: () => false }) }, 'Launch');
   })));
   await click(button('Launch')); await click(button('全部采用'));
-  expect(container.querySelector('[role="alert"]').textContent).toContain('草稿已在分析后修改');
+  expect(container.querySelector('[role="alert"]').textContent).toContain('草稿已修改');
   expect(container.querySelector('button[aria-pressed="true"]')).not.toBeNull();
 });
 it('displays truthful elapsed time for ISO timestamps and clears its timer on unmount', async () => {

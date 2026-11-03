@@ -20,6 +20,106 @@ async function run(docType, harnessOptions = {}, input = {}) {
 }
 
 describe('v2 frozen evidence and isolated candidates', () => {
+  it('fails before spawning when the complete requirements reference exceeds the analysis budget', async () => {
+    const { result, harness } = await run(
+      'design',
+      {},
+      {
+        designReference: { path: 'requirement.md', sourceHash: 'large', text: '需求'.repeat(300000) },
+      },
+    );
+    expect(result.errors[0].error).toContain('DOCUMENT_INPUT_TOO_LARGE');
+    expect(harness.requests).toHaveLength(0);
+    expect(result.mergedDoc).toBeNull();
+  });
+  it('requires the frozen requirements baseline in both technical analysis sources without treating it as code evidence', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'req-hub-design-baseline-'));
+    const harness = createSyncHarness();
+    const engine = new PhasedSyncEngine({ ...harness, config: {}, cwd: dir });
+    try {
+      const reference = {
+        path: 'requirement.md',
+        sourceHash: 'frozen-version',
+        text: '# Business baseline',
+      };
+      const input = {
+        docType: 'design',
+        currentDoc: source,
+        codeDiff: diff,
+        syncDir: dir,
+        designReference: reference,
+        sessionTurns: [{ sessionId: 's', turnNumber: 1, userInput: '用户确认新规则' }],
+      };
+      const plan = await engine.prepareSyncChunks(input);
+      for (const chunk of [...plan.code, ...plan.discussion]) {
+        expect(chunk.required).toContain('design.reference');
+      }
+      expect(JSON.parse(await plan.store.read('design.reference'))).toEqual(reference);
+      const result = await engine.sync({ ...input, preparedChunks: plan });
+      expect(result.errors).toEqual([]);
+      for (const stage of ['code-0', 'discussion-0']) {
+        const diagnostic = JSON.parse(await readFile(join(dir, stage + '.read-state.json'), 'utf8'));
+        expect(
+          diagnostic.required.find((item) => item.artifactId === 'design.reference').complete,
+        ).toBe(true);
+        const index = JSON.parse(await readFile(join(dir, stage + '.json'), 'utf8'));
+        expect(index.changes[0].evidenceRefs).not.toContain('design.reference');
+      }
+      const metadata = JSON.parse(await readFile(join(dir, 'input', 'manifest.json'), 'utf8'));
+      expect(metadata.designReference).toEqual({
+        path: reference.path,
+        sourceHash: reference.sourceHash,
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+  it.each(['requirement', 'design'])(
+    'reads original evidence once per analysis while preserving %s summary and edit inputs',
+    async (docType) => {
+      const dir = await mkdtemp(join(tmpdir(), 'req-hub-sync-stage-reads-'));
+      const harness = createSyncHarness();
+      const engine = new PhasedSyncEngine({ ...harness, config: {}, cwd: dir });
+      try {
+        const input = {
+          docType,
+          currentDoc: source,
+          codeDiff: diff,
+          sessionTurns: [{ sessionId: 's', turnNumber: 1, userInput: '用户确认新规则' }],
+          syncDir: dir,
+        };
+        const plan = await engine.prepareSyncChunks(input);
+        const result = await engine.sync({ ...input, preparedChunks: plan });
+        expect(result.errors).toEqual([]);
+        expect(result.mergedDoc).toBe(source.replace('旧规则', '新规则'));
+        expect(harness.requests).toHaveLength(4);
+        for (const id of ['document.original', 'commits']) {
+          const reads = harness.calls.filter(
+            (call) => call.name === 'req_hub_sync_read' && call.args.artifactId === id,
+          );
+          expect(reads).toHaveLength(2);
+        }
+        for (const stage of ['summary-0', 'edit']) {
+          const manifest = JSON.parse(await plan.store.read('manifest.' + stage));
+          expect(manifest.required).toContain('document.blocks');
+          expect(manifest.context).toEqual(['document.original', 'commits']);
+          expect(manifest.required).not.toContain('document.original');
+          expect(manifest.required).not.toContain('commits');
+          expect(manifest.required.some((id) => id.endsWith('.report'))).toBe(true);
+          const diagnostic = JSON.parse(
+            await readFile(join(dir, stage + '.read-state.json'), 'utf8'),
+          );
+          expect(diagnostic.readState.remaining).toBe(0);
+        }
+        const editManifest = JSON.parse(await plan.store.read('manifest.edit'));
+        expect(editManifest.required).toContain('validated.plan');
+        const summary = JSON.parse(await readFile(join(dir, 'summary-0.json'), 'utf8'));
+        expect(summary.changes[0].evidenceRefs).toHaveLength(2);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+  );
   it('freezes selected knowledge as optional versioned artifacts without adding it to executable code evidence', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'rh-sync-knowledge-'));
     const harness = createSyncHarness(), engine = new PhasedSyncEngine({ ...harness, config: {}, cwd: dir });

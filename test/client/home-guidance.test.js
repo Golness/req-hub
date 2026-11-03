@@ -209,7 +209,7 @@ it('removes a running task from the footer silently and immediately enables star
       (button) => button.textContent === '同步需求文档',
     );
   expect(start()).toBeUndefined();
-  await click(container.querySelector('.rh-statusbar [aria-label="删除本次执行"]'));
+  await click(container.querySelector('.rh-statusbar [aria-label="删除本次记录"]'));
   expect(container.querySelector('.rh-sync-status')).toBeNull();
   expect(start().disabled).toBe(false);
   expect(confirm).not.toHaveBeenCalled();

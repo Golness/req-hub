@@ -1,7 +1,12 @@
 'use strict';
-const disclosureCss = require('./shared/Disclosure.module.css').default;
+const { SyncStepList } = require('./SyncSteps.js');
+const progressCss = require('./SyncProgress.module.css').default;
 const { KnowledgeContextPicker } = require('./KnowledgeContextPicker.js');
-const { DocumentAssist } = require('./ContextAssist.js');
+const { SyncSetup } = require('./SyncSetup.js');
+const { SyncDocTypeTabs } = require('./shared/SyncDocTypeTabs.js');
+const { SyncHistoryRecords } = require('./SyncHistoryRecords.js');
+const { Disclosure } = require('./shared/Disclosure.js');
+const historyCss = require('./SyncHistory.module.css').default;
 const { Checkbox } = require('./shared/controls.js');
 const { t } = require('../locale.js');
 const css = require('./SyncPanel.module.css').default;
@@ -25,12 +30,13 @@ const { DocsViewerContext } = require('../context.js');
 const { SyncStorageUsage } = require('./SyncStorageUsage.js');
 const { FilePreview } = require('./FilePreview.js');
 const { showToast } = require('./shared/ToastContainer.js');
+const { SyncBranchPicker } = require('./SyncBranchPicker.js');
+const { parseBranchName } = require('./CreateDirForm.js');
 const { ConversationSources } = require('./ConversationSources.js');
 const { ConversationManager } = require('./ConversationManager.js');
 const { createIconComponents } = require('../icons.js');
 
-const { IconSync, IconError, IconCheck, IconSkip, IconCancel, IconHourglass, IconChevronDown } =
-  createIconComponents(h);
+const { IconSync, IconError, IconCheck, IconCancel, IconChevronDown } = createIconComponents(h);
 
 const isLiveSync = (task) => task?.status === 'preparing' || syncTaskModel.isSyncActive(task);
 
@@ -71,18 +77,18 @@ function ActiveSyncSummary({ task, onOpen, label }) {
  * @component
  * Main sync panel for synchronizing requirement or design documentation with code changes
  * from a git branch. Provides two sync modes: requirement docs and design docs.
- * Supports viewing sync history, sync details, and managing active sync operations.
+ * Supports selecting document types and resuming active sync operations.
  * @param {Object} props - Component props
  * @param {string} props.workspaceId - The workspace ID for sync operations
  * @param {Object|null} props.selectedReq - The currently selected requirement object, or null if none selected
  * @param {Function} props.onClose - Callback invoked to close the panel
  * @returns {JSX.Element}
  */
-function SyncPanel({ workspaceId, selectedReq, onClose, focusedSync }) {
+function CustomSyncPanel({ workspaceId, selectedReq, onClose }) {
   const [syncDocType, setSyncDocType] = useState(null);
   const [syncing, setSyncing] = useState(false);
-  const [view, setView] = useState(focusedSync ? 'detail' : 'main');
-  const [selectedHistorySync, setSelectedHistorySync] = useState(focusedSync || null);
+  const [view, setView] = useState('main');
+  const [selectedHistorySync, setSelectedHistorySync] = useState(null);
   const [activeTask, setActiveTask] = useState(null);
   const { refreshTree, syncActivity } = React.useContext(DocsViewerContext);
   useEffect(() => {
@@ -107,15 +113,6 @@ function SyncPanel({ workspaceId, selectedReq, onClose, focusedSync }) {
     window.addEventListener('req-hub-sync-deleted', removed);
     return () => window.removeEventListener('req-hub-sync-deleted', removed);
   }, [workspaceId, selectedReq?.id, syncDocType, selectedHistorySync]);
-  useEffect(() => {
-    if (!focusedSync) {
-      return;
-    }
-    setSelectedHistorySync(focusedSync);
-    setView('detail');
-    setSyncDocType(null);
-    setSyncing(isLiveSync(focusedSync));
-  }, [focusedSync]);
 
   // Keep a visible return entry even after leaving preparation or progress.
   useEffect(() => {
@@ -157,22 +154,6 @@ function SyncPanel({ workspaceId, selectedReq, onClose, focusedSync }) {
     );
   }
 
-  // View sync history
-  if (view === 'history') {
-    return h(SyncHistoryView, {
-      workspaceId,
-      requirementId: selectedReq.id,
-      onBack: () => {
-        setView('main');
-        setSelectedHistorySync(null);
-      },
-      onSelectSync: (sync) => {
-        setSelectedHistorySync(sync);
-        setView('detail');
-      },
-    });
-  }
-
   // View sync detail
   if (view === 'detail' && selectedHistorySync) {
     return h(SyncDetailView, {
@@ -181,7 +162,7 @@ function SyncPanel({ workspaceId, selectedReq, onClose, focusedSync }) {
       requirementPath: selectedReq.path,
       onUpdate: (next) => setActiveTask(isLiveSync(next) ? next : null),
       onBack: () => {
-        setView('history');
+        setView('main');
         setSelectedHistorySync(null);
       },
     });
@@ -255,15 +236,259 @@ function SyncPanel({ workspaceId, selectedReq, onClose, focusedSync }) {
           },
           t('SyncPanel.message004'),
         ),
+    ),
+  );
+}
+
+/**
+ * Present quick and custom entries while retaining the existing sync executor.
+ * @param props - Workspace, selected requirement and navigation callbacks.
+ * @returns The tabbed synchronization panel.
+ */
+function SyncPanel(props) {
+  const [tab, setTab] = useState(props.focusedSync ? 'history' : 'quick');
+  const [historyRequirement, setHistoryRequirement] = useState(props.selectedReq);
+  return h(
+    'div',
+    { className: css.panel },
+    h(
+      'div',
+      { className: css.tabs },
+      h(
+        'div',
+        { className: 'rh-workbench-tabs', role: 'tablist', 'aria-label': t('sync.tabs') },
+        ['quick', 'custom', 'history'].map((id, index, tabs) =>
+          h(
+            'button',
+            {
+              key: id,
+              id: `sync-tab-${id}`,
+              type: 'button',
+              role: 'tab',
+              className: 'rh-workbench-tab',
+              'aria-selected': tab === id,
+              'aria-controls': `sync-content-${id}`,
+              tabIndex: tab === id ? 0 : -1,
+              onClick: () => setTab(id),
+              onKeyDown: (event) => {
+                let next;
+                if (event.key === 'ArrowRight') {
+                  next = (index + 1) % tabs.length;
+                } else if (event.key === 'ArrowLeft') {
+                  next = (index + tabs.length - 1) % tabs.length;
+                } else if (event.key === 'Home') {
+                  next = 0;
+                } else if (event.key === 'End') {
+                  next = tabs.length - 1;
+                }
+                if (next !== undefined) {
+                  event.preventDefault();
+                  setTab(tabs[next]);
+                  event.currentTarget.parentElement.querySelectorAll('[role="tab"]')[next].focus();
+                }
+              },
+            },
+            t(`sync.${id}`),
+          ),
+        ),
+      ),
+      h(Button, { size: 'sm', variant: 'ghost', onClick: props.onClose }, t('common.close')),
+    ),
+    ['quick', 'custom', 'history'].map((id) =>
+      h(
+        'div',
+        {
+          key: id,
+          className: css.body,
+          id: `sync-content-${id}`,
+          role: 'tabpanel',
+          'aria-labelledby': `sync-tab-${id}`,
+          hidden: tab !== id,
+        },
+        h(SyncTabContent, {
+          id,
+          props,
+          active: tab === id,
+          historyRequirement,
+          onRequirementReady: setHistoryRequirement,
+        }),
+      ),
+    ),
+  );
+}
+
+/**
+ * Own a local return-button target after removing the old shell title bar.
+ * @param props - Tab identity and sync panel properties.
+ * @returns A panel with navigation contained within its tab.
+ */
+function SyncTabContent({ id, props, active, historyRequirement, onRequirementReady }) {
+  const context = React.useContext(DocsViewerContext);
+  const [target, setTarget] = useState(null);
+  let content;
+  if (id === 'quick') {
+    content = h(QuickSync, {
+      key: props.workspaceId,
+      workspaceId: props.workspaceId,
+      onRequirementReady,
+      active,
+    });
+  } else if (id === 'history') {
+    content = h(SyncHistoryPanel, {
+      key: `${props.workspaceId}:${historyRequirement?.id || ''}`,
+      workspaceId: props.workspaceId,
+      selectedReq: historyRequirement,
+      focusedSync:
+        props.focusedSync?.requirementId === historyRequirement?.id ? props.focusedSync : null,
+      active,
+    });
+  } else {
+    content = h(CustomSyncPanel, props);
+  }
+  return h(
+    DocsViewerContext.Provider,
+    { value: { ...context, headerBackTarget: target } },
+    h('div', { className: 'rh-header-back-slot', ref: setTarget }),
+    content,
+  );
+}
+
+/**
+ * Resolve the branch's directory through existing Host operations before syncing.
+ * @param props - The workspace owning the local feature branch.
+ * @returns The quick entry or the existing phased sync view without conversations.
+ */
+function QuickSync({ workspaceId, onRequirementReady, active }) {
+  const [branch, setBranch] = useState('');
+  const [requirement, setRequirement] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [error, setError] = useState(null);
+  const request = useRef(null);
+  const { refreshTree } = React.useContext(DocsViewerContext);
+  useEffect(() => () => request.current?.abort(), []);
+
+  const start = async () => {
+    if (busy || !branch) {
+      return;
+    }
+    const parsed = parseBranchName(branch.trim());
+    if (!parsed?.developer) {
+      setError(t('sync.quick.branchInvalid'));
+      return;
+    }
+    const controller = new AbortController();
+    request.current = controller;
+    setBusy(true);
+    setError(null);
+    const read = async (url, options = {}) => {
+      const response = await fetch(url, { ...options, signal: controller.signal });
+      const data = await response.json();
+      controller.signal.throwIfAborted();
+      if (!response.ok) {
+        throw new Error(data.error || t('sync.loadFailed'));
+      }
+      return data;
+    };
+    try {
+      const params = new URLSearchParams({
+        workspaceId,
+        requirementId: parsed.requirementId,
+        targetBranch: branch.trim(),
+      });
+      const info = await read(`${ROUTE}/sync-branch-info?${params}`);
+      if (info.targetBranch !== branch.trim() || info.targetBranchError) {
+        throw new Error(t('sync.quick.branchInvalid'));
+      }
+      if (!info.baseBranch) {
+        throw new Error(t('sync.quick.baseMissing'));
+      }
+      const find = async () => {
+        const data = await read(`${ROUTE}/tree?${new URLSearchParams({ workspaceId })}`);
+        for (const developer of data.tree.developers) {
+          const item = developer.requirements.find((req) => req.id === parsed.requirementId);
+          if (item) {
+            return { ...item, developer: developer.name };
+          }
+        }
+        return null;
+      };
+      let found = await find();
+      if (!found) {
+        try {
+          await read(`${ROUTE}/create-dir`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ workspaceId, ...parsed, createBranch: false }),
+          });
+        } catch (creationError) {
+          found = await find();
+          if (!found) {
+            throw creationError;
+          }
+        }
+        found ||= await find();
+        if (!found) {
+          throw new Error(t('sync.quick.directoryMissing'));
+        }
+        refreshTree?.();
+      }
+      onRequirementReady?.(found);
+      setRequirement({ ...found, targetBranch: branch.trim() });
+    } catch (failure) {
+      if (!controller.signal.aborted) {
+        setError(failure.message);
+      }
+    } finally {
+      if (!controller.signal.aborted) {
+        setBusy(false);
+      }
+    }
+  };
+
+  if (requirement) {
+    return h(PhasedSyncUI, {
+      workspaceId,
+      selectedReq: requirement,
+      activeTab: 'requirement',
+      quick: true,
+      syncing,
+      setSyncing,
+      refreshTree,
+      onClose: () => setRequirement(null),
+    });
+  }
+  return h(
+    'div',
+    { className: css.quickForm },
+    h('p', { className: css.quickDescription }, t('sync.quick.description')),
+    h(
+      'div',
+      { className: css.quickRow },
+      h(
+        'div',
+        { className: css.quickField },
+        h(SyncBranchPicker, {
+          workspaceId,
+          value: branch,
+          onChange: setBranch,
+          disabled: busy,
+          active,
+        }),
+      ),
       h(
         Button,
         {
-          variant: 'ghost',
-          onClick: () => setView('history'),
+          className: css.quickAction,
+          variant: 'primary',
+          disabled: busy || !branch,
+          onClick: start,
         },
-        t('SyncPanel.message005'),
+        h(IconSync, { size: 16 }),
+        busy ? t('common.loading') : t('sync.quick.start'),
       ),
     ),
+    error && h('p', { className: 'rh-error', role: 'alert' }, error),
   );
 }
 
@@ -493,514 +718,11 @@ function SessionTurnsView({ workspaceId, sessionId, sessionTitle, snapshotVersio
   );
 }
 
-// ─── SyncStepList - Reusable step progress display ──────────────
-// Used by both active sync view and history detail view
-/**
- * @component
- * Reusable component that displays a list of sync steps with their status,
- * progress indicators, generated files, processing chunks, and execution logs.
- * Each step can be expanded to show detailed information.
- * @param {Object} props - Component props
- * @param {Array<Object>} props.steps - List of step objects with phase, label, status, text, files, chunks, and log properties
- * @param {Array<Object>} [props.generatedFiles] - List of generated file objects with phase and fileName properties
- * @param {string} props.workspaceId - The workspace ID
- * @param {string} props.requirementId - The requirement ID
- * @param {Function} props.onViewFile - Callback invoked when a generated file link is clicked
- * @returns {JSX.Element}
- */
-function SyncStepList({ steps, generatedFiles, workspaceId, requirementId, onViewFile }) {
-  const disclosureId = React.useId();
-  const [expandedSteps, setExpandedSteps] = useState({});
-  const [expandedChunks, setExpandedChunks] = useState({});
-
-  const toggleStep = (phase) => {
-    setExpandedSteps((prev) => ({
-      ...prev,
-      [phase]: !prev[phase],
-    }));
-  };
-
-  const toggleChunks = (phase) => {
-    setExpandedChunks((prev) => ({
-      ...prev,
-      [phase]: !prev[phase],
-    }));
-  };
-
-  const getStepIcon = (status) => {
-    switch (status) {
-      case 'completed':
-        return h('span', { className: css.row5 }, h(IconCheck, { size: 16 }));
-      case 'running':
-        return h('span', { className: 'rh-spinner' + ' ' + css.size });
-      case 'failed':
-        return h('span', { className: css.row6 }, h(IconError, { size: 16 }));
-      case 'skipped':
-        return h('span', { className: css.row7 }, h(IconSkip, { size: 16 }));
-      default:
-        return h('span', { className: css.row7 }, h(IconHourglass, { size: 16 }));
-    }
-  };
-
-  const getStepColor = (status) => {
-    switch (status) {
-      case 'completed':
-        return 'var(--dsw-alias-state-success-primary)';
-      case 'running':
-        return 'var(--rh-accent)';
-      case 'failed':
-        return 'var(--dsw-alias-state-error-primary)';
-      case 'skipped':
-        return 'var(--dsw-alias-label-secondary)';
-      default:
-        return 'var(--dsw-alias-label-secondary)';
-    }
-  };
-
-  const formatTokens = (tokens) => {
-    if (!tokens) {
-      return '0';
-    }
-    if (tokens >= 1000) {
-      return `${(tokens / 1000).toFixed(1)}k`;
-    }
-    return tokens.toString();
-  };
-
-  // Group files by phase
-  const filesByPhase = {};
-  if (generatedFiles) {
-    for (const f of generatedFiles) {
-      if (!filesByPhase[f.phase]) {
-        filesByPhase[f.phase] = [];
-      }
-      filesByPhase[f.phase].push(f);
-    }
-  }
-  // Also include files from step definition
-  if (steps) {
-    for (const step of steps) {
-      if (step.files && step.files.length > 0) {
-        if (!filesByPhase[step.phase]) {
-          filesByPhase[step.phase] = [];
-        }
-        for (const f of step.files) {
-          if (!filesByPhase[step.phase].some((file) => file.fileName === f)) {
-            filesByPhase[step.phase].push({ fileName: f });
-          }
-        }
-      }
-    }
-  }
-
-  return h(
-    'div',
-    { className: css.column2 },
-    (steps || []).map((step, idx) => {
-      const phaseFiles = filesByPhase[step.phase] || [];
-      const hasChunks = step.chunks && step.chunks.length > 0;
-      const isChunksExpanded = expandedChunks[step.phase];
-      const isStepExpanded = expandedSteps[step.phase];
-      const budget =
-        hasChunks && step.chunks.every((chunk) => chunk.inputBudget)
-          ? step.chunks.reduce(
-              (sum, chunk) =>
-                Object.fromEntries(
-                  Object.keys(sum).map((key) => [key, sum[key] + chunk.inputBudget[key]]),
-                ),
-              { evidenceTokens: 0, commonTokens: 0, promptTokens: 0, reservedTokens: 0 },
-            )
-          : null;
-      const budgetText = (value) =>
-        t('sync.budget.breakdown', {
-          evidence: formatTokens(value.evidenceTokens),
-          common: formatTokens(value.commonTokens),
-          prompt: formatTokens(value.promptTokens),
-          reserved: formatTokens(value.reservedTokens),
-        });
-
-      return h(
-        'div',
-        {
-          key: idx,
-          className: 'rh-sync-step' + ' ' + css.content,
-          style: {
-            '--rh-background-0': cssValue(
-              step.status === 'running'
-                ? 'var(--dsw-alias-bg-layer-2)'
-                : 'var(--dsw-alias-bg-layer-1)',
-            ),
-            '--rh-border-1': cssValue(
-              step.status === 'running'
-                ? '1px solid var(--rh-accent)'
-                : '1px solid var(--dsw-alias-border-l1)',
-            ),
-          },
-        },
-        // Step header (clickable to expand)
-        h(
-          Button,
-          {
-            variant: 'ghost',
-            size: 'sm',
-            className: `rh-sync-step-header ${disclosureCss.trigger}`,
-            'aria-expanded': !!isStepExpanded,
-            'aria-controls': `${disclosureId}-step-${idx}`,
-            onClick: () => toggleStep(step.phase),
-          },
-          getStepIcon(step.status),
-          h('span', { className: 'rh-sync-step-label' + ' ' + css.content2 }, step.label),
-          // Liveness indicator
-          step.status === 'running' &&
-            step.livenessStage &&
-            h(
-              'span',
-              {
-                className: css.row8,
-                style: {
-                  '--rh-color-1': cssValue(
-                    step.livenessStage === 'liveness_stale'
-                      ? 'var(--dsw-alias-state-warning-primary)'
-                      : 'var(--dsw-alias-state-success-primary)',
-                  ),
-                },
-              },
-              step.livenessStage === 'liveness_stale'
-                ? t('SyncPanel.message014')
-                : t('SyncPanel.message015'),
-              ` ${step.lastActivityDesc || ''}`,
-            ),
-
-          hasChunks &&
-            h(
-              'span',
-              {
-                className: css.section5,
-              },
-              t('SyncPanel.message016', { value0: step.chunks.length }),
-            ),
-
-          step.totalTokens &&
-            h(
-              'span',
-              {
-                className: css.mutedText6,
-              },
-              t('sync.budget.label', { tokens: formatTokens(step.totalTokens) }),
-            ),
-          h(
-            'span',
-            { className: disclosureCss.action, 'aria-hidden': true },
-            t(isStepExpanded ? 'disclosure.collapse' : 'disclosure.expand'),
-          ),
-        ),
-        // Step text (always visible)
-        (step.text || step.activity) &&
-          h(
-            'div',
-            {
-              className: css.mutedText7,
-            },
-            step.status === 'running' && step.activity
-              ? syncActivityText(step.activity)
-              : syncErrorText(step.text),
-          ),
-        Number.isFinite(step.sourceTokens) &&
-          h(
-            'div',
-            {
-              className: css.mutedText8,
-            },
-            t('sync.budget.source', { tokens: formatTokens(step.sourceTokens) }),
-          ),
-
-        // Expanded detail section
-        h(
-          'div',
-          {
-            id: `${disclosureId}-step-${idx}`,
-            hidden: !isStepExpanded,
-            className: 'rh-sync-step-detail',
-          },
-          // Files section
-          phaseFiles.length > 0 &&
-            h(
-              'div',
-              { className: 'rh-sync-step-files' },
-              h('div', { className: css.heading4 }, t('SyncPanel.message017')),
-              phaseFiles.map((fileName, fi) =>
-                h(
-                  'a',
-                  {
-                    key: fi,
-                    className: 'rh-sync-step-file-link',
-                    href: '#',
-                    onClick: (e) => {
-                      e.preventDefault();
-                      onViewFile && fileName.artifactId && onViewFile(fileName);
-                    },
-                  },
-                  fileName.fileName,
-                ),
-              ),
-            ),
-
-          hasChunks &&
-            h(
-              'div',
-              { className: css.spacing4 },
-              h(
-                Button,
-                {
-                  variant: 'ghost',
-                  size: 'sm',
-                  className: disclosureCss.trigger,
-                  'aria-expanded': !!isChunksExpanded,
-                  'aria-controls': `${disclosureId}-chunks-${idx}`,
-                  onClick: () => toggleChunks(step.phase),
-                },
-                t('SyncPanel.message018', {
-                  value0: step.chunks.length,
-                  value1: '',
-                }),
-                h(
-                  'span',
-                  { className: disclosureCss.action, 'aria-hidden': true },
-                  t(isChunksExpanded ? 'disclosure.collapse' : 'disclosure.expand'),
-                ),
-              ),
-
-              h(
-                'div',
-                {
-                  id: `${disclosureId}-chunks-${idx}`,
-                  hidden: !isChunksExpanded,
-                  className: css.column3,
-                },
-
-                h(
-                  'div',
-                  { className: css.mutedText8 },
-                  t('SyncPanel.message019', {
-                    value0: step.chunks.length,
-                    value1: formatTokens(step.totalTokens),
-                  }),
-                ),
-                budget && h('div', { className: css.mutedText8 }, budgetText(budget)),
-                h('div', { className: css.mutedText8 }, t('sync.budget.notice')),
-
-                step.chunks.map((chunk, ci) => {
-                  let chunkBorder;
-                  if (chunk.status === 'running') {
-                    chunkBorder = '2px solid var(--rh-accent)';
-                  } else if (chunk.status === 'failed') {
-                    chunkBorder = '2px solid var(--dsw-alias-state-error-primary)';
-                  } else if (chunk.status === 'aborted') {
-                    chunkBorder = '2px solid var(--dsw-alias-state-warning-primary)';
-                  } else if (chunk.status === 'completed') {
-                    chunkBorder = '2px solid var(--dsw-alias-state-success-primary)';
-                  } else {
-                    chunkBorder = '2px solid transparent';
-                  }
-                  let chunkColor;
-                  if (chunk.status === 'running') {
-                    chunkColor = 'var(--rh-accent)';
-                  } else if (chunk.status === 'failed') {
-                    chunkColor = 'var(--dsw-alias-state-error-primary)';
-                  } else if (chunk.status === 'aborted') {
-                    chunkColor = 'var(--dsw-alias-state-warning-primary)';
-                  } else {
-                    chunkColor = 'var(--dsw-alias-label-secondary)';
-                  }
-                  let chunkStatusLabel;
-                  if (chunk.status === 'queued') {
-                    chunkStatusLabel = t('KnowledgePanel.message010');
-                  } else if (chunk.status === 'running') {
-                    chunkStatusLabel = t('SyncPanel.message021');
-                  } else if (chunk.status === 'failed') {
-                    chunkStatusLabel = t('KnowledgePanel.message005');
-                  } else if (chunk.status === 'aborted') {
-                    chunkStatusLabel = t('SyncPanel.message022');
-                  } else {
-                    chunkStatusLabel = '';
-                  }
-                  return h(
-                    'div',
-                    {
-                      key: ci,
-                      className: css.section6,
-                      style: {
-                        '--rh-border-left-4': cssValue(chunkBorder),
-                      },
-                    },
-
-                    h(
-                      'div',
-                      {
-                        className: css.row9,
-                        style: { '--rh-margin-bottom-3': cssValue(chunk.sessionId ? 3 : 4) },
-                      },
-
-                      chunk.status === 'queued' &&
-                        h(IconHourglass, {
-                          size: 12,
-                          color: 'var(--dsw-alias-label-secondary)',
-                        }),
-                      chunk.status === 'running' &&
-                        h(IconSync, {
-                          size: 12,
-                          color: 'var(--rh-accent)',
-                          className: 'rh-spin',
-                        }),
-                      chunk.status === 'completed' &&
-                        h(IconCheck, {
-                          size: 12,
-                          color: 'var(--dsw-alias-state-success-primary)',
-                        }),
-                      chunk.status === 'failed' &&
-                        h(IconError, {
-                          size: 12,
-                          color: 'var(--dsw-alias-state-error-primary)',
-                        }),
-                      chunk.status === 'aborted' &&
-                        h(IconCancel, {
-                          size: 12,
-                          color: 'var(--dsw-alias-state-warning-primary)',
-                        }),
-
-                      h(
-                        'span',
-                        { className: css.heading6 },
-                        t('SyncPanel.message020', { value0: ci + 1 }),
-                        chunk.status && chunk.status !== 'completed'
-                          ? h(
-                              'span',
-                              {
-                                className: css.heading7,
-                                style: {
-                                  '--rh-color-1': cssValue(chunkColor),
-                                },
-                              },
-                              chunkStatusLabel,
-                            )
-                          : null,
-                      ),
-
-                      h(
-                        'span',
-                        {
-                          className: css.mutedText9,
-                          title: chunk.inputBudget ? budgetText(chunk.inputBudget) : undefined,
-                        },
-                        t('sync.budget.label', { tokens: formatTokens(chunk.tokens) }),
-                      ),
-                    ),
-
-                    chunk.sessionId &&
-                      h(
-                        'div',
-                        {
-                          className: css.spacing5,
-                          title: `Subagent Session: ${chunk.sessionId}`,
-                        },
-                        t('SyncPanel.message023', { value0: chunk.sessionId.slice(0, 20) }),
-                      ),
-
-                    chunk.status === 'failed' &&
-                      chunk.error &&
-                      h(
-                        'div',
-                        {
-                          className: css.spacing6,
-                        },
-                        syncErrorText(chunk.error),
-                      ),
-
-                    chunk.files &&
-                      h(
-                        'div',
-                        { className: css.row10 },
-                        chunk.files.slice(0, 5).map((f, fi) =>
-                          h(
-                            'span',
-                            {
-                              key: fi,
-                              className: css.section7,
-                            },
-                            f.file || f,
-                          ),
-                        ),
-                        chunk.files.length > 5 &&
-                          h(
-                            'span',
-                            {
-                              className: css.mutedText3,
-                            },
-                            t('SyncPanel.message024', { value0: chunk.files.length - 5 }),
-                          ),
-                      ),
-
-                    chunk.messages &&
-                      h(
-                        'div',
-                        { className: css.column4 },
-                        chunk.messages.slice(0, 3).map((m, mi) =>
-                          h(
-                            'div',
-                            {
-                              key: mi,
-                              className: css.content3,
-                              style: {
-                                '--rh-color-0': cssValue(
-                                  m.role === 'user'
-                                    ? 'var(--dsw-alias-state-info-primary)'
-                                    : 'var(--rh-accent)',
-                                ),
-                              },
-                            },
-                            h(
-                              'span',
-                              { className: css.row11 },
-                              m.role === 'user'
-                                ? t('SyncPanel.message025')
-                                : t('SyncPanel.message026'),
-                              ` ${m.preview?.substring(0, 30) || ''}...`,
-                            ),
-                          ),
-                        ),
-                        chunk.messages.length > 3 &&
-                          h(
-                            'span',
-                            {
-                              className: css.mutedText3,
-                            },
-                            t('SyncPanel.message027', { value0: chunk.messages.length - 3 }),
-                          ),
-                      ),
-                  );
-                }),
-              ),
-            ),
-
-          // Log section (if available)
-          step.log &&
-            h(
-              'div',
-              { className: css.spacing4 },
-              h('div', { className: css.heading4 }, t('SyncPanel.message028')),
-              h('pre', { className: 'rh-sync-step-log' }, step.log),
-            ),
-        ),
-      );
-    }),
-  );
-}
-
 // ─── SyncProgressView - Active sync progress display ────────────
 /**
  * @component
- * Displays the progress of an active sync operation including a progress bar,
- * step list, estimated remaining time, and an abort button with confirmation dialog.
+ * Keep the task overview and actions fixed while active or historical steps scroll.
+ * Preserve the existing abort confirmation, deletion and artifact preview behavior.
  * @param {Object} props - Component props
  * @param {Object} props.sync - The sync operation object with status, steps, and metadata
  * @param {Function} props.onBack - Callback invoked to return to the previous view
@@ -1099,24 +821,20 @@ function SyncProgressView({
   };
   return h(
     'div',
-    { className: css.column },
+    { className: progressCss.view, 'data-sync-progress': '', 'data-status': sync.status },
     // Header
     h(
       'div',
-      { className: css.section2 },
+      { className: progressCss.overview },
       h(
         'div',
-        { className: css.row12 },
+        { className: progressCss.heading },
         h(HeaderBack, { onBack }),
-        h('span', { className: css.row13 }, renderSyncStatus()),
-        h(DeleteSyncTaskButton, {
-          task: { ...sync, workspaceId, requirementId },
-          onDeleted: onBack,
-        }),
+        h('span', { className: progressCss.status }, renderSyncStatus()),
       ),
       h(
         'div',
-        { className: css.row15 },
+        { className: progressCss.meta },
         h('span', null, t('sync.documentTypeLabel'), sync.docTypeName),
         h('span', null, t('SyncPanel.message038'), new Date(sync.startedAt).toLocaleString()),
         sync.completedAt &&
@@ -1127,7 +845,7 @@ function SyncProgressView({
       // Progress bar
       h(
         'div',
-        { className: 'rh-sync-progress' + ' ' + css.section8 },
+        { className: 'rh-sync-progress' + ' ' + progressCss.progress },
         h(
           'div',
           { className: 'rh-sync-progress-header' },
@@ -1142,7 +860,8 @@ function SyncProgressView({
           'div',
           { className: 'rh-sync-progress-bar' },
           h('div', {
-            className: 'rh-sync-progress-fill' + ' ' + css.size2,
+            className: 'rh-sync-progress-fill ' + css.size2 + ' ' + progressCss.fill,
+            'data-status': sync.status,
             style: {
               '--rh-width-0': cssValue(`${progress}%`),
               '--rh-background-1': cssValue(
@@ -1150,6 +869,7 @@ function SyncProgressView({
               ),
             },
             role: 'progressbar',
+            'aria-label': t('sync.progress.label'),
             'aria-valuenow': progress,
             'aria-valuemin': 0,
             'aria-valuemax': 100,
@@ -1161,7 +881,7 @@ function SyncProgressView({
     // Steps
     h(
       'div',
-      { className: css.pane },
+      { className: progressCss.content },
       sync.error &&
         h('div', { className: 'rh-knowledge-error', role: 'alert' }, syncErrorText(sync.error)),
       ['failed', 'aborted'].includes(sync.status) &&
@@ -1174,31 +894,25 @@ function SyncProgressView({
         requirementId: sync.requirementId,
         onViewFile: onViewFile,
       }),
-      requirementPath &&
-        !syncTaskModel.isSyncActive(sync) &&
-        h(DocumentAssist, {
-          workspaceId,
-          requirementPath,
-          mode: 'sync',
-          revision: sync.completedAt || sync.status,
-        }),
     ),
-    // Abort button — only shown when sync is running
-    sync.status === 'running' &&
-      sync.id &&
+    sync.id &&
       h(
-        'div',
-        {
-          className: css.section9,
-        },
-        h(
-          Button,
-          {
-            className: 'rh-btn rh-btn-danger-outline' + ' ' + css.size3,
-            onClick: () => setShowAbortConfirm(true),
-          },
-          t('SyncPanel.message044'),
-        ),
+        'footer',
+        { className: progressCss.footer, 'aria-label': t('sync.progress.actions') },
+        h(DeleteSyncTaskButton, {
+          task: { ...sync, workspaceId, requirementId },
+          onDeleted: onBack,
+        }),
+        sync.status === 'running' &&
+          sync.id &&
+          h(
+            Button,
+            {
+              className: 'rh-btn rh-btn-danger-outline',
+              onClick: () => setShowAbortConfirm(true),
+            },
+            t('SyncPanel.message044'),
+          ),
       ),
     // Abort confirmation dialog
     showAbortConfirm &&
@@ -1261,13 +975,13 @@ function SyncProgressView({
  * Displays a list of past sync operations for a given workspace and requirement.
  * Each entry shows status, document type, timestamp, step progress, and file count.
  * @param {Object} props - Component props
- * @param {Function} props.onBack - Callback invoked to return to the previous view
+ * @param {boolean} [props.active=true] - Refresh history only while its tab is visible.
  * @param {Function} props.onSelectSync - Callback invoked when a sync history entry is clicked
  * @param {string} props.workspaceId - The workspace ID
  * @param {string} props.requirementId - The requirement ID
  * @returns {JSX.Element}
  */
-function SyncHistoryView({ onBack, onSelectSync, workspaceId, requirementId }) {
+function SyncHistoryView({ onSelectSync, workspaceId, requirementId, active = true }) {
   const [history, setHistory] = useState([]);
   const [activeTask, setActiveTask] = useState(null);
   const [historyDocType, setHistoryDocType] = useState('requirement');
@@ -1277,6 +991,9 @@ function SyncHistoryView({ onBack, onSelectSync, workspaceId, requirementId }) {
   const [historyError, setHistoryError] = useState(null);
 
   useEffect(() => {
+    if (!active) {
+      return;
+    }
     const controller = new AbortController();
     setLoading(true);
     setHistoryError(null);
@@ -1308,131 +1025,73 @@ function SyncHistoryView({ onBack, onSelectSync, workspaceId, requirementId }) {
         }
       });
     return () => controller.abort();
-  }, [workspaceId, requirementId, reloadKey]);
+  }, [workspaceId, requirementId, reloadKey, active]);
 
-  const renderHistory = () => {
-    if (loading) {
-      return h('div', { className: css.mutedText10 }, t('common.loading'));
-    } else if (visibleHistory.length === 0) {
-      return h(
-        'div',
-        { role: 'status', className: css.mutedText11 },
-        t('SyncPanel.message050', {
-          value0:
-            historyDocType === 'design' ? t('documents.design') : t('DocsViewerBody.message073'),
-        }),
-      );
-    } else {
-      return h(
-        'div',
-        { className: css.column5 },
-        visibleHistory.map((sync) => {
-          const renderHistoryIcon = () => {
-            if (sync.status === 'completed') {
-              return h(IconCheck, {
-                size: 16,
-                color: 'var(--dsw-alias-state-success-primary)',
-              });
-            } else if (sync.status === 'failed') {
-              return h(IconError, {
-                size: 16,
-                color: 'var(--dsw-alias-state-error-primary)',
-              });
-            } else if (sync.status === 'aborted') {
-              return h(IconCancel, {
-                size: 16,
-                color: 'var(--dsw-alias-state-warning-primary)',
-              });
-            } else {
-              return h(IconSync, { size: 16, color: 'var(--rh-accent)' });
-            }
-          };
-          return h(
-            'div',
-            {
-              key: sync.id,
-              onClick: () => onSelectSync(sync),
-              className: css.section10,
-            },
-            h(
-              'div',
-              { className: css.row17 },
-              h('span', { className: css.row18 }, renderHistoryIcon()),
-              h('span', { className: css.heading }, sync.docTypeName),
-              h('span', { className: css.mutedText12 }, new Date(sync.startedAt).toLocaleString()),
-              h(
-                React.Fragment,
-                null,
-                h(DeleteSyncTaskButton, {
-                  task: { ...sync, workspaceId, requirementId },
-                  onDeleted: (task) =>
-                    setHistory((previous) => previous.filter((item) => item.id !== task.id)),
-                }),
-                h(DeleteSyncTaskButton, {
-                  scope: 'task',
-                  task: { ...sync, workspaceId, requirementId },
-                  onDeleted: (task) =>
-                    setHistory((previous) =>
-                      previous.filter((item) => item.taskId !== task.taskId),
-                    ),
-                }),
-              ),
-            ),
-            h(
-              'div',
-              { className: css.row19 },
-              h(
-                'span',
-                null,
-                (() => {
-                  const active = (sync.steps || []).filter((s) => s.status !== 'skipped');
-                  const done = active.filter((s) => s.status === 'completed').length;
-                  return t('SyncPanel.message051', { value0: done, value1: active.length });
-                })(),
-              ),
-              sync.generatedFiles &&
-                sync.generatedFiles.length > 0 &&
-                h('span', null, t('SyncPanel.message052', { value0: sync.generatedFiles.length })),
-              sync.stats &&
-                h(
-                  'span',
-                  null,
-                  t('SyncPanel.message053', { value0: sync.stats.totalLLMCalls || 0 }),
-                ),
-            ),
-          );
-        }),
-      );
+  useEffect(() => {
+    if (!active) {
+      return;
     }
+    const refresh = () => setReloadKey((value) => value + 1);
+    window.addEventListener('req-hub-sync-change', refresh);
+    return () => window.removeEventListener('req-hub-sync-change', refresh);
+  }, [active]);
+
+  const panelId = React.useId();
+  const removeRecord = (task, scope) => {
+    setHistory((previous) =>
+      previous.filter((item) =>
+        scope === 'task' ? item.taskId !== task.taskId : item.id !== task.id,
+      ),
+    );
   };
+  let records;
+  if (loading) {
+    records = h('div', { role: 'status' }, t('common.loading'));
+  } else if (!visibleHistory.length) {
+    records = h(
+      'div',
+      { role: 'status' },
+      t('SyncPanel.message050', {
+        value0:
+          historyDocType === 'design' ? t('documents.design') : t('DocsViewerBody.message073'),
+      }),
+    );
+  } else {
+    records = h(SyncHistoryRecords, {
+      history: visibleHistory,
+      workspaceId,
+      requirementId,
+      onSelect: onSelectSync,
+      onDeleted: removeRecord,
+    });
+  }
   return h(
     'div',
-    { className: css.column },
-    // Header
+    { className: historyCss.page },
+    activeTask &&
+      h(ActiveSyncSummary, {
+        task: activeTask,
+        onOpen: () => onSelectSync(activeTask),
+        label: t('sync.navigation.active', { type: activeTask.docTypeName || activeTask.docType }),
+      }),
     h(
       'div',
-      { className: css.section2 },
-      h(
-        'div',
-        { className: css.row16 },
-        h(HeaderBack, { onBack }),
-        h('span', { className: css.heading }, t('SyncPanel.message005')),
-      ),
+      { className: historyCss.filter },
+      h(SyncDocTypeTabs, {
+        value: historyDocType,
+        onChange: setHistoryDocType,
+        panelId,
+      }),
     ),
-    // List
+    historyError && h('div', { role: 'alert' }, historyError),
     h(
       'div',
-      { className: css.pane },
-      h(SyncStorageUsage, { workspaceId, onChanged: () => setReloadKey((value) => value + 1) }),
-      activeTask &&
-        h(ActiveSyncSummary, {
-          task: activeTask,
-          onOpen: () => onSelectSync(activeTask),
-          label: t('sync.navigation.active', {
-            type: activeTask.docTypeName || activeTask.docType,
-          }),
-        }),
-      historyError && h('div', { role: 'alert' }, historyError),
+      {
+        className: historyCss.content,
+        id: panelId,
+        role: 'tabpanel',
+        'aria-labelledby': panelId + '-tab-' + historyDocType,
+      },
       !loading &&
         history.length > 0 &&
         h(SyncVersionCompare, {
@@ -1440,11 +1099,76 @@ function SyncHistoryView({ onBack, onSelectSync, workspaceId, requirementId }) {
           workspaceId,
           requirementId,
           docType: historyDocType,
-          onDocTypeChange: setHistoryDocType,
+          showTypeTabs: false,
         }),
-      renderHistory(),
+      h(
+        'section',
+        { className: historyCss.recordSection, 'aria-label': t('sync.history.records') },
+        h(
+          'header',
+          { className: historyCss.sectionHeading },
+          h('h3', null, t('sync.history.records')),
+          !loading && h('span', null, t('sync.history.count', { count: visibleHistory.length })),
+        ),
+        records,
+      ),
+    ),
+    h(
+      Disclosure,
+      { title: t('sync.history.storage'), className: historyCss.storage },
+      h(SyncStorageUsage, { workspaceId, onChanged: () => setReloadKey((value) => value + 1) }),
     ),
   );
+}
+
+/**
+ * Own history selection independently of the quick and custom synchronization forms.
+ * @param props - The requirement scope, optional focused task and tab visibility.
+ * @returns History or its selected task detail, with local return navigation.
+ */
+function SyncHistoryPanel({ workspaceId, selectedReq, focusedSync, active }) {
+  const [selectedSync, setSelectedSync] = useState(focusedSync || null);
+  useEffect(() => {
+    setSelectedSync(focusedSync || null);
+  }, [workspaceId, selectedReq?.id, focusedSync]);
+  useEffect(() => {
+    const removed = (event) => {
+      const task = event.detail;
+      if (
+        task.workspaceId === workspaceId &&
+        task.requirementId === selectedSync?.requirementId &&
+        (task.id
+          ? task.id === selectedSync.id
+          : task.notificationId === selectedSync.notificationId)
+      ) {
+        setSelectedSync(null);
+      }
+    };
+    window.addEventListener('req-hub-sync-deleted', removed);
+    return () => window.removeEventListener('req-hub-sync-deleted', removed);
+  }, [workspaceId, selectedSync?.id]);
+  if (!selectedReq) {
+    return h('div', { className: 'rh-op-panel' }, t('SyncPanel.message001'));
+  }
+  if (selectedSync) {
+    return h(SyncDetailView, {
+      sync: selectedSync,
+      workspaceId,
+      requirementPath: selectedSync.requirementPath || selectedReq.path,
+      onBack: () => setSelectedSync(null),
+    });
+  }
+  return h(SyncHistoryView, {
+    workspaceId,
+    requirementId: selectedReq.id,
+    onSelectSync: (sync) =>
+      setSelectedSync({
+        ...sync,
+        workspaceId,
+        requirementId: sync.requirementId || selectedReq.id,
+      }),
+    active,
+  });
 }
 
 // ─── SyncDetailView - View a specific sync's detail ─────────────
@@ -1570,8 +1294,7 @@ function SyncDetailView({ sync: initialSync, onBack, workspaceId, requirementPat
  * @component
  * Main phased sync UI that provides session selection, branch info display,
  * and multi-phase sync execution with real-time progress tracking via SSE.
- * Supports viewing sync progress, history, detail, and generated files across
- * multiple views.
+ * Supports viewing sync progress, conversation details, and generated files.
  * @param {Object} props - Component props
  * @param {string} props.workspaceId - The workspace ID
  * @param {Object} props.selectedReq - The selected requirement object
@@ -1580,6 +1303,7 @@ function SyncDetailView({ sync: initialSync, onBack, workspaceId, requirementPat
  * @param {Function} props.setSyncing - State setter for the syncing flag
  * @param {Function} props.onClose - Callback invoked to close the panel
  * @param {Function} props.refreshTree - Callback to refresh the document tree after sync
+ * @param {boolean} [props.quick=false] - Submit one Host-owned requirement/design sequence.
  * @returns {JSX.Element}
  */
 function PhasedSyncUI({
@@ -1590,16 +1314,19 @@ function PhasedSyncUI({
   setSyncing,
   onClose,
   refreshTree,
+  quick = false,
 }) {
   const { syncActivity } = React.useContext(DocsViewerContext);
   const [selectedSessions, setSelectedSessions] = useState([]);
   const [codexSelection, setCodexSelection] = useState({ ids: [], versions: {} });
-  const selectedSessionIds = [...selectedSessions, ...codexSelection.ids];
+  const selectedSessionIds = quick ? [] : [...selectedSessions, ...codexSelection.ids];
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [error, setError] = useState(null);
   const [viewingSession, setViewingSession] = useState(null);
   const [managingConversations, setManagingConversations] = useState(false);
   const [conversationRevision, setConversationRevision] = useState(0);
+  const [sessionSource, setSessionSource] = useState('dsh');
+  const [sourcesOpen, setSourcesOpen] = useState(false);
   const selectedSessionVersions = useRef({});
   const sessionVersions = () => ({
     ...selectedSessionVersions.current,
@@ -1612,6 +1339,8 @@ function PhasedSyncUI({
   }, [workspaceId]);
   const pollRef = useRef(null);
   const preparationPollRef = useRef(null);
+  const observationRef = useRef(null);
+  const quickSyncId = useRef(null);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -1623,12 +1352,12 @@ function PhasedSyncUI({
     () => () => {
       clearInterval(pollRef.current);
       clearInterval(preparationPollRef.current);
+      observationRef.current?.();
     },
     [],
   );
-  const [view, setView] = useState('select'); // 'select' | 'progress' | 'history' | 'detail' | 'file'
+  const [view, setView] = useState('select'); // 'select' | 'progress' | 'file'
   const [currentSync, setCurrentSync] = useState(null);
-  const [selectedHistorySync, setSelectedHistorySync] = useState(null);
   const [viewingFile, setViewingFile] = useState(null);
   const [branchInfo, setBranchInfo] = useState({ targetBranch: null, baseBranch: null });
   const [baseBranch, setBaseBranch] = useState('');
@@ -1642,14 +1371,16 @@ function PhasedSyncUI({
   const [selectedCommits, setSelectedCommits] = useState([]);
   const [commitSearch, setCommitSearch] = useState('');
   const [commitRevision, setCommitRevision] = useState(0);
-  const [includeWorkingChanges, setIncludeWorkingChanges] = useState(true);
+  const [includeWorkingChanges, setIncludeWorkingChanges] = useState(!quick);
   const [knowledgeScopeIds, setKnowledgeScopeIds] = useState([]);
-  const [knowledgeReferenceRefs, setKnowledgeReferenceRefs] = useState([]);
-  useEffect(() => setKnowledgeReferenceRefs([]), [workspaceId, selectedReq?.path]);
-  const [knowledgeQuery, setKnowledgeQuery] = useState('');
+  const [designReferencePath, setDesignReferencePath] = useState('');
+  const [referencePending, setReferencePending] = useState(false);
+  useEffect(() => {
+    setDesignReferencePath('');
+    setReferencePending(false);
+  }, [workspaceId, selectedReq?.id]);
   useEffect(() => {
     setKnowledgeScopeIds([]);
-    setKnowledgeQuery('');
   }, [workspaceId]);
 
   const docTypeName =
@@ -1670,6 +1401,7 @@ function PhasedSyncUI({
         if (controller.signal.aborted || !data?.active || !data.sync) {
           return;
         }
+        quickSyncId.current = data.sync.quickSyncId || null;
         setCurrentSync(data.sync);
         setView('progress');
         setSyncing?.(true);
@@ -1696,7 +1428,7 @@ function PhasedSyncUI({
     setBranchInfo({ targetBranch: null, baseBranch: null });
     setBaseBranch('');
     fetch(
-      `${ROUTE}/sync-branch-info?workspaceId=${encodeURIComponent(workspaceId)}&requirementId=${encodeURIComponent(selectedReq.id)}`,
+      `${ROUTE}/sync-branch-info?workspaceId=${encodeURIComponent(workspaceId)}&requirementId=${encodeURIComponent(selectedReq.id)}${selectedReq.targetBranch ? `&targetBranch=${encodeURIComponent(selectedReq.targetBranch)}` : ''}`,
       { signal: controller.signal },
     )
       .then(async (res) => {
@@ -1739,6 +1471,7 @@ function PhasedSyncUI({
       .includes(commitSearch.toLowerCase().trim()),
   );
   const canSync =
+    (quick || activeTab !== 'design' || !referencePending) &&
     !loadingSessions &&
     !syncActivity &&
     !!branchInfo.targetBranch &&
@@ -1762,6 +1495,7 @@ function PhasedSyncUI({
           workspaceId,
           requirementId: selectedReq.id,
           baseBranch: baseBranch.trim(),
+          ...(selectedReq.targetBranch ? { targetBranch: selectedReq.targetBranch } : {}),
         });
         const res = await fetch(`${ROUTE}/sync-commits?${params}`, { signal: controller.signal });
         const data = await res.json();
@@ -1785,58 +1519,143 @@ function PhasedSyncUI({
     };
   }, [comparisonKey]);
 
-  const connectToSyncSSE = (syncId) => {
+  // Resolve only the identified task's persisted outcome after a transport interruption.
+  const connectToSyncSSE = (syncId, sequenceId = quickSyncId.current) => {
+    observationRef.current?.();
     clearInterval(pollRef.current);
+    const controller = new AbortController();
+    let settle;
+    const completion = new Promise((resolve) => {
+      settle = resolve;
+    });
+    let stopped = false;
     let fetching = false;
+    const stop = (sync = null) => {
+      if (stopped) {
+        return;
+      }
+      stopped = true;
+      clearInterval(timer);
+      controller.abort();
+      window.removeEventListener('req-hub-sync-deleted', removed);
+      if (observationRef.current === stop) {
+        observationRef.current = null;
+      }
+      settle(sync);
+    };
+    const removed = (event) => {
+      const task = event.detail;
+      if (
+        task.workspaceId === workspaceId &&
+        task.requirementId === selectedReq.id &&
+        task.id === syncId
+      ) {
+        setCurrentSync(null);
+        setSyncing(false);
+        setView('select');
+        stop();
+      }
+    };
     const poll = async () => {
-      if (fetching) {
+      if (fetching || stopped || !mounted.current) {
         return;
       }
       fetching = true;
       try {
-        const response = await fetch(
-          syncId
-            ? `${ROUTE}/sync-detail?id=${syncId}&workspaceId=${workspaceId}&requirementId=${encodeURIComponent(selectedReq.id)}`
-            : `${ROUTE}/sync-overview`,
-        );
+        let url = `${ROUTE}/sync-overview`;
+        if (quick && sequenceId) {
+          url = `${ROUTE}/quick-sync-status?${new URLSearchParams({
+            id: sequenceId,
+            workspaceId,
+            requirementId: selectedReq.id,
+          })}`;
+        } else if (!quick && syncId) {
+          url = `${ROUTE}/sync-detail?id=${syncId}&workspaceId=${workspaceId}&requirementId=${encodeURIComponent(selectedReq.id)}`;
+        }
+        const response = await fetch(url, { signal: controller.signal });
+        if (stopped || !mounted.current) {
+          return;
+        }
+        if (response.status === 404 || response.status === 410) {
+          setCurrentSync(null);
+          setSyncing(false);
+          setView('select');
+          setError(t('SyncPanel.message058'));
+          stop();
+          return;
+        }
         if (!response.ok) {
           throw new Error(t('SyncPanel.message057'));
         }
         const data = await response.json();
+        if (stopped || !mounted.current) {
+          return;
+        }
+        let sequence = quick ? data.quickSync : null;
+        if (
+          sequence &&
+          !sequenceId &&
+          (sequence.workspaceId !== workspaceId || sequence.requirementId !== selectedReq.id)
+        ) {
+          sequence = null;
+        }
+        if (
+          sequence &&
+          sequence.workspaceId === workspaceId &&
+          sequence.requirementId === selectedReq.id
+        ) {
+          if (sequenceId && sequence.id !== sequenceId) {
+            throw new Error(t('SyncPanel.message058'));
+          }
+          sequenceId = sequence.id;
+          quickSyncId.current = sequence.id;
+        }
         const sync =
           data.sync ||
           [data.active, data.latest].find(
             (task) =>
               task?.workspaceId === workspaceId &&
               task.requirementId === selectedReq.id &&
-              task.docType === activeTab,
+              (quick || task.docType === activeTab),
           );
-        if (!sync) {
+        if ((!sync && !sequence) || (!quick && syncId && sync.id !== syncId)) {
           throw new Error(t('SyncPanel.message058'));
         }
-        setCurrentSync(sync);
-        if (sync.id) {
+        if (sync) {
+          setCurrentSync(sync);
+        }
+        if (sync?.id) {
           syncId = sync.id;
         }
-        if (!isLiveSync(sync)) {
-          clearInterval(pollRef.current);
+        const terminal = sequence ? sequence.status !== 'running' : !isLiveSync(sync);
+        if (terminal) {
           setSyncing(false);
+          if (!sync) {
+            setCurrentSync(null);
+            setView('select');
+          }
+          const outcome = sequence || sync;
+          setError(outcome.status === 'completed' ? null : syncErrorText(outcome.error));
           refreshTree();
+          stop(sync);
         }
       } catch (error) {
-        setError(error.message);
+        if (!stopped && mounted.current) {
+          setError(error.message);
+        }
       } finally {
         fetching = false;
       }
     };
-    pollRef.current = setInterval(poll, 1000);
-    return pollRef.current;
+    const timer = setInterval(poll, 1000);
+    pollRef.current = timer;
+    observationRef.current = stop;
+    window.addEventListener('req-hub-sync-deleted', removed);
+    return completion;
   };
 
-  const handlePhasedSync = async () => {
-    if (!canSync || syncing) {
-      return;
-    }
+  const runPhasedSync = async (docType) => {
+    quickSyncId.current = null;
     window.dispatchEvent(new Event('req-hub-sync-change'));
     setError(null);
     setView('progress');
@@ -1855,8 +1674,9 @@ function PhasedSyncUI({
       id: `sync-${Date.now()}`,
       workspaceId,
       requirementId: selectedReq.id,
-      docType: activeTab,
-      docTypeName,
+      docType,
+      docTypeName:
+        docType === 'requirement' ? t('DocsViewerBody.message073') : t('documents.design'),
       sessionIds: selectedSessionIds,
       sessionVersions: Object.fromEntries(
         selectedSessionIds.map((id) => [id, sessionVersions()[id]]),
@@ -1892,8 +1712,9 @@ function PhasedSyncUI({
           active?.status === 'preparing' &&
           active.workspaceId === workspaceId &&
           active.requirementId === selectedReq.id &&
-          active.docType === activeTab
+          active.docType === docType
         ) {
+          quickSyncId.current = active.quickSyncId || quickSyncId.current;
           setCurrentSync({ ...initialSync, ...active, id: initialSync.id, status: 'running' });
         }
       } catch (error) {
@@ -1930,15 +1751,16 @@ function PhasedSyncUI({
         body: JSON.stringify({
           workspaceId,
           requirementId: selectedReq.id,
-          docType: activeTab,
+          docType,
+          targetBranch: selectedReq.targetBranch,
+          quick,
+          ...(!quick && docType === 'design' && designReferencePath ? { designReferencePath } : {}),
           baseBranch: baseBranch.trim(),
           commitHashes: selectedCommits,
           branchTip: commitState.data.branchTip,
           baseCommit: commitState.data.baseline,
-          includeWorkingChanges,
+          includeWorkingChanges: quick ? false : includeWorkingChanges,
           knowledgeScopeIds,
-          knowledgeReferenceRefs,
-          knowledgeQuery: knowledgeQuery || selectedReq.id,
           sessionIds: selectedSessionIds,
           sessionVersions: Object.fromEntries(
             selectedSessionIds.map((id) => [id, sessionVersions()[id]]),
@@ -1966,7 +1788,7 @@ function PhasedSyncUI({
           if (setSyncing) {
             setSyncing(false);
           }
-          return;
+          return true;
         }
         if (data.active && data.sync) {
           if (response.status === 409) {
@@ -1979,7 +1801,13 @@ function PhasedSyncUI({
           }
 
           if (syncTaskModel.isSyncActive(data.sync)) {
-            connectToSyncSSE(data.sync.id);
+            const completion = connectToSyncSSE(data.sync.id);
+            if (quick) {
+              return (await completion)?.status === 'completed';
+            }
+          } else {
+            setSyncing(false);
+            return data.sync.status === 'completed';
           }
         } else {
           throw new Error(data.error || data.message || t('SyncPanel.message061'));
@@ -2003,10 +1831,22 @@ function PhasedSyncUI({
           setView('select');
           return;
         }
+        if (event.quickSync?.id) {
+          quickSyncId.current = event.quickSync.id;
+        }
         if (event.type === 'sync_started') {
           window.dispatchEvent(new Event('req-hub-sync-change'));
           confirmedId = event.syncId;
-          latestSync = { ...latestSync, id: confirmedId };
+          const docType = event.quickSync?.stage || latestSync.docType;
+          latestSync = {
+            ...latestSync,
+            id: confirmedId,
+            docType,
+            docTypeName:
+              docType === 'design' ? t('documents.design') : t('DocsViewerBody.message073'),
+            status: 'running',
+            steps: syncTaskModel.createSyncSteps({ sessionIds: selectedSessionIds }),
+          };
         }
         if (event.sync) {
           latestSync = event.sync;
@@ -2022,14 +1862,18 @@ function PhasedSyncUI({
         }
         setCurrentSync({ ...latestSync });
         if (event.type === 'error') {
-          terminalReceived = !syncTaskModel.isSyncActive(latestSync);
+          terminalReceived = event.quickSync
+            ? event.quickSync.status !== 'running'
+            : !syncTaskModel.isSyncActive(latestSync);
           setError(syncErrorText(event.error));
           if (!terminalReceived) {
             throw new Error(event.error);
           }
         }
         if (event.type === 'done') {
-          terminalReceived = !syncTaskModel.isSyncActive(latestSync);
+          terminalReceived = event.quickSync
+            ? event.quickSync.status !== 'running'
+            : !syncTaskModel.isSyncActive(latestSync);
           if (!terminalReceived) {
             throw new Error(t('SyncPanel.message062'));
           }
@@ -2044,11 +1888,17 @@ function PhasedSyncUI({
       }
       setSyncing(false);
       window.dispatchEvent(new Event('req-hub-sync-change'));
+      return latestSync.status === 'completed';
     } catch (error) {
       if (!mounted.current || taskDeleted) {
         return;
       }
       setError(syncErrorText(error.message) || t('SyncPanel.message064'));
+      if (quick && quickSyncId.current) {
+        setSyncing(true);
+        await connectToSyncSSE(confirmedId);
+        return;
+      }
       if (confirmedId) {
         try {
           const response = await fetch(
@@ -2066,9 +1916,16 @@ function PhasedSyncUI({
         setCurrentSync(latestSync);
         if (syncTaskModel.isSyncActive(latestSync)) {
           setSyncing(true);
-          connectToSyncSSE(confirmedId);
+          const completion = connectToSyncSSE(confirmedId);
+          if (quick) {
+            return (await completion)?.status === 'completed';
+          }
         } else {
           setSyncing(false);
+          if (latestSync.status === 'completed') {
+            setError(null);
+            return true;
+          }
         }
       } else {
         setView('select');
@@ -2080,6 +1937,20 @@ function PhasedSyncUI({
       clearInterval(preparationTimer);
     }
   };
+
+  const quickStarted = useRef(false);
+  const handlePhasedSync = async () => {
+    if (!canSync || syncing) {
+      return;
+    }
+    await runPhasedSync(activeTab);
+  };
+  useEffect(() => {
+    if (quick && canSync && !syncing && !quickStarted.current) {
+      quickStarted.current = true;
+      void handlePhasedSync();
+    }
+  }, [quick, canSync, syncing]);
 
   // Secondary page: viewing session turns
   if (viewingSession) {
@@ -2125,32 +1996,6 @@ function PhasedSyncUI({
         }),
       ),
     );
-  }
-
-  // Secondary page: sync history
-  if (view === 'history') {
-    return h(SyncHistoryView, {
-      workspaceId,
-      requirementId: selectedReq.id,
-      onBack: () => setView('select'),
-      onSelectSync: (sync) => {
-        setSelectedHistorySync(sync);
-        setView('detail');
-      },
-    });
-  }
-
-  // Secondary page: sync detail (from history)
-  if (view === 'detail' && selectedHistorySync) {
-    return h(SyncDetailView, {
-      sync: selectedHistorySync,
-      workspaceId,
-      requirementPath: selectedReq.path,
-      onBack: () => {
-        setView('history');
-        setSelectedHistorySync(null);
-      },
-    });
   }
 
   // Progress view (active sync)
@@ -2250,7 +2095,8 @@ function PhasedSyncUI({
           availableCommits.length > 0 &&
             !visibleCommits.length &&
             h('p', { className: 'rh-sync-hint' }, t('SyncPanel.message084')),
-          commitState.data.hasUncommitted &&
+          !quick &&
+            commitState.data.hasUncommitted &&
             h(
               'div',
               { className: 'rh-sync-working-option' },
@@ -2265,156 +2111,44 @@ function PhasedSyncUI({
       );
     }
   };
-  return h(
-    'div',
-    { className: 'rh-op-panel' },
-    // Back button
-    h(HeaderBack, { onBack: onClose, label: t('common.back') }),
+  const references = h(
+    React.Fragment,
+    null,
+    !quick &&
+      activeTab === 'design' &&
+      h(
+        'div',
+        { className: css.referenceField },
+        h('div', { className: css.referenceLabel }, t('sync.reference.label')),
+        h(SyncBranchPicker, {
+          key: workspaceId + ':' + selectedReq.id,
+          kind: 'reference',
+          workspaceId,
+          requirementId: selectedReq.id,
+          value: designReferencePath,
+          onChange: setDesignReferencePath,
+          onPendingChange: setReferencePending,
+          disabled: syncing,
+        }),
+        h('div', { className: css.referenceHint }, t('sync.reference.hint')),
+      ),
     h(KnowledgeContextPicker, {
       key: workspaceId,
       workspaceId,
       scopeIds: knowledgeScopeIds,
       onChange: setKnowledgeScopeIds,
-      query: knowledgeQuery,
-      onQueryChange: setKnowledgeQuery,
       disabled: syncing,
+      embedded: true,
     }),
-    selectedReq &&
-      h(DocumentAssist, {
-        key: selectedReq.path,
-        workspaceId,
-        requirementPath: selectedReq.path,
-        mode: 'sync',
-        references: knowledgeReferenceRefs,
-        onReferencesChange: setKnowledgeReferenceRefs,
-        disabled: syncing,
-      }),
-    isLiveSync(currentSync) &&
-      h(ActiveSyncSummary, { task: currentSync, onOpen: () => setView('progress') }),
-
-    h(
-      'div',
-      { className: 'rh-op-info' + ' ' + css.spacing2 },
-      h(
-        'div',
-        null,
-        t('SyncPanel.message065'),
-        h('code', null, `${selectedReq.developer}/${selectedReq.id}`),
-      ),
-      h('div', { className: css.mutedText13 }, t('SyncPanel.message066', { value0: docTypeName })),
-    ),
-
-    // Branch info display
-    h(
-      'div',
-      { className: css.section11 },
-      h(
-        'div',
-        { className: 'rh-sync-branch-row' + ' ' + css.row12 },
-        h(
-          'span',
-          { className: 'rh-sync-branch-label' + ' ' + css.row21 },
-          t('SyncPanel.message067'),
-        ),
-        h(
-          'code',
-          {
-            className: css.content4,
-            style: {
-              '--rh-color-1': cssValue(
-                branchInfo.targetBranch
-                  ? 'var(--dsw-alias-state-success-primary)'
-                  : 'var(--dsw-alias-state-error-primary)',
-              ),
-            },
-          },
-          branchInfo.targetBranch || t('SyncPanel.message068'),
-        ),
-      ),
-      h(
-        'div',
-        { className: 'rh-sync-branch-row' + ' ' + css.row16 },
-        h(
-          'span',
-          { className: 'rh-sync-branch-label' + ' ' + css.row21 },
-          t('SyncPanel.message069'),
-        ),
-        h(Input, {
-          className: 'rh-search-input',
-          'aria-label': t('SyncPanel.message070'),
-          placeholder: t('SyncPanel.message071'),
-          value: baseBranch,
-          disabled: syncing,
-          onChange: (event) => {
-            baseBranchEdited.current = true;
-            setBaseBranch(event.target.value);
-          },
-        }),
-      ),
-      !baseBranch.trim() &&
-        branchInfo.baseBranchHint &&
-        h('p', { className: 'rh-sync-hint', role: 'status' }, branchInfo.baseBranchHint),
-      branchInfo.targetBranchError &&
-        h('p', { className: 'rh-error', role: 'alert' }, branchInfo.targetBranchError),
-    ),
-
-    h(
-      'section',
-      {
-        className: 'rh-sync-source-section rh-sync-commits',
-        'aria-label': t('SyncPanel.message072'),
-      },
-      h(
-        'div',
-        { className: 'rh-sync-section-heading rh-sync-commits-heading' },
-        h('h3', { className: 'rh-sync-section-title' }, t('SyncPanel.message073')),
-        h(
-          'span',
-          { className: 'rh-sync-hint' },
-          t('SyncPanel.message074', {
-            value0: selectedCommits.length,
-            value1: availableCommits.length,
-          }),
-        ),
-        h(
-          Button,
-          {
-            type: 'button',
-            className: 'rh-btn rh-btn-ghost rh-btn-sm',
-            disabled: !commitsReady || syncing,
-            onClick: () => setSelectedCommits(availableCommits.map((commit) => commit.hash)),
-          },
-          t('LogPanel.message007'),
-        ),
-        h(
-          Button,
-          {
-            type: 'button',
-            className: 'rh-btn rh-btn-ghost rh-btn-sm',
-            disabled: !commitsReady || syncing,
-            onClick: () => setSelectedCommits([]),
-          },
-          t('LogPanel.message002'),
-        ),
-        h(
-          Button,
-          {
-            type: 'button',
-            className: 'rh-btn rh-btn-ghost rh-btn-sm',
-            disabled: !baseBranch.trim() || !branchInfo.targetBranch || syncing,
-            onClick: () => setCommitRevision((value) => value + 1),
-          },
-          t('SyncPanel.message075'),
-        ),
-      ),
-      h('p', { className: 'rh-sync-hint' }, t('SyncPanel.message076')),
-      renderCommitSelection(),
-    ),
-
-    // Both document sync and knowledge import use this acquisition entry.
+  );
+  const sources =
+    !quick &&
     h(ConversationSources, {
-      key: `${workspaceId}:${conversationRevision}`,
+      key: workspaceId + ':' + conversationRevision,
       workspaceId,
+      tabbed: true,
+      activeSource: sessionSource,
+      onSourceChange: setSessionSource,
       dshSelection: { ids: selectedSessions, versions: selectedSessionVersions.current },
       codexSelection,
       onDshSelectionChange: (value) => {
@@ -2426,6 +2160,98 @@ function PhasedSyncUI({
       disabled: syncing,
       onBusyChange: setLoadingSessions,
       onManage: () => setManagingConversations(true),
+    });
+  const commitActions = h(
+    React.Fragment,
+    null,
+    h(
+      Button,
+      {
+        size: 'sm',
+        variant: 'ghost',
+        disabled: !commitsReady || syncing,
+        onClick: () => setSelectedCommits(availableCommits.map((commit) => commit.hash)),
+      },
+      t('LogPanel.message007'),
+    ),
+    h(
+      Button,
+      {
+        size: 'sm',
+        variant: 'ghost',
+        disabled: !commitsReady || syncing,
+        onClick: () => setSelectedCommits([]),
+      },
+      t('LogPanel.message002'),
+    ),
+    h(
+      Button,
+      {
+        size: 'sm',
+        variant: 'ghost',
+        disabled: !baseBranch.trim() || !branchInfo.targetBranch || syncing,
+        onClick: () => setCommitRevision((value) => value + 1),
+      },
+      t('SyncPanel.message075'),
+    ),
+  );
+  const selectionSummary = h(
+    React.Fragment,
+    null,
+    t('sync.layout.summary', {
+      commits: selectedCommits.length,
+      knowledge: knowledgeScopeIds.length,
+      dsh: selectedSessions.length,
+      codex: codexSelection.ids.length,
+    }),
+    !quick &&
+      activeTab === 'design' &&
+      ' · ' + t('sync.layout.referenceSummary', { count: designReferencePath ? 1 : 0 }),
+    includeWorkingChanges &&
+      commitsReady &&
+      commitState.data.hasUncommitted &&
+      ' · ' + t('SyncPanel.message085'),
+  );
+  return h(
+    React.Fragment,
+    null,
+    h(SyncSetup, {
+      title: t('sync.layout.title', { type: docTypeName }),
+      outputName: quick ? 'requirement.md → design.md' : activeTab + '.md',
+      requirementPath:
+        selectedReq.path || [selectedReq.developer, selectedReq.id].filter(Boolean).join('/'),
+      branchInfo,
+      baseBranch,
+      baseDisabled: syncing || quick,
+      onBaseBranchChange: (value) => {
+        baseBranchEdited.current = true;
+        setBaseBranch(value);
+      },
+      commitSummary: t('SyncPanel.message074', {
+        value0: selectedCommits.length,
+        value1: availableCommits.length,
+      }),
+      commitActions,
+      commitSelection: renderCommitSelection(),
+      references,
+      sources,
+      selectionSummary,
+      sourcesOpen,
+      onSourcesOpenChange: setSourcesOpen,
+      sourcesSummary: t('sync.layout.sourcesSummary', {
+        dsh: selectedSessions.length,
+        codex: codexSelection.ids.length,
+      }),
+      onBack: onClose,
+      onStart: handlePhasedSync,
+      startDisabled: syncing || !canSync,
+      error,
+      actionLabel: syncing
+        ? t('SyncPanel.message092')
+        : t(quick ? 'sync.quick.start' : 'SyncPanel.message093', { value0: docTypeName }),
+      activeTask: isLiveSync(currentSync)
+        ? h(ActiveSyncSummary, { task: currentSync, onOpen: () => setView('progress') })
+        : null,
     }),
     managingConversations &&
       h(ConversationManager, {
@@ -2438,23 +2264,6 @@ function PhasedSyncUI({
           setConversationRevision((value) => value + 1);
         },
       }),
-
-    // Action buttons
-    h(
-      'div',
-      { className: css.spacing2 },
-      h(
-        Button,
-        {
-          className: 'rh-btn rh-btn-primary' + ' ' + css.size3,
-          onClick: handlePhasedSync,
-          disabled: syncing || !canSync,
-        },
-        syncing ? t('SyncPanel.message092') : t('SyncPanel.message093', { value0: docTypeName }),
-      ),
-    ),
-
-    error && h('div', { className: css.row22 }, h(IconError, { size: 14 }), error),
   );
 }
 

@@ -1,6 +1,8 @@
 'use strict';
 const { Disclosure } = require('./shared/Disclosure.js');
 const { WritingKnowledge } = require('./WritingKnowledge.js');
+const { useKnowledgeAssistant } = require('../hooks/useKnowledgeAssistant.js');
+const { WikiSaveStatus } = require('./WikiSaveStatus.js');
 const { t } = require('../locale.js');
 const css = require('./WritingPanel.module.css').default;
 const { Button } = require('./shared/Button.js');
@@ -75,12 +77,15 @@ function writingError(code, details) {
   }
   return code;
 }
-async function request(path, body, signal) {
+async function request(path, body, signal, sessionId) {
   const response = await fetch(`${ROUTE}/writing${path}`, {
     ...(body
       ? {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(sessionId ? { 'x-session-id': sessionId } : {}),
+          },
           body: JSON.stringify(body),
         }
       : {}),
@@ -126,6 +131,8 @@ function WritingPanelBody({
   workspaceId,
   requirement,
   onSaved,
+  onOpenWikiEvents,
+  onOpenWikiUpdate,
   active = true,
   toolbarTarget,
   docsDir = 'docs',
@@ -167,13 +174,13 @@ function WritingPanelBody({
   const [jobId, setJobId] = React.useState(null);
   const [proposal, setProposal] = React.useState(null);
   const [starter, setStarter] = React.useState('');
-  const [assistantOpen, setAssistantOpen] = React.useState(false);
-  const [assistantHidden, setAssistantHidden] = React.useState(false);
+  const assistant = useKnowledgeAssistant(active);
   const [imagesPending, setImagesPending] = React.useState(false);
   const [imagesError, setImagesError] = React.useState('');
   const [imageRetry, retryImages] = React.useReducer((value) => value + 1, 0);
   const [saving, setSaving] = React.useState(false);
   const [savedSnapshots, setSavedSnapshots] = React.useState({});
+  const [wikiReceipts, setWikiReceipts] = React.useState({});
   const [pendingSave, setPendingSave] = React.useState(null);
   const saveRef = React.useRef(null);
   const jobRef = React.useRef(null);
@@ -452,11 +459,13 @@ function WritingPanelBody({
         '/save',
         { ...payload, ...(expectedVersion !== undefined ? { expectedVersion } : {}) },
         controller.signal,
+        currentSession(),
       );
       if (controller.signal.aborted) {
         return;
       }
       setPendingSave(null);
+      setWikiReceipts((previous) => ({ ...previous, [payload.docType]: result.wiki || null }));
       setSavedSnapshots((previous) => ({ ...previous, [payload.docType]: payload.content }));
       showToast({ tone: 'success', text: t('writing.saved', { path: result.path }) });
       onSaved?.();
@@ -556,17 +565,17 @@ function WritingPanelBody({
           t('WritingPanel.message009'),
         ),
       ),
-    h(
-      Button,
-      {
-        size: 'sm',
-        onClick: () => {
-          setAssistantHidden(false);
-          setAssistantOpen(true);
+    !assistant.pinned &&
+      h(
+        Button,
+        {
+          size: 'sm',
+          'aria-haspopup': assistant.mode === 'drawer' ? 'dialog' : undefined,
+          'aria-expanded': assistant.visible,
+          onClick: assistant.toggle,
         },
-      },
-      t('writing.wikiAssistant'),
-    ),
+        t('writing.wikiAssistant'),
+      ),
     h(
       Button,
       {
@@ -582,7 +591,7 @@ function WritingPanelBody({
   }
   return h(
     'div',
-    { className: `rh-writing-panel ${css.panel}` },
+    { className: `rh-writing-panel ${css.panel}`, ref: assistant.ref },
     toolbarTarget ? createPortal(toolbar, toolbarTarget) : toolbar,
     h(
       'div',
@@ -618,7 +627,7 @@ function WritingPanelBody({
             ),
           ),
       ),
-      (!assistantHidden || assistantOpen) &&
+      assistant.visible &&
         h(WritingKnowledge, {
           workspaceId,
           requirementPath,
@@ -629,11 +638,9 @@ function WritingPanelBody({
           evidence: task?.result?.evidence || [],
           overview: task?.result?.overview,
           locked,
-          open: assistantOpen,
-          onClose: () => {
-            setAssistantOpen(false);
-            setAssistantHidden(true);
-          },
+          open: assistant.open,
+          pinned: assistant.pinned,
+          onClose: assistant.close,
         }),
     ),
     h(
@@ -651,6 +658,13 @@ function WritingPanelBody({
       recovering &&
         h('small', { className: css.runningHint, role: 'status' }, t('writing.restoring')),
       error && h('div', { className: 'rh-knowledge-error', role: 'alert' }, error),
+      h(WikiSaveStatus, {
+        receipt: wikiReceipts[docType],
+        workspaceId,
+        active,
+        onOpenEvents: onOpenWikiEvents,
+        onOpenUpdate: onOpenWikiUpdate,
+      }),
       !running &&
         task?.excludedSourceCount > 0 &&
         h(

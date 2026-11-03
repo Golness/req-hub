@@ -7,6 +7,7 @@ import { renderSessionDocument } from '../../src/server/session-utils.js';
 import { codexRecords, writeCodexRollout } from './codex-fixture.js';
 import { closeSyncStorages } from '../../src/server/sync-storage.js';
 import { syncSupervisor } from '../../src/server/sync-supervisor.js';
+import { createOperations } from '../../src/server/operations.js';
 import { Readable } from 'node:stream';
 import { getSyncScope, setActiveSync, setAbortController } from '../../src/server/sync-state.js';
 vi.mock('../../src/server/config.js',()=>({loadConfig:vi.fn().mockResolvedValue({docsDir:'docs',sync:{baseBranch:'main'}})}));
@@ -28,7 +29,7 @@ async function getRoute(path) {
  return { status:res.status, data:JSON.parse(res.body) };
 }
 async function postRoute(path,data) {
- const req=Readable.from([JSON.stringify(data)]);req.method='POST';req.url=path;
+ const req=Readable.from([JSON.stringify(data)]);req.method='POST';req.url=path;req.headers={'x-session-id':'parent'};
  const res={body:'',writeHead(status){this.status=status;},end(text=''){this.body+=text;}};
  const done=routes.find(route=>route.path===path).handler(req,res);
  await done;
@@ -40,7 +41,7 @@ function withSessionQuery(events) {
 }
 async function dispatch(data={}, responseRef) {
  const listeners={};const req={method:'POST',headers:{'x-session-id':'parent'},url:'/req-hub/phased-sync',on:(name,fn)=>{listeners[name]=fn;}};
- const res={status:200,headersSent:false,body:'',writeHead(status){this.status=status;this.headersSent=true;},write(text){this.body+=text;},end(text=''){this.body+=text;}};
+ const res={status:200,headersSent:false,body:'',writeHead(status){if(this.headersSent)throw new Error('ERR_HTTP_HEADERS_SENT');this.status=status;this.headersSent=true;},write(text){this.body+=text;},end(text=''){this.body+=text;}};
  if(responseRef)responseRef.current=res;
  await routes.find(route=>route.path==='/req-hub/phased-sync').handler(req,res);
  listeners.data(JSON.stringify({workspaceId,requirementId,docType:'requirement',...data}));await listeners.end();return res;
@@ -58,6 +59,30 @@ beforeEach(async()=>{
 });
 afterEach(async()=>{for(const owned of allocatedRoutes)await owned.dispose();allocatedRoutes.clear();closeSyncStorages();vi.unstubAllEnvs();await rm(repo,{recursive:true,force:true});});
 describe('v2 sync route integration',()=>{
+  it('rejects legacy Codex selections from another workspace path before reading or spawning', async () => {
+    await routes.dispose();
+    const snapshots = vi.fn();
+    routes = createSyncRoutes(
+      { list: () => [{ id: workspaceId, path: repo }] },
+      {},
+      {},
+      { get: () => harness.parentAgent },
+      harness.ctx,
+      {
+        codexService: {
+          list: async () => ({ sessions: [{ id: 'codex:foreign', cwd: repo + '-other' }] }),
+          snapshots,
+        },
+      },
+    );
+    const response = await dispatch({ sessionIds: ['codex:foreign'] });
+    expect(response.status).toBe(403);
+    expect(JSON.parse(response.body).error).toBe('CODEX_SESSION_WORKSPACE_MISMATCH');
+    expect(snapshots).not.toHaveBeenCalled();
+    expect(harness.requests).toHaveLength(0);
+    expect(await getSyncHistory(workspaceId, requirementId)).toEqual([]);
+    expect(syncSupervisor.owner).toBeNull();
+  });
  it('imports Codex Markdown, previews it and analyzes mixed DSH/Codex evidence through the same frozen files',async()=>{
   const home=join(repo,'codex-home'), databasePath=join(repo,'codex-cache','codex.sqlite');
   await writeCodexRollout(home,codexRecords({cwd:repo,final:'CODEX_FINAL_BODY',intermediate:'CODEX_INTERMEDIATE_BODY',incomplete:true}));
@@ -359,4 +384,247 @@ it('publishes with a real-shaped workspace entity and exposes preparation and ru
 
 it('exposes preparation through both the activity and history entrances before an attempt exists',async()=>{
  const lease=syncSupervisor.acquire({workspaceId,requirementId,docType:'requirement'});try{syncSupervisor.preparing(lease,{stage:'sources',current:1,total:4});const query=new URLSearchParams({workspaceId,requirementId});expect((await getRoute('/req-hub/sync-active?'+query)).data).toMatchObject({active:true,sync:{notificationId:lease.notificationId,status:'preparing'}});expect((await getRoute('/req-hub/sync-history?'+query)).data).toMatchObject({history:[],activeSync:{notificationId:lease.notificationId,status:'preparing'}});}finally{syncSupervisor.release(lease);}
+});
+
+
+it.each(['main', 'master'])('quick sync enforces %s and excludes current workspace changes without checking out the target', async (baseBranch) => {
+  if (baseBranch === 'master') {
+    git('branch', '-m', 'main', 'master');
+  }
+  git('switch', baseBranch);
+  await writeFile(join(repo, 'source.js'), 'CURRENT_WORKSPACE_EDIT');
+  git('add', 'source.js');
+  const head = git('rev-parse', 'HEAD');
+  const index = git('ls-files', '--stage');
+  const response = await dispatch({
+    quick: true,
+    targetBranch: 'feature/dev/' + requirementId,
+    baseBranch: 'missing-user-override',
+    includeWorkingChanges: true,
+  });
+  expect(response.body).toContain('"type":"done"');
+  const history = await getSyncHistory(workspaceId, requirementId);
+  expect(history[0]).toMatchObject({ baseBranch, includeWorkingChanges: false });
+  expect(git('branch', '--show-current')).toBe(baseBranch);
+  expect(git('rev-parse', 'HEAD')).toBe(head);
+  expect(git('ls-files', '--stage')).toBe(index);
+  expect(await readFile(join(repo, 'source.js'), 'utf8')).toBe('CURRENT_WORKSPACE_EDIT');
+});
+
+it('quick sync rejects a branch outside the workspace before starting a task', async () => {
+  const response = await dispatch({ quick: true, targetBranch: 'feature/other/missing' });
+  expect(response.status).toBe(400);
+  expect(JSON.parse(response.body).error).toBe('SYNC_BRANCH_INVALID');
+  expect(harness.requests).toHaveLength(0);
+});
+
+
+describe('Host-owned quick sync', () => {
+  it('lists scoped reference files and freezes the selected custom design baseline', async () => {
+    await mkdir(join(reqDir, 'attachments'));
+    await writeFile(join(reqDir, 'attachments', 'business.csv'), 'rule,value\none,2');
+    const query = new URLSearchParams({ workspaceId, requirementId, query: 'business' });
+    expect((await getRoute('/req-hub/sync-design-references?' + query)).data.files).toEqual([
+      'attachments/business.csv',
+    ]);
+    const response = await dispatch({
+      docType: 'design',
+      designReferencePath: 'attachments/business.csv',
+      includeWorkingChanges: false,
+    });
+    expect(response.body).toContain('"type":"done"');
+    const task = (await getSyncHistory(workspaceId, requirementId))[0];
+    expect(task.designReference.path).toBe('attachments/business.csv');
+    expect(task.designReference).not.toHaveProperty('text');
+    expect(JSON.parse(evidence(task, 'design.reference')).text).toBe('rule,value\none,2');
+    const diagnostic = JSON.parse(await readFile(output(task, 'code-0.read-state.json'), 'utf8'));
+    expect(
+      diagnostic.required.find((entry) => entry.artifactId === 'design.reference').complete,
+    ).toBe(true);
+    const missingScope = await getRoute(
+      '/req-hub/sync-design-references?' +
+        new URLSearchParams({ workspaceId: 'other', requirementId }),
+    );
+    expect(missingScope.status).toBe(404);
+  });
+  it('rejects forged reference paths before creating a custom task or child', async () => {
+    const response = await dispatch({ docType: 'design', designReferencePath: '../outside.md' });
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body).error).toBe('SYNC_REFERENCE_INVALID');
+    expect(harness.requests).toHaveLength(0);
+    expect(await getSyncHistory(workspaceId, requirementId)).toEqual([]);
+    expect(syncSupervisor.owner).toBeNull();
+  });
+  const quickInput = () => ({ quick: true, targetBranch: 'feature/dev/' + requirementId });
+  const streamEvents = (response) => response.body.split('\n')
+    .filter((line) => line.startsWith('data: '))
+    .map((line) => JSON.parse(line.slice(6)));
+  function pauseStage(docType) {
+    let ready, release;
+    const started = new Promise((resolve) => { ready = resolve; });
+    const gate = new Promise((resolve) => { release = resolve; });
+    const original = harness.ctx.subagents.start;
+    harness.ctx.subagents.start = async (provider, request) => {
+      if (request.label.endsWith('-' + docType)) {
+        ready();
+        await gate;
+      }
+      return original(provider, request);
+    };
+    return { started, release };
+  }
+  it('publishes both documents from one request, with one sequence ID and only one final done event', async () => {
+    const response = await dispatch(quickInput());
+    const events = streamEvents(response);
+    expect(events.filter((event) => event.type === 'done')).toHaveLength(1);
+    expect(events.find((event) => event.type === 'document_done').sync.docType).toBe('requirement');
+    expect(events.at(-1)).toMatchObject({
+      type: 'done', sync: { docType: 'design', status: 'completed' },
+      quickSync: { status: 'completed', stage: 'design' },
+    });
+    const history = await getSyncHistory(workspaceId, requirementId);
+    expect(history.map((task) => task.docType).sort()).toEqual(['design', 'requirement']);
+    expect(new Set(history.map((task) => task.quickSyncId)).size).toBe(1);
+    expect(harness.requests.map((request) => request.label.split('-').at(-1)))
+      .toEqual(['requirement', 'requirement', 'design', 'design']);
+    expect(await readFile(join(reqDir, 'requirement.md'), 'utf8')).toContain('新规则');
+    expect(await readFile(join(reqDir, 'design.md'), 'utf8')).toContain('新规则');
+    expect(syncSupervisor.owner).toBeNull();
+  });
+  it('continues after client disconnection and reserves the slot across both documents', async () => {
+    const pause = pauseStage('requirement');
+    const responseRef = {};
+    const execution = dispatch(quickInput(), responseRef);
+    await pause.started;
+    const id = syncSupervisor.owner.quickSync.id;
+    expect((await dispatch()).status).toBe(409);
+    expect((await dispatch(quickInput())).status).toBe(409);
+    responseRef.current.destroyed = true;
+    pause.release();
+    await execution;
+    const history = await getSyncHistory(workspaceId, requirementId);
+    expect(history.filter((task) => task.quickSyncId === id && task.status === 'completed')).toHaveLength(2);
+    expect(syncSupervisor.latestQuickSync).toMatchObject({ id, status: 'completed' });
+  });
+  it('uses the same pipeline through Agent operations and sends HTTP headers only once', async () => {
+    const operations = createOperations(routes);
+    const response = await operations.execute({
+      action: 'phased-sync',
+      method: 'POST',
+      body: { workspaceId, requirementId, ...quickInput() },
+    }, { agent: harness.parentAgent });
+    expect(response.status).toBe(200);
+    expect(streamEvents({ body: response.value }).at(-1)).toMatchObject({
+      type: 'done', quickSync: { status: 'completed' }, sync: { docType: 'design' },
+    });
+    expect((await getSyncHistory(workspaceId, requirementId)).filter((task) => task.status === 'completed'))
+      .toHaveLength(2);
+  });
+  it('skips an already synchronized requirement and still generates design, then skips both on a retry', async () => {
+    await dispatch();
+    const before = harness.requests.length;
+    const response = await dispatch(quickInput());
+    expect(streamEvents(response).at(-1).quickSync.documents).toMatchObject([
+      { docType: 'requirement', status: 'skipped' }, { docType: 'design', status: 'completed' },
+    ]);
+    expect(harness.requests.slice(before).map((request) => request.label.split('-').at(-1)))
+      .toEqual(['design', 'design']);
+    const count = harness.requests.length;
+    const retry = await dispatch(quickInput());
+    expect(JSON.parse(retry.body)).toMatchObject({ skipped: true, quickSync: { status: 'completed' } });
+    expect(harness.requests).toHaveLength(count);
+  });
+  it('does not start design when requirement execution fails', async () => {
+    harness.ctx.subagents.start = async () => { throw new Error('FIRST_DOCUMENT_FAILED'); };
+    const response = await dispatch(quickInput());
+    expect(streamEvents(response).at(-1)).toMatchObject({ type: 'error', quickSync: { status: 'failed' } });
+    expect((await getSyncHistory(workspaceId, requirementId)).map((task) => task.docType)).toEqual(['requirement']);
+    expect(await readFile(join(reqDir, 'design.md'), 'utf8')).toBe(source);
+  });
+  it('reruns design after a requirement is generated even when the same commits were synced without a baseline', async () => {
+    await dispatch({ docType: 'design' });
+    await writeFile(join(reqDir, 'design.md'), source);
+    const response = await dispatch(quickInput());
+    expect(streamEvents(response).at(-1)).toMatchObject({
+      type: 'done',
+      quickSync: {
+        status: 'completed',
+        documents: [
+          { docType: 'requirement', status: 'completed' },
+          { docType: 'design', status: 'completed' },
+        ],
+      },
+    });
+  });
+  it('uses the exact requirement published in this sequence despite a later live edit', async () => {
+    const pause = pauseStage('design');
+    const execution = dispatch({ ...quickInput(), designReferencePath: '../other.md' });
+    await pause.started;
+    const requirement = syncSupervisor.owner.quickSync.documents[0];
+    await writeFile(join(reqDir, 'requirement.md'), 'LATER_USER_EDIT');
+    pause.release();
+    const response = await execution;
+    expect(streamEvents(response).at(-1).quickSync.status).toBe('completed');
+    const design = (await getSyncHistory(workspaceId, requirementId)).find(
+      (task) => task.docType === 'design',
+    );
+    expect(design.designReference).toMatchObject({ path: 'requirement.md', syncId: requirement.id });
+    const frozen = JSON.parse(evidence(design, 'design.reference'));
+    expect(frozen.text).toBe(source.replace('旧规则', '新规则'));
+    expect(frozen.text).not.toContain('LATER_USER_EDIT');
+  });
+  it('cancels the sequence using its completed requirement identity while design is starting', async () => {
+    const pause = pauseStage('design');
+    const execution = dispatch(quickInput());
+    await pause.started;
+    const first = syncSupervisor.owner.quickSync.documents[0];
+    const cancelled = await postRoute('/req-hub/sync-abort', {
+      workspaceId, requirementId, syncId: first.id, snapshotDir: first.snapshotDir,
+    });
+    pause.release();
+    await execution;
+    expect(cancelled.data.success).toBe(true);
+    const history = await getSyncHistory(workspaceId, requirementId);
+    expect(history.find((task) => task.docType === 'requirement').status).toBe('completed');
+    expect(history.find((task) => task.docType === 'design').status).toBe('aborted');
+    expect(syncSupervisor.latestQuickSync.status).toBe('aborted');
+    expect(await readFile(join(reqDir, 'design.md'), 'utf8')).toBe(source);
+  });
+  it('deleting the completed requirement cancels its still-running continuation without resurrection', async () => {
+    const pause = pauseStage('design');
+    const execution = dispatch(quickInput());
+    await pause.started;
+    const first = syncSupervisor.owner.quickSync.documents[0];
+    const deleted = await postRoute('/req-hub/sync-delete', {
+      workspaceId, requirementId, syncId: first.id, snapshotDir: first.snapshotDir,
+    });
+    pause.release();
+    await execution;
+    expect(deleted.data.success).toBe(true);
+    const history = await getSyncHistory(workspaceId, requirementId);
+    expect(history.some((task) => task.id === first.id)).toBe(false);
+    expect(history.find((task) => task.docType === 'design').status).toBe('aborted');
+    expect(syncSupervisor.latestQuickSync.status).toBe('aborted');
+    expect(await readFile(join(reqDir, 'design.md'), 'utf8')).toBe(source);
+  });
+  it('cancels and drains an in-flight requirement on unload without launching design', async () => {
+    const pause = pauseStage('requirement');
+    const execution = dispatch(quickInput());
+    await pause.started;
+    const stopping = routes.dispose();
+    pause.release();
+    await Promise.all([execution, stopping]);
+    expect((await getSyncHistory(workspaceId, requirementId)).every((task) => task.docType === 'requirement')).toBe(true);
+    expect(syncSupervisor.latestQuickSync.status).toBe('aborted');
+    expect(syncSupervisor.owner).toBeNull();
+  });
+  it('observes the entire sequence by ID and rebuilds completed status from persisted document records', async () => {
+    const response = await dispatch(quickInput());
+    const id = streamEvents(response).at(-1).quickSync.id;
+    const query = '/req-hub/quick-sync-status?' + new URLSearchParams({ id, workspaceId, requirementId });
+    expect((await getRoute(query)).data).toMatchObject({ quickSync: { id, status: 'completed' }, sync: { docType: 'design' } });
+    syncSupervisor.latestQuickSync = null;
+    expect((await getRoute(query)).data.quickSync.status).toBe('completed');
+    expect((await getRoute(query.replace(workspaceId, 'wrong-workspace'))).status).toBe(404);
+  });
 });

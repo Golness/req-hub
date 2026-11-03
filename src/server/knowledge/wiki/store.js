@@ -51,7 +51,9 @@ Update links and the index with each published revision.
 Answer questions from the index and relevant pages.
 Save answers only when the user requests it.
 Report stale claims, contradictions, orphans, missing concepts, coverage gaps, and research gaps.
-Use the configured skill when it is available. Keep the requested language.
+Use the configured skill when it is available. Write intermediate text in English.
+Use the requested or source document language for final Wiki content only.
+Write maintenance rules in English.
 Do not expand the selected knowledge scope.`;
 
 /** Additive Wiki schema. Source database format and existing rows stay intact. */
@@ -78,6 +80,10 @@ export class WikiStore {
       CREATE TABLE IF NOT EXISTS knowledge_jobs(id TEXT PRIMARY KEY,scope_id TEXT NOT NULL,status TEXT NOT NULL,payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS knowledge_candidates(id TEXT PRIMARY KEY,scope_id TEXT NOT NULL,status TEXT NOT NULL,payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS knowledge_changelog(sequence INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT NOT NULL UNIQUE,scope_id TEXT NOT NULL,operation TEXT NOT NULL,payload TEXT NOT NULL,created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS knowledge_wiki_events(sequence INTEGER PRIMARY KEY AUTOINCREMENT,scope_id TEXT NOT NULL,job_id TEXT,document_id TEXT,stage TEXT NOT NULL,level TEXT NOT NULL,payload TEXT NOT NULL,created_at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS knowledge_wiki_events_scope ON knowledge_wiki_events(scope_id,job_id,sequence);
+      CREATE TABLE IF NOT EXISTS knowledge_wiki_daily_control(owner_key TEXT PRIMARY KEY,config_hash TEXT NOT NULL,activated_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS knowledge_wiki_daily_runs(owner_key TEXT NOT NULL,scope_id TEXT NOT NULL REFERENCES scopes(id),run_day TEXT NOT NULL,scheduled_time TEXT NOT NULL,time_zone TEXT NOT NULL,triggered_at TEXT NOT NULL,document_count INTEGER NOT NULL,PRIMARY KEY(owner_key,scope_id,run_day));
       CREATE TABLE IF NOT EXISTS knowledge_outbox(sequence INTEGER PRIMARY KEY AUTOINCREMENT,scope_id TEXT NOT NULL,document_id TEXT NOT NULL,source_version INTEGER NOT NULL,change_type TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',UNIQUE(scope_id,document_id,source_version));
       CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_wiki_fts USING fts5(id UNINDEXED,title,body,tokenize='unicode61 remove_diacritics 2');
       CREATE INDEX IF NOT EXISTS knowledge_wiki_jobs_scope ON knowledge_jobs(scope_id,status);
@@ -102,6 +108,7 @@ export class WikiStore {
       job.status = 'interrupted';
       job.error = { code: 'WIKI_INTERRUPTED', retryable: true };
       this.saveJob(job);
+      this.event(job.scopeId, 'interrupted', { jobId: job.id }, 'warn');
     }
     this.db
       .prepare(
@@ -143,6 +150,54 @@ export class WikiStore {
     return this.pageRows(
       'SELECT sequence,id,operation,payload,created_at FROM knowledge_changelog WHERE scope_id=? AND sequence>? ORDER BY sequence',
       [scope, cursor],
+      limit,
+      (row) => ({ ...row, detail: JSON.parse(row.payload), payload: undefined }),
+      'sequence',
+    );
+  }
+  /**
+   * Persist bounded operational metadata; source bodies and model reasoning are excluded by callers.
+   * @param scope - Owning knowledge scope.
+   * @param stage - Stable event name.
+   * @param detail - Structured metadata selected by the owning task.
+   * @param level - Diagnostic severity.
+   * @returns No value.
+   */
+  event(scope, stage, detail = {}, level = 'info') {
+    bounded(detail, 16000);
+    this.db
+      .prepare(
+        'INSERT INTO knowledge_wiki_events(scope_id,job_id,document_id,stage,level,payload,created_at) VALUES (?,?,?,?,?,?,?)',
+      )
+      .run(
+        scope,
+        detail.jobId || null,
+        detail.documentId || null,
+        stage,
+        level,
+        JSON.stringify(detail),
+        now(),
+      );
+  }
+  /**
+   * Read one scope's runtime events, using ascending cursors for live catch-up.
+   * @param scope - Authorized scope identity.
+   * @param input - Validated cursors, optional task identity and page size.
+   * @returns A bounded event page; nextCursor is exclusive in the selected direction.
+   */
+  events(scope, { after, before = Number.MAX_SAFE_INTEGER, jobId, limit = 30 }) {
+    const forward = after !== undefined;
+    const args = [scope, forward ? after : before];
+    let sql =
+      'SELECT * FROM knowledge_wiki_events WHERE scope_id=? AND sequence' + (forward ? '>?' : '<?');
+    if (jobId) {
+      sql += ' AND job_id=?';
+      args.push(jobId);
+    }
+    sql += ' ORDER BY sequence ' + (forward ? 'ASC' : 'DESC');
+    return this.pageRows(
+      sql,
+      args,
       limit,
       (row) => ({ ...row, detail: JSON.parse(row.payload), payload: undefined }),
       'sequence',
@@ -299,12 +354,27 @@ export class WikiStore {
   outbox(scope) {
     return this.db
       .prepare(
-        "SELECT * FROM knowledge_outbox WHERE scope_id=? AND status='pending' ORDER BY sequence LIMIT 200",
+        "SELECT * FROM knowledge_outbox WHERE scope_id=? AND status='pending' ORDER BY CASE WHEN change_type IN ('manual','backfill','scheduled') THEN 0 ELSE 1 END,sequence LIMIT 200",
       )
       .all(scope);
   }
   eventState(sequence, status) {
     this.db.prepare('UPDATE knowledge_outbox SET status=? WHERE sequence=?').run(status, sequence);
+  }
+  /**
+   * Claim a calendar-day dispatch inside the caller's enqueue transaction.
+   * @param scope - Authorized knowledge scope.
+   * @param schedule - Configured day, time and time zone.
+   * @param count - Number of source versions admitted by this dispatch.
+   * @returns Whether this scope has not already been claimed on that date.
+   */
+  recordDailyRun(scope, schedule, count) {
+    return (
+      this.db
+        .prepare('INSERT OR IGNORE INTO knowledge_wiki_daily_runs VALUES (?,?,?,?,?,?,?)')
+        .run(schedule.ownerKey, scope, schedule.day, schedule.time, schedule.timeZone, now(), count)
+        .changes === 1
+    );
   }
   publishPage(scope, proposal, ruleVersion, actor) {
     const existing = proposal.pageId

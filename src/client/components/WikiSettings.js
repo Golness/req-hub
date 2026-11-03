@@ -10,6 +10,7 @@ const css = require('./WikiPanel.module.css').default;
 const h = React.createElement;
 const flags = ['autoManage', 'autoCrossRef', 'useGitNexusForCrossRef', 'lintOnIngest'];
 const numbers = {
+  autoManageDelayMs: [0, 3600000],
   maxConcurrentJobs: [1, 8],
   maxWikiPagesPerScope: [1, 10000],
   maxInputBytes: [1000, 20000000],
@@ -24,11 +25,11 @@ const numbers = {
  * @param props - Data, state and callbacks supplied by the owning surface.
  * @returns The rendered component content.
  */
-function WikiSettings({ workspaceId }) {
+function WikiSettings({ workspaceId, inline = false }) {
   const [data, setData] = React.useState(null);
   const [error, setError] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
-  const [open, setOpen] = React.useState(false);
+  const [open, setOpen] = React.useState(inline);
   const owner = React.useRef(null);
   React.useEffect(() => {
     if (!open) {
@@ -88,17 +89,24 @@ function WikiSettings({ workspaceId }) {
     }
   };
   return h(
-    Disclosure,
-    {
-      className: css.card,
-      onOpenChange: (expanded) => {
-        if (expanded) {
-          setOpen(true);
-        }
-      },
-      title: t('wiki.settings'),
-    },
+    inline ? 'section' : Disclosure,
+    inline
+      ? { 'aria-label': t('wiki.settings') }
+      : {
+          className: css.card,
+          onOpenChange: (expanded) => {
+            if (expanded) {
+              setOpen(true);
+            }
+          },
+          title: t('wiki.settings'),
+        },
+    open && !data && !error && h('p', { role: 'status' }, t('common.loading')),
     error && h('p', { role: 'alert' }, t('wiki.error', { code: error })),
+    error === 'WIKI_SCHEDULE_TIME_INVALID' &&
+      h('p', { className: css.error }, t('wiki.schedule.invalidTime')),
+    error === 'WIKI_SCHEDULE_TIME_ZONE_INVALID' &&
+      h('p', { className: css.error }, t('wiki.schedule.invalidTimeZone')),
     data &&
       h(
         'div',
@@ -111,6 +119,49 @@ function WikiSettings({ workspaceId }) {
             label: t(`wiki.config.${key}`),
             onChange: (value) => update(key, value),
           }),
+        ),
+        h(
+          'fieldset',
+          { className: css.schedule },
+          h('legend', null, t('wiki.schedule.title')),
+          h(Checkbox, {
+            checked: data.values.dailyUpdateEnabled || false,
+            disabled: busy,
+            label: t('wiki.schedule.enabled'),
+            onChange: (value) => update('dailyUpdateEnabled', value),
+          }),
+          h(
+            'label',
+            { className: css.field },
+            t('wiki.schedule.time'),
+            h(Input, {
+              type: 'time',
+              step: 60,
+              value: data.values.dailyUpdateTime || '02:00',
+              disabled: busy || !data.values.dailyUpdateEnabled,
+              onChange: (event) => update('dailyUpdateTime', event.target.value),
+            }),
+          ),
+          h(
+            'label',
+            { className: css.field },
+            t('wiki.schedule.timeZone'),
+            h(Input, {
+              value: data.values.dailyUpdateTimeZone || 'Asia/Shanghai',
+              disabled: busy || !data.values.dailyUpdateEnabled,
+              onChange: (event) => update('dailyUpdateTimeZone', event.target.value),
+            }),
+          ),
+          h('p', { className: css.muted }, t('wiki.schedule.hint')),
+          data.schedule &&
+            h(
+              'p',
+              {
+                role: 'status',
+                className: data.schedule.state === 'error' ? css.error : css.muted,
+              },
+              t(`wiki.schedule.state.${data.schedule.state}`),
+            ),
         ),
         Object.entries(numbers).map(([key, [min, max]]) =>
           h(

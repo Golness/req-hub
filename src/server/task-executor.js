@@ -16,6 +16,7 @@ import {
   formatTokens,
   MAX_SYNC_INPUT_TOKENS,
   estimateSubagentInputTokens,
+  estimatePreparedPromptTokens,
 } from './token-utils.js';
 
 /**
@@ -141,7 +142,9 @@ export class TaskResult {
    * @param {string|null} [options.sessionId=null] - Subagent session ID
    * @param {string} [options.stopReason='completed'] - Stop reason
    * @param {string|null} [options.diagnostic=null] - Diagnostic info
-   * @param {string|null} [options.skillUsed=null] - Skill name used
+   * @param {string|null} [options.skillUsed=null] - Skill verified in the child log.
+   * @param {string|null} [options.requestedSkill=null] - Configured or default skill name.
+   * @param {string} [options.skillStatus] - Requested, loaded, unavailable or not_bound.
    * @param {number} [options.elapsed=0] - Elapsed time in ms
    * @param {string|null} [options.errorCode=null] - Error code if failed
    * @param {Array} [options.warnings=[]] - Warnings generated during execution
@@ -155,6 +158,8 @@ export class TaskResult {
     this.stopReason = options.stopReason || 'completed';
     this.diagnostic = options.diagnostic || null;
     this.skillUsed = options.skillUsed || null;
+    this.requestedSkill = options.requestedSkill || null;
+    this.skillStatus = options.skillStatus || 'not_bound';
     this.elapsed = options.elapsed || 0;
     this.errorCode = options.errorCode || null;
     this.warnings = options.warnings || [];
@@ -406,7 +411,7 @@ export class TaskExecutor {
   /**
    * Phase 2: Load Skill/Prompt content.
    * @param {Object} options - Load options
-   * @returns {Promise<{fullPrompt: string, skillUsed: string|null, skillContent: string|null, promptTemplate: string|null}>}
+   * @returns Prepared delegation text, native skill selection and its reserved context budget.
    */
   async loadPrompt(options) {
     const { promptKey, variables = {} } = options;
@@ -423,17 +428,22 @@ export class TaskExecutor {
       const promptResult = await getPromptAsync(
         this.config,
         promptKey,
-        this.cwd,
+        this.parentAgent?.session?.header?.cwd || this.cwd,
         this.scopedSkills ||
           this.ctx?.agentPresets?.serviceFor?.(this.parentAgent, 'skills') ||
           this.ctx?.skills,
         { scope: this.parentAgent, signal: this.signal },
       );
-      const { systemPrompt, promptTemplate, skillUsed } = promptResult;
+      const { promptTemplate } = promptResult;
 
-      result.skillUsed = skillUsed;
-      result.skillStatus = promptResult.skillStatus || (skillUsed ? 'loaded' : 'not_bound');
-      result.skillContent = systemPrompt;
+      result.skillUsed = null;
+      result.requestedSkill = promptResult.requestedSkill || null;
+      result.skillDefinition = promptResult.skillDefinition || null;
+      result.skillStatus = promptResult.skillStatus || 'not_bound';
+      result.skillContent = promptResult.skillDefinition?.content || null;
+      result.skillTokenReserve = result.skillDefinition
+        ? estimateSubagentInputTokens(JSON.stringify(result.skillDefinition)) + 256
+        : 0;
       result.promptTemplate = promptTemplate;
 
       log.taskExecutor.debug(`加载 prompt`, {
@@ -443,25 +453,14 @@ export class TaskExecutor {
         variablesCount: Object.keys(variables).length,
       });
 
-      if (skillUsed && systemPrompt) {
-        if (systemPrompt.trim().length === 0) {
-          this.addWarning('SKILL_CONTENT_EMPTY', `Skill "${skillUsed}" 内容为空`);
-          result.skillContent = null;
-          result.skillUsed = null;
-        } else if (estimateTextTokens(systemPrompt) > TaskExecutorConfig.maxSkillTokens) {
-          this.addWarning(
-            'SKILL_TOO_LARGE',
-            `Skill "${skillUsed}" 内容过大 (约 ${formatTokens(estimateTextTokens(systemPrompt))} tokens)，可能影响性能`,
-          );
-        }
-      }
-
       this.callbacks.onProgress?.({
-        stage: 'skill_loaded',
-        skillUsed,
-        hasSkill: !!skillUsed,
+        stage: 'skill_loading',
+        requestedSkill: result.requestedSkill,
+        skillStatus: result.skillStatus,
+        hasSkill: false,
       });
     } catch (e) {
+      this.signal?.throwIfAborted();
       this.addWarning('SKILL_LOAD_FAILED', `Skill 加载失败: ${e.message}`);
       log.taskExecutor.warn(`Skill/Prompt 加载失败: ${e.message}`);
     }
@@ -500,10 +499,9 @@ export class TaskExecutor {
       log.taskExecutor.error(errorMsg);
     }
 
-    if (result.skillContent) {
+    if (result.skillStatus === 'requested' && result.requestedSkill) {
       fullPrompt = this.buildSubagentPrompt(fullPrompt, {
-        skillContent: result.skillContent,
-        skillName: result.skillUsed,
+        skillName: result.requestedSkill,
       });
     }
 
@@ -590,7 +588,7 @@ export class TaskExecutor {
     const inputLimit =
       options.maxInputTokens ??
       (options.promptKey?.startsWith('phased-') ? MAX_SYNC_INPUT_TOKENS : null);
-    if (inputLimit && estimateSubagentInputTokens(fullPrompt) >= inputLimit) {
+    if (inputLimit && estimatePreparedPromptTokens(promptData) >= inputLimit) {
       throw new TaskExecutorError(
         `同步输入超过预算（须小于 ${inputLimit} tokens），请减少固定 prompt 或拆分输入`,
         'PROMPT_TOO_LARGE',
@@ -1130,6 +1128,17 @@ export class TaskExecutor {
 
       const deliverables = await this.collectDeliverables(sessionId);
 
+      const skillReceipt = await this.readNativeSkillReceipt(sessionId, promptData.requestedSkill);
+      if (promptData.skillStatus === 'requested' && !skillReceipt) {
+        this.addWarning(
+          'NATIVE_SKILL_NOT_LOADED',
+          'DSH did not record the requested skill invocation.',
+        );
+      }
+      let skillStatus = promptData.skillStatus;
+      if (promptData.requestedSkill) {
+        skillStatus = skillReceipt ? 'loaded' : 'unavailable';
+      }
       const elapsed = Date.now() - startTime;
 
       log.taskExecutor.info(`Subagent 完成`, {
@@ -1150,7 +1159,9 @@ export class TaskExecutor {
         sessionId,
         stopReason: result.stopReason,
         diagnostic: result.diagnostic || failure?.message || result.error?.message || null,
-        skillUsed: promptData.skillUsed,
+        skillUsed: skillReceipt ? promptData.requestedSkill : null,
+        requestedSkill: promptData.requestedSkill,
+        skillStatus,
         elapsed,
         errorCode: failure?.code || this.getErrorCodeFromStopReason(result.stopReason),
         warnings: this.warnings,
@@ -1191,6 +1202,38 @@ export class TaskExecutor {
     } finally {
       runController?.abort();
       await this.disposeRun(run, { strict: !!options.syncV2 });
+    }
+  }
+
+  /**
+   * Verify native skill loading from one owned spawn child's durable messages.
+   * @param sessionId - The child session returned by the Host provider.
+   * @param name - Requested skill name, or null for an unbound task.
+   * @returns Whether DSH recorded a native instructions injection for this skill.
+   */
+  async readNativeSkillReceipt(sessionId, name) {
+    if (!name || !this.ctx.sessionQuery?.observeSession) {
+      return false;
+    }
+    let observation;
+    try {
+      observation = await this.ctx.sessionQuery.observeSession(sessionId, { signal: this.signal });
+      this.signal?.throwIfAborted();
+      if (observation.header?.parentSession !== this.parentAgent?.session?.id) {
+        return false;
+      }
+      return observation.events.some(
+        (event) =>
+          event.type === 'user/message' &&
+          event.data?.source?.kind === 'skill-invocation' &&
+          event.data.source.name === name &&
+          event.data.source.form === 'instructions',
+      );
+    } catch (error) {
+      this.signal?.throwIfAborted();
+      return false;
+    } finally {
+      observation?.[Symbol.dispose]?.();
     }
   }
 
@@ -1280,29 +1323,29 @@ export class TaskExecutor {
   }
 
   /**
-   * Build subagent prompt with optional skill content.
+   * Build delegation text with an optional native DSH skill invocation.
    * @param {string} userPrompt - User prompt text
    * @param {Object} options - Build options
-   * @param {string} options.skillContent - Skill instruction content
-   * @param {string} options.skillName - Skill name
+   * @param {string} options.skillName - Validated native invocation name
    * @returns {string} Complete prompt
    */
   buildSubagentPrompt(userPrompt, options) {
-    const { skillContent, skillName } = options;
+    const { skillName } = options;
+    if (!skillName || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(skillName)) {
+      return userPrompt;
+    }
+    return `/${skillName}
 
-    if (skillContent) {
-      return `Apply the following skill to generated text. Preserve the requested language.
+Apply the skill loaded by DSH to English instructions and intermediate text.
+Use English for progress, analysis, reports, diagnostics, and task acknowledgments.
+Only final deliverable content uses the requested or input document language.
+Use Simplified Chinese when no delivery language can be determined.
 Keep facts, conditions, uncertainty, code, paths, and protocol fields unchanged.
 The task protocol controls tools and output format. Do not add delivery tools.
-<skill_content name=${JSON.stringify(skillName)}>
-${skillContent}
-</skill_content>
+If DSH cannot load this skill, continue with the task protocol.
 
 Task protocol and frozen input:
 ${userPrompt}`;
-    }
-
-    return userPrompt;
   }
 
   /**

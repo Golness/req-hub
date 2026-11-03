@@ -248,8 +248,15 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
                 req.operationExec?.agent?.session?.id || req.headers?.['x-session-id'],
                 req.operationExec?.signal,
               );
-            } catch {
-              saved.wiki = { state: 'failed', code: 'WIKI_INGEST_FAILED' };
+            } catch (error) {
+              saved.wiki = {
+                state: 'failed',
+                code: 'WIKI_INGEST_FAILED',
+                error: {
+                  code: /^WIKI_[A-Z_]+$/.test(error.message) ? error.message : 'WIKI_INGEST_FAILED',
+                  details: error.details || {},
+                },
+              };
             }
           }
           return json(res, saved);

@@ -3,6 +3,7 @@ import { realpath, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { WikiStore, bounded, digest, fail, now, PAGE_TYPES } from './store.js';
 import { WikiRuntime, installWikiTools, WIKI_TOOLS } from './runtime.js';
+import { findWikiPage } from './page-reference.js';
 import { executeTask, prepareTaskPrompt } from '../../task-executor.js';
 import { resolveSyncBudget } from '../../sync-budget.js';
 import { readSource } from '../source-reader.js';
@@ -11,9 +12,14 @@ import { CodeProvider, codeSnapshot } from '../enhancements/code-provider.js';
 import { limits as enhancementLimits } from '../enhancements/contracts.js';
 import { toFtsQuery } from '../retrieval.js';
 import { withDocumentLock } from '../../sync-document-validator.js';
+import { WikiDailyScheduler } from './daily-scheduler.js';
 
 export const DEFAULTS = {
-  autoManage: true,
+  autoManage: false,
+  autoManageDelayMs: 30000,
+  dailyUpdateEnabled: false,
+  dailyUpdateTime: '02:00',
+  dailyUpdateTimeZone: 'Asia/Shanghai',
   maxConcurrentJobs: 2,
   maxWikiPagesPerScope: 500,
   maxInputBytes: 2000000,
@@ -32,6 +38,12 @@ const pathKey = (value) =>
 const errorInfo = (error) => ({
   code: /^WIKI_[A-Z_]+$/.test(error.message) ? error.message : 'WIKI_FAILED',
   retryable: true,
+  details: {
+    ...error.details,
+    causeCode: typeof error.code === 'string' ? error.code : null,
+    diagnostic: error.details?.diagnostic || String(error.message).slice(0, 4000),
+    diagnosticTruncated: error.details?.diagnosticTruncated || String(error.message).length > 4000,
+  },
 });
 
 /** Own Wiki ingestion and background jobs, preserving human review and source versions. */
@@ -44,6 +56,7 @@ export class WikiService {
     this.preparing = new Set();
     this.preparationControllers = new Set();
     this.consuming = new Set();
+    this.autoTimers = new Map();
   }
   database() {
     if (this.closed) {
@@ -53,6 +66,22 @@ export class WikiService {
   }
   async settings() {
     return { ...DEFAULTS, ...(await this.configLoader()).wiki };
+  }
+  /**
+   * Activate the profile-owned daily clock; constructors and module factories remain inert.
+   * @returns Completion after the scheduler reads its saved configuration.
+   */
+  startDailyScheduler() {
+    this.dailyScheduler ||= new WikiDailyScheduler({ wiki: this });
+    return this.track(this.dailyScheduler.refresh());
+  }
+  /**
+   * Apply saved schedule settings without recreating active Wiki tasks.
+   * @returns Scheduler activation state, separate from successful configuration persistence.
+   */
+  async refreshDailySchedule() {
+    await this.dailyScheduler?.refresh();
+    return this.dailyScheduler?.state || { state: 'not_started' };
   }
   track(promise) {
     this.tasks.add(promise);
@@ -84,14 +113,206 @@ export class WikiService {
   }
   async capture(workspaceId, path, sessionId, signal) {
     const scope = await this.knowledge.scope(workspaceId);
-    const source = await readSource(scope.docsRoot, path, { signal });
-    signal?.throwIfAborted();
-    this.database();
-    const result = scope.store.publishDocument(source, 'wiki-auto-source-v1');
-    await this.consume(scope, sessionId);
-    return { documentId: result.documentId, state: 'saved' };
+    try {
+      const source = await readSource(scope.docsRoot, path, { signal });
+      signal?.throwIfAborted();
+      this.database();
+      const result = scope.store.publishDocument(source, 'wiki-auto-source-v1');
+      this.database().event(scope.identity, 'source_saved', {
+        documentId: result.documentId,
+        path,
+      });
+      await this.consume(scope, sessionId);
+      return { state: 'saved', ...this.sourceState(scope, result.documentId) };
+    } catch (error) {
+      signal?.throwIfAborted();
+      const details = {
+        path,
+        diagnostic: String(error.message).slice(0, 4000),
+        diagnosticTruncated: String(error.message).length > 4000,
+      };
+      this.database().event(scope.identity, 'source_capture_failed', details, 'error');
+      fail('WIKI_SOURCE_CAPTURE_FAILED', error.status || 500, details);
+    }
   }
-  async consume(scope, sessionId) {
+  /**
+   * Separate source persistence from generation and publication for save feedback.
+   * @param scope - Authorized source scope.
+   * @param documentId - Source identity within that scope.
+   * @returns Current processing state and the latest matching execution, when present.
+   */
+  sourceState(scope, documentId) {
+    const doc = scope.store.entry(documentId);
+    if (!doc) {
+      fail('WIKI_NOT_FOUND', 404);
+    }
+    const db = this.database();
+    const event = db.db
+      .prepare(
+        'SELECT sequence,status,change_type FROM knowledge_outbox WHERE scope_id=? AND document_id=? AND source_version=?',
+      )
+      .get(scope.identity, documentId, doc.version);
+    const row = db.db
+      .prepare(
+        "SELECT j.payload FROM knowledge_jobs j WHERE j.scope_id=? AND j.status!='deleted' AND json_extract(j.payload,'$.kind')='ingest' AND EXISTS (SELECT 1 FROM json_each(j.payload,'$.manifest') m WHERE json_extract(m.value,'$.id')=? AND json_extract(m.value,'$.version')=?) ORDER BY j.rowid DESC LIMIT 1",
+      )
+      .get(scope.identity, documentId, doc.version);
+    const job = row ? JSON.parse(row.payload) : null;
+    let processingStatus = job?.status || event?.status || 'needs_update';
+    if (event?.status === 'waiting_session') {
+      processingStatus = 'waiting_session';
+    } else if (
+      event?.status === 'pending' &&
+      ['manual', 'backfill', 'scheduled'].includes(event.change_type) &&
+      !ACTIVE.has(job?.status)
+    ) {
+      processingStatus = 'queued';
+    }
+    if (
+      ['pending', 'deferred', 'skipped', 'superseded', 'not_processed'].includes(processingStatus)
+    ) {
+      processingStatus = 'needs_update';
+    }
+    if (processingStatus === 'completed' && job?.candidateId) {
+      const candidate = db.candidate(scope.identity, job.candidateId);
+      processingStatus = candidate.status === 'pending' ? 'pending_review' : candidate.status;
+    }
+    const failure = db.db
+      .prepare(
+        "SELECT payload FROM knowledge_wiki_events WHERE scope_id=? AND document_id=? AND stage='auto_failed' ORDER BY sequence DESC LIMIT 1",
+      )
+      .get(scope.identity, documentId);
+    return {
+      documentId,
+      sourceVersion: doc.version,
+      processingStatus,
+      jobId: job?.id || null,
+      error:
+        processingStatus === 'failed'
+          ? job?.error || (failure ? JSON.parse(failure.payload).error : null)
+          : null,
+    };
+  }
+  /**
+   * List current, readable source versions not yet compiled by a completed ingestion.
+   * @param scope - Authorized knowledge scope.
+   * @returns One row per document, excluding obsolete versions and unavailable sources.
+   */
+  pendingDocuments(scope) {
+    return this.database()
+      .db.prepare(
+        "SELECT d.id,d.version,o.status,o.change_type FROM documents d JOIN sources s ON s.scope_id=d.scope_id AND s.path=d.path LEFT JOIN knowledge_outbox o ON o.scope_id=d.scope_id AND o.document_id=d.id AND o.source_version=d.version WHERE d.scope_id=? AND s.status='active' AND (o.status IS NULL OR o.status!='completed') ORDER BY d.id",
+      )
+      .all(scope.identity);
+  }
+  /**
+   * Describe the manual update backlog without starting a model or reading source bodies.
+   * @param scope - Authorized knowledge scope.
+   * @returns Counts of current source documents and the scope's persisted execution state.
+   */
+  async updateStatus(scope) {
+    const documents = this.pendingDocuments(scope);
+    const running =
+      this.preparing.has(scope.identity) ||
+      !!this.database()
+        .db.prepare(
+          "SELECT 1 FROM knowledge_jobs WHERE scope_id=? AND status IN ('queued','running','cancelling') LIMIT 1",
+        )
+        .get(scope.identity);
+    return {
+      pendingCount: documents.length,
+      failedCount: documents.filter((doc) => doc.status === 'failed').length,
+      queuedCount: documents.filter(
+        (doc) =>
+          ['manual', 'backfill', 'scheduled'].includes(doc.change_type) &&
+          ['pending', 'queued', 'running', 'waiting_session'].includes(doc.status),
+      ).length,
+      waitingSession: documents.some((doc) => doc.status === 'waiting_session'),
+      running,
+      autoManage: (await this.settings()).autoManage,
+    };
+  }
+  /**
+   * Queue the current backlog explicitly; later saves do not expand this batch.
+   * @param scope - Authorized knowledge scope.
+   * @param sessionId - The user's selected parent session, when available.
+   * @param schedule - Host-owned daily dispatch metadata; ordinary callers omit it.
+   * @returns Current queue counts. A missing session leaves an explicit waiting state.
+   */
+  async update(scope, sessionId, schedule) {
+    if (this.closed || this.closing) {
+      fail('WIKI_CLOSED', 503);
+    }
+    const documents = this.pendingDocuments(scope);
+    const admitted = this.database().transaction(() => {
+      if (schedule) {
+        schedule.assertActive();
+        if (!this.database().recordDailyRun(scope.identity, schedule, documents.length)) {
+          return false;
+        }
+        this.database().event(
+          scope.identity,
+          documents.length ? 'schedule_triggered' : 'schedule_no_changes',
+          {
+            day: schedule.day,
+            time: schedule.time,
+            timeZone: schedule.timeZone,
+            documentCount: documents.length,
+          },
+        );
+      }
+      const insert = this.database().db.prepare(
+        "INSERT INTO knowledge_outbox(scope_id,document_id,source_version,change_type,status) VALUES (?,?,?,?,'pending') ON CONFLICT(scope_id,document_id,source_version) DO UPDATE SET change_type=excluded.change_type,status='pending'",
+      );
+      for (const doc of documents) {
+        insert.run(scope.identity, doc.id, doc.version, schedule ? 'scheduled' : 'manual');
+      }
+      this.database().event(scope.identity, 'update_requested', {
+        documentCount: documents.length,
+        trigger: schedule ? 'daily' : 'manual',
+      });
+      return true;
+    });
+    if (admitted) {
+      await this.consume(scope, sessionId);
+    }
+    return this.updateStatus(scope);
+  }
+  /**
+   * Debounce optional automatic compilation; newer source events reset the quiet period.
+   * @param scope - Scope owning the timer and subsequent task.
+   * @param sessionId - Selected session, validated again before execution.
+   * @param sequence - Latest observed source event.
+   * @param delay - Configured quiet period in milliseconds.
+   * @returns No value. Plugin shutdown clears the timer and awaits any started consumption.
+   */
+  scheduleAutomatic(scope, sessionId, sequence, delay) {
+    const previous = this.autoTimers.get(scope.identity);
+    if (previous && previous.sequence >= sequence) {
+      return;
+    }
+    clearTimeout(previous?.timer);
+    const timer = setTimeout(() => {
+      this.autoTimers.delete(scope.identity);
+      if (!this.closing) {
+        this.track(
+          this.consume(scope, sessionId, true).catch((error) => {
+            if (!this.closing) {
+              this.database().event(
+                scope.identity,
+                'auto_failed',
+                { error: errorInfo(error) },
+                'error',
+              );
+            }
+          }),
+        );
+      }
+    }, delay);
+    timer.unref?.();
+    this.autoTimers.set(scope.identity, { sequence, timer });
+  }
+  async consume(scope, sessionId, automaticReady = false) {
     if (this.closed || this.closing || this.consuming.has(scope.identity)) {
       return;
     }
@@ -99,28 +320,54 @@ export class WikiService {
     try {
       const database = this.database();
       const settings = await this.settings();
-      for (const event of database.outbox(scope.identity)) {
-        if (!settings.autoManage && event.change_type !== 'backfill') {
-          database.eventState(event.sequence, 'skipped');
-          database.append(scope.identity, 'auto_skipped', {
-            documentId: event.document_id,
-            reason: 'disabled',
-          });
-          continue;
+      if (settings.autoManage) {
+        database.db
+          .prepare(
+            "UPDATE knowledge_outbox SET status='pending' WHERE scope_id=? AND status IN ('deferred','skipped')",
+          )
+          .run(scope.identity);
+        if (automaticReady) {
+          database.db
+            .prepare(
+              "UPDATE knowledge_outbox SET change_type='automatic_ready' WHERE scope_id=? AND status='pending' AND change_type NOT IN ('manual','backfill','scheduled')",
+            )
+            .run(scope.identity);
         }
+      }
+      for (const event of database.outbox(scope.identity)) {
+        const explicit = ['manual', 'backfill', 'scheduled'].includes(event.change_type);
         const entry = scope.store.entry(event.document_id);
         if (!entry || entry.version !== event.source_version) {
           database.eventState(event.sequence, 'superseded');
           continue;
         }
+        if (!settings.autoManage && !explicit) {
+          database.eventState(event.sequence, 'deferred');
+          database.append(scope.identity, 'update_deferred', {
+            documentId: event.document_id,
+            reason: 'manual_update',
+          });
+          database.event(scope.identity, 'update_deferred', { documentId: event.document_id });
+          continue;
+        }
+        if (
+          !explicit &&
+          event.change_type !== 'automatic_ready' &&
+          !automaticReady &&
+          settings.autoManageDelayMs > 0
+        ) {
+          this.scheduleAutomatic(scope, sessionId, event.sequence, settings.autoManageDelayMs);
+          continue;
+        }
         if (!(await this.parent(scope, sessionId))) {
           database.eventState(event.sequence, 'waiting_session');
+          database.event(scope.identity, 'waiting_session', { documentId: entry.id });
           continue;
         }
         try {
           const job = await this.start(
             scope,
-            { kind: 'ingest', documentIds: [entry.id] },
+            { kind: 'ingest', documentIds: [entry.id], trigger: event.change_type },
             sessionId,
             event.sequence,
           );
@@ -136,6 +383,15 @@ export class WikiService {
             documentId: entry.id,
             error: errorInfo(error),
           });
+          database.event(
+            scope.identity,
+            'auto_failed',
+            {
+              documentId: entry.id,
+              error: errorInfo(error),
+            },
+            'error',
+          );
         }
       }
     } finally {
@@ -319,6 +575,7 @@ export class WikiService {
         version: doc.version,
         kind: doc.kind,
         status: doc.status,
+        ...(doc.kind === 'wiki' ? { pageId: doc.pageId } : {}),
         optional: !!doc.optional,
       })),
     };
@@ -445,7 +702,10 @@ export class WikiService {
     if (this.closing) {
       fail('WIKI_CLOSED', 503);
     }
-    bounded({ documents, prompt: prepared.fullPrompt }, settings.maxInputBytes);
+    bounded(
+      { documents, prompt: prepared.fullPrompt, skill: prepared.skillDefinition },
+      settings.maxInputBytes,
+    );
     const job = {
       id: randomUUID(),
       scopeId: scope.identity,
@@ -469,12 +729,17 @@ export class WikiService {
       instruction: input.instruction || '',
       input: { ...input },
       createdAt: now(),
-      skillName: prepared.skillUsed,
+      skillName: prepared.requestedSkill || null,
       skillStatus: prepared.skillStatus,
       promptHash: digest(prepared.fullPrompt),
       skillHash: prepared.skillContent ? digest(prepared.skillContent) : null,
     };
     this.database().saveJob(job);
+    this.database().event(scope.identity, 'queued', {
+      jobId: job.id,
+      kind: job.kind,
+      sourceVersions: job.manifest.map(({ id, version }) => ({ id, version })),
+    });
     this.active.set(scope.identity, { controller, job });
     const task = this.run(
       scope,
@@ -583,9 +848,14 @@ export class WikiService {
     timeout.unref?.();
     this.installation ||= installWikiTools(this.ctx);
     this.installation.add(runtime);
+    runtime.onEvent = (stage, detail = {}, level = 'info') => {
+      this.assertJob(job, signal);
+      this.database().event(scope.identity, stage, { ...detail, jobId: job.id }, level);
+    };
     try {
       job.status = 'running';
       this.database().saveJob(job);
+      runtime.onEvent('running', { kind: job.kind });
       const result = await this.runTask(this.ctx, this.ctx.llm, config, {
         promptKey: 'wiki-generate',
         variables,
@@ -597,9 +867,52 @@ export class WikiService {
         maxInputTokens: runtime.budget.limit,
         toolFilter: { allow: WIKI_TOOLS },
         description: 'ReqHub Wiki ' + job.kind,
+        liveness: { enabled: false },
+        callbacks: {
+          onProgress: ({ stage, sessionId, provider }) => {
+            this.assertJob(job, signal);
+            if (sessionId) {
+              job.sessionId = sessionId;
+              this.database().saveJob(job);
+            }
+            runtime.onEvent('executor_progress', { stage, sessionId, provider });
+          },
+        },
       });
+      job.skillStatus = result.skillStatus || 'not_bound';
+      job.skillName = result.skillUsed || result.requestedSkill || null;
+      job.sessionId = result.sessionId || job.sessionId || runtime.sessionId || null;
+      job.execution = {
+        sessionId: job.sessionId,
+        elapsedMs: Number.isFinite(result.elapsed) ? result.elapsed : null,
+        stopReason: result.stopReason || null,
+        errorCode: result.errorCode || null,
+        diagnostic: typeof result.diagnostic === 'string' ? result.diagnostic.slice(0, 4000) : null,
+        diagnosticTruncated: (result.diagnostic?.length || 0) > 4000,
+        submitted: !!runtime.result,
+      };
+      runtime.onEvent('executor_finished', job.execution, result.isError ? 'error' : 'info');
+      for (const warning of result.warnings || []) {
+        runtime.onEvent(
+          'executor_warning',
+          {
+            code: warning.code,
+            message: typeof warning.message === 'string' ? warning.message.slice(0, 2000) : null,
+            messageTruncated: (warning.message?.length || 0) > 2000,
+          },
+          'warn',
+        );
+      }
       if (result.isError || !runtime.result) {
-        fail('WIKI_RESULT_INCOMPLETE', 422);
+        const cause = runtime.outputFailure || runtime.failure || runtime.submissionFailure;
+        if (cause) {
+          throw cause;
+        }
+        fail(
+          result.isError ? 'WIKI_EXECUTION_FAILED' : 'WIKI_RESULT_INCOMPLETE',
+          422,
+          job.execution,
+        );
       }
       job.manifest = runtime.documents
         .filter((doc) => doc.snapshotId)
@@ -612,6 +925,7 @@ export class WikiService {
           scopeId,
           hash: digest(body),
         }));
+      runtime.onEvent('verifying');
       await this.verify(scope, job, signal);
       this.assertJob(job, signal);
       const output = runtime.result;
@@ -733,6 +1047,13 @@ export class WikiService {
           this.database().eventState(inputEvent(job), 'completed');
         }
       });
+      this.database().event(scope.identity, 'generated', {
+        jobId: job.id,
+        candidateId: job.candidateId,
+        pages: output.pages?.length || 0,
+        summaries: output.summaries?.length || 0,
+        refs: output.refs?.length || 0,
+      });
       if (job.kind === 'ingest' && job.candidateId) {
         const candidate = this.database().candidate(scope.identity, job.candidateId);
         if (
@@ -755,6 +1076,16 @@ export class WikiService {
           signal.aborted && signal.reason?.message !== 'WIKI_TIMEOUT' ? 'cancelled' : 'failed';
         job.error = errorInfo(signal.reason || error);
         this.database().saveJob(job);
+        this.database().event(
+          scope.identity,
+          job.status,
+          {
+            jobId: job.id,
+            error: job.error,
+            sessionId: job.sessionId || runtime.sessionId || null,
+          },
+          job.status === 'failed' ? 'error' : 'warn',
+        );
         if (inputEvent(job)) {
           this.database().eventState(inputEvent(job), job.status);
         }
@@ -767,6 +1098,13 @@ export class WikiService {
   stage(scope, job, result, settings) {
     const db = this.database();
     const pages = (result.pages || []).map((proposal) => {
+      if (proposal.pageId) {
+        const target = findWikiPage(job.manifest, proposal.pageId);
+        if (!target) {
+          fail('WIKI_TARGET_NOT_READ', 422, { pageId: proposal.pageId });
+        }
+        proposal = { ...proposal, pageId: target.pageId };
+      }
       let existing = proposal.pageId
         ? db.page(scope.identity, proposal.pageId)
         : db.db
@@ -884,17 +1222,26 @@ export class WikiService {
         });
       }
       for (const ref of candidate.refs) {
-        const resolve = (key) =>
-          pageIds.get(key) ||
-          db.db
+        const resolve = (key) => {
+          const normalized = findWikiPage(candidate.manifest, key)?.pageId || key;
+          if (pageIds.has(normalized)) {
+            return pageIds.get(normalized);
+          }
+          const pageId = db.db
             .prepare(
               'SELECT id FROM knowledge_wiki_pages WHERE scope_id=? AND (id=? OR entity_key=?)',
             )
-            .get(scope.identity, key, key)?.id;
+            .get(scope.identity, normalized, normalized)?.id;
+          return pageId && findWikiPage(candidate.manifest, pageId) ? pageId : undefined;
+        };
         const from = resolve(ref.fromKey);
         const to = resolve(ref.toKey);
         if (!from || !to) {
-          fail('WIKI_REFERENCE_INVALID', 422);
+          fail('WIKI_REFERENCE_INVALID', 422, {
+            fromKey: ref.fromKey,
+            toKey: ref.toKey,
+            reason: 'relation_target_must_be_generated_or_frozen_in_this_scope',
+          });
         }
         const key = digest([scope.identity, from, to, ref.refType]);
         const evidenceHash = digest([ref.evidence, ref.codeEvidence || null]);
@@ -936,6 +1283,7 @@ export class WikiService {
       candidate.version++;
       db.saveCandidate(candidate);
       db.append(scope.identity, 'candidate_published', { id, actor });
+      db.event(scope.identity, 'published', { jobId: candidate.jobId, candidateId: id, actor });
       return { status: 'succeeded', pageIds: [...new Set(pageIds.values())] };
     });
     try {
@@ -1167,6 +1515,7 @@ export class WikiService {
         job.epoch = randomUUID();
       }
       this.database().saveJob(job);
+      this.database().event(scope.identity, 'cancelling', { jobId: id }, 'warn');
     }
     if (remove && job.status !== 'deleted') {
       job.status = 'deleted';
@@ -1216,6 +1565,7 @@ export class WikiService {
       this.database().append(scope.identity, 'projection_failed', {
         code: 'WIKI_PROJECTION_FAILED',
       });
+      this.database().event(scope.identity, 'projection_failed', {}, 'error');
       throw error;
     });
   }
@@ -1272,6 +1622,11 @@ export class WikiService {
   }
   beginClose() {
     this.closing = true;
+    this.dailyScheduler?.beginClose();
+    for (const { timer } of this.autoTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.autoTimers.clear();
     for (const controller of this.preparationControllers) {
       controller.abort(new Error('WIKI_CLOSED'));
     }
@@ -1282,6 +1637,7 @@ export class WikiService {
   close() {
     return (this.closePromise ||= (async () => {
       this.beginClose();
+      await this.dailyScheduler?.close();
       await Promise.allSettled([...this.tasks]);
       await this.installation?.dispose();
       this.closed = true;

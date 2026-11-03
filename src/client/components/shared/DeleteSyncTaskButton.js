@@ -54,7 +54,7 @@ function DeleteSyncTaskButton({ task, onDeleted, scope = 'attempt' }) {
       className: 'rh-btn rh-btn-ghost rh-btn-sm',
       disabled: busy,
       onClick: remove,
-      title: t(scope === 'task' ? 'sync.storage.deleteTask' : 'sync.storage.deleteAttempt'),
+      title: t(scope === 'task' ? 'sync.storage.deleteTaskHint' : 'sync.storage.deleteAttemptHint'),
       'aria-label': t(scope === 'task' ? 'sync.storage.deleteTask' : 'sync.storage.deleteAttempt'),
     },
     busy

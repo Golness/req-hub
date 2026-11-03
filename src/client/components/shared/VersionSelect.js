@@ -2,6 +2,7 @@
 const { t } = require('../../locale.js');
 const React = require('react');
 const { Select } = require('./Select.js');
+const css = require('./VersionSelect.module.css').default;
 const h = React.createElement;
 
 /**
@@ -19,11 +20,12 @@ function VersionSelect({ label, versions, value, onChange }) {
   };
   return h(
     'div',
-    { className: 'rh-version-select' },
+    { className: `rh-version-select ${css.field}` },
     h('label', { className: 'rh-version-label', htmlFor: id }, label),
     h(Select, {
       id,
       className: 'rh-version-picker',
+      menuClassName: css.menu,
       value,
       onChange: (event) => onChange(event.target.value),
       disabled: !versions.length,

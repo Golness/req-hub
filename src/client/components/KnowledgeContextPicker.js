@@ -9,28 +9,20 @@ const { Input } = require('./shared/Input.js');
 const css = require('./KnowledgeContextPicker.module.css').default;
 const h = React.createElement;
 /**
- * Select exact-version knowledge references for the current operation.
- * @param props - Data, state and callbacks supplied by the owning surface.
- * @returns The rendered component content.
+ * Select knowledge scopes for automatic retrieval by the existing Host sync pipeline.
+ * @param props - Workspace, selected scope IDs, selection callback and disabled state.
+ * @returns A searchable optional scope selector; search never changes the selection.
  */
-function KnowledgeContextPicker({
-  workspaceId,
-  scopeIds,
-  onChange,
-  query,
-  onQueryChange,
-  disabled,
-}) {
+function KnowledgeContextPicker({ workspaceId, scopeIds, onChange, disabled, embedded = false }) {
   const [scopes, setScopes] = React.useState([]);
   const [error, setError] = React.useState('');
   const [revision, setRevision] = React.useState(0);
-  const [hits, setHits] = React.useState(null);
-  const [busy, setBusy] = React.useState(false);
-  const controller = React.useRef(null);
+  const [search, setSearch] = React.useState('');
+  const [loading, setLoading] = React.useState(true);
   React.useEffect(() => {
     const abort = new AbortController();
-    controller.current = abort;
     setError('');
+    setLoading(true);
     fetch(`${ROUTE}/writing/options`, { signal: abort.signal })
       .then(async (res) => {
         if (!res.ok) {
@@ -50,107 +42,82 @@ function KnowledgeContextPicker({
         if (!abort.signal.aborted) {
           setError(t('enhancement.contextError'));
         }
+      })
+      .finally(() => {
+        if (!abort.signal.aborted) {
+          setLoading(false);
+        }
       });
     return () => abort.abort();
   }, [workspaceId, revision]);
-  const recommend = async () => {
-    setBusy(true);
-    setError('');
-    try {
-      const params = new URLSearchParams({
-        workspaceId,
-        recommendQuery: query,
-        scopeIds: JSON.stringify(scopeIds),
-      });
-      const response = await fetch(`${ROUTE}/knowledge/enhancements/jobs?${params}`, {
-        signal: controller.current.signal,
-      });
-      const value = await response.json();
-      if (!response.ok) {
-        throw new Error();
-      }
-      if (!controller.current.signal.aborted) {
-        setHits(value.hits);
-      }
-    } catch {
-      if (!controller.current.signal.aborted) {
-        setError(t('enhancement.contextError'));
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
+  const visibleScopes = scopes.filter((scope) =>
+    scope.title.toLowerCase().includes(search.trim().toLowerCase()),
+  );
   return h(
-    Disclosure,
-    { className: css.notice, title: t('enhancement.contextTitle', { count: scopeIds.length }) },
+    'section',
+    { className: embedded ? css.embedded : css.notice },
     h(
-      'div',
-      { className: `${css.formStack} ${css.contextBody}` },
-      h('p', { className: css.muted }, t('enhancement.contextHelp')),
+      Disclosure,
+      { title: t('enhancement.contextTitle', { count: scopeIds.length }) },
       h(
         'div',
-        { className: css.toolbar },
-        scopes.map((scope) =>
-          h(Checkbox, {
-            key: scope.id,
-            disabled,
-            checked: scopeIds.includes(scope.id),
-            label: scope.title,
-            onChange: (checked) =>
-              onChange(
-                checked ? [...scopeIds, scope.id] : scopeIds.filter((id) => id !== scope.id),
-              ),
-          }),
-        ),
+        { className: `${css.formStack} ${css.contextBody}` },
+        h(Input, {
+          className: css.search,
+          value: search,
+          disabled,
+          'aria-label': t('sync.knowledge.search'),
+          placeholder: t('sync.knowledge.search'),
+          onChange: (event) => setSearch(event.target.value),
+        }),
         h(
-          Button,
-          {
-            size: 'sm',
-            disabled: disabled || busy,
-            onClick: () => setRevision((value) => value + 1),
-          },
-          t('enhancement.refresh'),
+          'div',
+          { className: css.toolbar },
+          h(
+            Button,
+            { size: 'sm', disabled: disabled || !scopeIds.length, onClick: () => onChange([]) },
+            t('sync.knowledge.clear'),
+          ),
+          h(
+            Button,
+            {
+              size: 'sm',
+              disabled: disabled || loading,
+              onClick: () => setRevision((value) => value + 1),
+            },
+            t('enhancement.refresh'),
+          ),
         ),
-      ),
-      h(Input, {
-        value: query,
-        disabled,
-        maxLength: 500,
-        'aria-label': t('enhancement.contextQuery'),
-        placeholder: t('enhancement.contextQuery'),
-        onChange: (event) => onQueryChange(event.target.value),
-      }),
-      h(
-        'div',
-        { className: css.toolbar },
-        h(
-          Button,
-          {
-            size: 'sm',
-            disabled: disabled || busy || !scopeIds.length || !query.trim(),
-            onClick: recommend,
-          },
-          t('enhancement.recommend'),
-        ),
-      ),
-      error && h('p', { role: 'alert', className: css.error }, error),
-      hits &&
+        loading && h('p', { role: 'status', className: css.muted }, t('common.loading')),
+        error && h('p', { role: 'alert', className: css.error }, error),
         h(
           'div',
           { className: css.list },
-          hits.length
-            ? hits.map((hit) =>
-                h(
-                  'div',
-                  { key: hit.id, className: css.row },
-                  h('p', null, hit.title),
-                  h('p', { className: css.muted }, `${hit.path} · v${hit.version}`),
-                  h('p', null, hit.snippet),
+          visibleScopes.map((scope) =>
+            h(Checkbox, {
+              key: scope.id,
+              className: css.row,
+              disabled: disabled || loading,
+              checked: scopeIds.includes(scope.id),
+              label: scope.title,
+              onChange: (checked) =>
+                onChange(
+                  checked ? [...scopeIds, scope.id] : scopeIds.filter((id) => id !== scope.id),
                 ),
-              )
-            : h('p', null, t('enhancement.noHits')),
+            }),
+          ),
         ),
+        !loading &&
+          !error &&
+          !visibleScopes.length &&
+          h(
+            'p',
+            { className: css.muted },
+            t(scopes.length ? 'sync.knowledge.noMatch' : 'sync.knowledge.empty'),
+          ),
+      ),
     ),
+    h('p', { className: `${css.muted} ${css.description}` }, t('sync.knowledge.help')),
   );
 }
 module.exports = { KnowledgeContextPicker };

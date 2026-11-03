@@ -73,3 +73,84 @@ it('records partial selections independently and leaves unselected commits avail
  expect((await prepareCommitSync(repo,requirementId,'requirement',history,{baseBranch:'main'})).skipped).not.toBe(true);
  expect(history.map(h=>h.selectedCommitHashes)).toEqual([[last],[first]]);
 });
+
+it('reads the current local branch again after switching branches', async () => {
+  expect((await get('git-branch?workspaceId=ws')).data.branch).toBe(branch);
+  git('switch', 'main');
+  expect((await get('git-branch?workspaceId=ws')).data.branch).toBe('main');
+});
+
+it('includes reference content and path in design sync identity while keeping quick sequence IDs irrelevant', async () => {
+  const reference = { path: 'requirement.md', sourceHash: 'version-one', syncId: 'first-round' };
+  const options = { baseBranch: 'main', includeWorkingChanges: false, designReference: reference };
+  const initial = await prepareCommitSync(repo, requirementId, 'design', [], options);
+  const history = [
+    {
+      ...initial,
+      schemaVersion: 2,
+      docType: 'design',
+      status: 'completed',
+      publishState: 'state_committed',
+      designReference: reference,
+    },
+  ];
+  expect(
+    (
+      await prepareCommitSync(repo, requirementId, 'design', history, {
+        ...options,
+        designReference: { ...reference, syncId: 'second-round' },
+      })
+    ).skipped,
+  ).toBe(true);
+  const changed = await prepareCommitSync(repo, requirementId, 'design', history, {
+    ...options,
+    designReference: { ...reference, sourceHash: 'version-two' },
+  });
+  expect(changed.skipped).not.toBe(true);
+  expect(changed.selectionKey).not.toBe(initial.selectionKey);
+  expect(
+    (
+      await prepareCommitSync(repo, requirementId, 'design', history, {
+        ...options,
+        designReference: { ...reference, path: 'other.md' },
+      })
+    ).selectionKey,
+  ).not.toBe(initial.selectionKey);
+});
+it('offers matching feature branches from the selected workspace without modifying Git state', async () => {
+  const other = 'feature/alice/2026-11-02-payments';
+  git('branch', other);
+  git('branch', 'unrelated-branch');
+  await writeFile(join(repo, 'local.js'), 'LOCAL_ONLY');
+  await get('sync-branches?workspaceId=ws&query=not-found');
+  const gitState = () => ({
+    branch: git('branch', '--show-current'),
+    head: git('rev-parse', 'HEAD'),
+    status: git('status', '--porcelain=v1'),
+    index: git('ls-files', '--stage'),
+  });
+  const before = gitState();
+  const result = await get('sync-branches?workspaceId=ws&query=PAYMENTS');
+  expect(result.status).toBe(200);
+  expect(result.data.branches).toEqual([other]);
+  const all = await get('sync-branches?workspaceId=ws');
+  expect(all.data.branches).toContain(branch);
+  expect(all.data.branches).not.toContain('main');
+  expect(all.data.branches).not.toContain('unrelated-branch');
+  expect((await get('sync-branches?workspaceId=other')).status).toBe(404);
+  expect(gitState()).toEqual(before);
+});
+
+it('rejects branch suggestions inherited from a parent repository', async () => {
+  const nested = join(repo, 'nested');
+  await mkdir(nested);
+  const original = repo;
+  repo = nested;
+  try {
+    const result = await get('sync-branches?workspaceId=ws');
+    expect(result.status).toBe(400);
+    expect(result.data.error).toBe('SYNC_WORKSPACE_REPOSITORY_MISMATCH');
+  } finally {
+    repo = original;
+  }
+});

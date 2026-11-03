@@ -230,6 +230,8 @@ function PromptManager({
                 ),
               ),
               meta.description && h('p', { className: 'rh-prompt-description' }, meta.description),
+              meta.generatesFileContent &&
+                h('p', { className: 'rh-prompt-description' }, t('prompt.nativeSkillHelp')),
               h(
                 'div',
                 { className: 'rh-prompt-skill' },

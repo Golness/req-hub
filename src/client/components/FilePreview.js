@@ -3,6 +3,10 @@ const { t } = require('../locale.js');
 const css = require('./FilePreview.module.css').default;
 const { cssValue } = require('./shared/presentation.js');
 const { Button } = require('./shared/Button.js');
+const { KnowledgeAssistant } = require('./shared/KnowledgeAssistant.js');
+const { useKnowledgeAssistant } = require('../hooks/useKnowledgeAssistant.js');
+const { WikiSaveStatus } = require('./WikiSaveStatus.js');
+const { SessionSelectionContext } = require('../context.js');
 
 const React = require('react');
 const { createPortal } = require('react-dom');
@@ -33,6 +37,7 @@ const { showToast } = require('./shared/ToastContainer.js');
  * @param {Function} props.onBack - Callback invoked to navigate back from the preview
  * @param {boolean} props.showToc - Whether to show table of contents
  * @param {Function} props.onToggleToc - Callback to toggle table of contents visibility
+ * @param {React.ReactNode} [props.assist] - Knowledge tools shown beside the document or in a drawer.
  * @param {HTMLElement|null} [props.toolbarTarget] - Header container following the breadcrumb
  * @returns {JSX.Element} A file preview with header, content area, and optional TOC sidebar
  */
@@ -46,6 +51,8 @@ function FilePreview({
   onToggleToc,
   toolbarTarget,
   onSaved,
+  onOpenWikiEvents,
+  onOpenWikiUpdate,
   onDirtyChange,
   active = true,
   sourceUrl,
@@ -61,6 +68,10 @@ function FilePreview({
   const [editContent, setEditContent] = useState('');
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
+  const [wikiReceipt, setWikiReceipt] = useState(null);
+  const currentSession = React.useContext(SessionSelectionContext);
+  useEffect(() => setWikiReceipt(null), [workspaceId, relPath]);
+  const assistant = useKnowledgeAssistant(active);
   const previewBodyRef = useRef(null);
   const mermaidInitRef = useRef(false);
   const isResizingRef = useRef(false);
@@ -88,7 +99,10 @@ function FilePreview({
     try {
       const res = await fetch(`${ROUTE}/write`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(currentSession() ? { 'x-session-id': currentSession() } : {}),
+        },
         body: JSON.stringify({
           workspaceId,
           path: relPath,
@@ -97,6 +111,7 @@ function FilePreview({
       });
       const data = await res.json();
       if (data.success) {
+        setWikiReceipt(data.wiki || null);
         setText(editContent);
         setLastSaved(new Date());
         onSaved?.();
@@ -292,47 +307,65 @@ function FilePreview({
     };
   }, []);
 
+  // TOC toggle button (only for markdown with headings)
+  const tocToggle =
+    isMd &&
+    !editMode &&
+    headings.length > 0 &&
+    h(
+      Button,
+      {
+        className: `rh-btn rh-btn-secondary rh-btn-sm rh-toc-toggle ${css.tocToggle}`,
+        onClick: onToggleToc,
+        title: showToc ? t('FilePreview.message015') : t('FilePreview.message016'),
+        'aria-expanded': !!showToc,
+      },
+      showToc ? t('FilePreview.message017') : t('FilePreview.message018'),
+    );
+
   // Edit toolbar
   const editToolbar =
-    isEditable &&
+    (isEditable || assist) &&
     h(
       'div',
       {
         className: `rh-edit-toolbar${toolbarTarget ? ' rh-edit-toolbar-header' : ''}`,
       },
-      isMd
-        ? h(
-            'div',
-            { role: 'group', 'aria-label': t('FilePreview.message004') },
-            [
-              [t('FilePreview.message005'), false],
-              [t('FilePreview.message006'), true],
-            ].map(([label, source]) =>
-              h(
-                Button,
-                {
-                  key: label,
-                  type: 'button',
-                  className: 'rh-btn rh-btn-ghost rh-btn-sm',
-                  'aria-pressed': editMode === source,
-                  onClick: () => setEditMode(source),
-                  title: source ? t('FilePreview.message007') : t('FilePreview.message008'),
-                },
-                label,
+      isEditable &&
+        (isMd
+          ? h(
+              'div',
+              { role: 'group', 'aria-label': t('FilePreview.message004') },
+              [
+                [t('FilePreview.message005'), false],
+                [t('FilePreview.message006'), true],
+              ].map(([label, source]) =>
+                h(
+                  Button,
+                  {
+                    key: label,
+                    type: 'button',
+                    className: 'rh-btn rh-btn-ghost rh-btn-sm',
+                    'aria-pressed': editMode === source,
+                    onClick: () => setEditMode(source),
+                    title: source ? t('FilePreview.message007') : t('FilePreview.message008'),
+                  },
+                  label,
+                ),
               ),
-            ),
-          )
-        : h(
-            Button,
-            {
-              className: 'rh-btn rh-btn-ghost rh-btn-sm',
-              onClick: () => setEditMode(!editMode),
-              title: editMode ? t('FilePreview.message009') : t('FilePreview.message010'),
-            },
-            editMode ? t('FilePreview.message005') : t('FilePreview.message006'),
-          ),
+            )
+          : h(
+              Button,
+              {
+                className: 'rh-btn rh-btn-ghost rh-btn-sm',
+                onClick: () => setEditMode(!editMode),
+                title: editMode ? t('FilePreview.message009') : t('FilePreview.message010'),
+              },
+              editMode ? t('FilePreview.message005') : t('FilePreview.message006'),
+            )),
 
-      (isMd || editMode) &&
+      isEditable &&
+        (isMd || editMode) &&
         h(
           Button,
           {
@@ -344,6 +377,18 @@ function FilePreview({
           saving ? t('FilePreview.message012') : t('common.save'),
         ),
 
+      assist &&
+        !assistant.pinned &&
+        h(
+          Button,
+          {
+            size: 'sm',
+            'aria-haspopup': assistant.mode === 'drawer' ? 'dialog' : undefined,
+            'aria-expanded': assistant.visible,
+            onClick: assistant.toggle,
+          },
+          t('writing.wikiAssistant'),
+        ),
       // Last saved time
       lastSaved &&
         h(
@@ -353,22 +398,6 @@ function FilePreview({
           },
           t('FilePreview.message014', { value0: lastSaved.toLocaleTimeString() }),
         ),
-    );
-
-  // TOC toggle button (only for markdown with headings)
-  const tocToggle =
-    isMd &&
-    !editMode &&
-    headings.length > 0 &&
-    h(
-      Button,
-      {
-        className: 'rh-btn rh-btn-secondary rh-btn-sm rh-toc-toggle' + ' ' + css.content,
-        onClick: onToggleToc,
-        title: showToc ? t('FilePreview.message015') : t('FilePreview.message016'),
-        style: { '--rh-right-0': cssValue(showToc ? tocWidth + 8 : 8) },
-      },
-      showToc ? t('FilePreview.message017') : t('FilePreview.message018'),
     );
 
   // Main content
@@ -389,7 +418,7 @@ function FilePreview({
   } else if (isMd) {
     if (editMode) {
       mainContent = h('textarea', {
-        className: 'rh-text-editor',
+        className: `rh-text-editor ${css.sourceEditor}`,
         'aria-label': t('FilePreview.message020'),
         value: editContent,
         onChange: (event) => setEditContent(event.target.value),
@@ -409,7 +438,7 @@ function FilePreview({
   } else if (isJson) {
     if (editMode) {
       mainContent = h('textarea', {
-        className: 'rh-json-editor' + ' ' + css.section,
+        className: `rh-json-editor ${css.section} ${css.sourceEditor}`,
         value: editContent,
         onChange: (e) => setEditContent(e.target.value),
         spellCheck: false,
@@ -430,7 +459,7 @@ function FilePreview({
     }
   } else if (editMode) {
     mainContent = h('textarea', {
-      className: 'rh-text-editor' + ' ' + css.section,
+      className: `rh-text-editor ${css.section} ${css.sourceEditor}`,
       value: editContent,
       onChange: (e) => setEditContent(e.target.value),
       spellCheck: false,
@@ -465,29 +494,54 @@ function FilePreview({
       }),
     );
 
-  // Keep local tools in a real row so they never cover document contents.
+  // Anchor the TOC control to the document viewport, outside adjacent sidebars.
   return h(
     'div',
-    { className: 'rh-file-preview' },
+    { className: `rh-file-preview ${css.preview}`, ref: assistant.ref },
     toolbarTarget ? createPortal(editToolbar, toolbarTarget) : editToolbar,
-    tocToggle,
+    h(WikiSaveStatus, {
+      receipt: wikiReceipt,
+      workspaceId,
+      active,
+      onOpenEvents: onOpenWikiEvents,
+      onOpenUpdate: onOpenWikiUpdate,
+    }),
     h(
       'div',
       { className: 'rh-file-preview-content' },
       h(
         'div',
-        { ref: previewBodyRef, className: 'rh-preview-body' + ' ' + css.pane2 },
-        isExtracted &&
-          h(
-            'div',
-            { className: 'rh-op-info', role: 'status' },
-            t('FilePreview.message021'),
-            parseWarnings.length > 0 && h('div', null, parseWarnings.join('；')),
-          ),
-        mainContent,
-        assist,
+        { className: css.documentArea },
+        h(
+          'div',
+          {
+            ref: previewBodyRef,
+            className: `rh-preview-body ${css.pane2}${editMode ? ` ${css.editingBody}` : ''}`,
+          },
+          isExtracted &&
+            h(
+              'div',
+              { className: 'rh-op-info', role: 'status' },
+              t('FilePreview.message021'),
+              parseWarnings.length > 0 && h('div', null, parseWarnings.join('；')),
+            ),
+          mainContent,
+        ),
+        tocToggle,
       ),
       tocSidebar,
+      assist &&
+        assistant.visible &&
+        h(
+          KnowledgeAssistant,
+          {
+            title: t('writing.wikiAssistant'),
+            open: assistant.open,
+            pinned: assistant.pinned,
+            onClose: assistant.close,
+          },
+          assist,
+        ),
     ),
   );
 }

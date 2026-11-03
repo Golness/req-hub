@@ -19,3 +19,43 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.tabBar,
+.sourceTabs,
+.toolbar,
+.sourceActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+.tabBar {
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.sourceTab[aria-selected='true'] {
+  background: var(--dsw-alias-bg-layer-2);
+}
+.sourceActions[hidden],
+.sourcePanel[hidden] {
+  display: none;
+}
+.sourcePanel {
+  min-width: 0;
+}
+.embedded:global(.rh-sync-source-section) {
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+}
+.embedded :global(.rh-search-input) {
+  min-height: 36px;
+  width: 100%;
+}
+.embedded :global(.rh-sync-section-heading) {
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}

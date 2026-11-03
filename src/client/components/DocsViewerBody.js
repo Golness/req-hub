@@ -34,7 +34,7 @@ const { RequirementDirModal } = require('./RequirementDirModal.js');
 const { FileTreeSidebar } = require('./FileTreeSidebar.js');
 const { ConfirmModal } = require('./ConfirmModal.js'); // Retained for the legacy confirmation path; new actions use showConfirm().
 const { KnowledgePanel } = require('./KnowledgePanel.js');
-const { KnowledgeTabs } = require('./KnowledgeTabs.js');
+const { KnowledgeTabs, KnowledgeSecondaryTabs } = require('./KnowledgeTabs.js');
 const { useKnowledge } = require('../hooks/useKnowledge.js');
 const { SearchPanel } = require('./SearchPanel.js');
 const { EmptyState } = require('./shared/EmptyState.js');
@@ -139,12 +139,16 @@ function DocsViewerBody({
   const [creationStatus, setCreationStatus] = useState(null);
   const [creationNotice, setCreationNotice] = useState(null);
   const createRequest = useRef(null);
+  const locateRequest = useRef(null);
+  const [creationRefresh, setCreationRefresh] = useState(0);
+  useEffect(() => () => locateRequest.current?.abort(), []);
   useEffect(() => {
     const controller = new AbortController();
     setCreationStatus(null);
     setCreationNotice(null);
     fetch(`${ROUTE}/create-status?workspaceId=${encodeURIComponent(workspace.id)}`, {
       signal: controller.signal,
+      cache: 'no-store',
     })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -159,7 +163,7 @@ function DocsViewerBody({
       controller.abort();
       createRequest.current?.abort();
     };
-  }, [workspace.id, docsDir, selectedReq?.id]);
+  }, [workspace.id, docsDir, selectedReq?.id, creationRefresh]);
   const openCreation = async () => {
     createRequest.current?.abort();
     const controller = new AbortController();
@@ -167,7 +171,7 @@ function DocsViewerBody({
     try {
       const res = await fetch(
         `${ROUTE}/create-status?workspaceId=${encodeURIComponent(workspace.id)}`,
-        { signal: controller.signal },
+        { signal: controller.signal, cache: 'no-store' },
       );
       if (!res.ok) {
         throw new Error('CREATE_FAILED');
@@ -182,6 +186,7 @@ function DocsViewerBody({
         return;
       }
       setShowFileTree(false);
+      setCreationRefresh((value) => value + 1);
       setActivePanel('create');
     } catch {
       if (!controller.signal.aborted) {
@@ -497,6 +502,15 @@ function DocsViewerBody({
   };
 
   const handleLocateSessionReq = async () => {
+    locateRequest.current?.abort();
+    const controller = new AbortController();
+    locateRequest.current = controller;
+    const { signal } = controller;
+    const locateFetch = async (url, options = {}) => {
+      const response = await fetch(url, { ...options, cache: 'no-store', signal });
+      signal.throwIfAborted();
+      return response;
+    };
     console.log(t('DocsViewerBody.message006'));
     try {
       const ctx = window.__DSH_CTX__;
@@ -521,30 +535,15 @@ function DocsViewerBody({
         console.error(t('DocsViewerBody.message009'), e);
       }
 
-      // Use the latest root session only when the current selection is unavailable.
-      if (!currentSessionId) {
-        try {
-          const sessions = ctx.get?.('sessions');
-          if (sessions && typeof sessions.list?.getSnapshot === 'function') {
-            const snapshot = sessions.list.getSnapshot();
-            console.log(t('DocsViewerBody.message010'), snapshot?.ids?.slice(0, 3));
-            if (snapshot?.ids && snapshot.ids.length > 0) {
-              currentSessionId = snapshot.ids[0];
-            }
-          }
-        } catch (e) {
-          console.error(t('DocsViewerBody.message011'), e);
-        }
-      }
-
       if (!currentSessionId) {
         console.error(t('DocsViewerBody.message012'));
+        showToast({ tone: 'warning', text: t('locate.noSession') });
         return;
       }
 
       console.log(t('DocsViewerBody.message013'), currentSessionId);
 
-      const sessionRes = await fetch(
+      const sessionRes = await locateFetch(
         `${ROUTE}/session-info?sessionId=${encodeURIComponent(currentSessionId)}`,
       );
       if (!sessionRes.ok) {
@@ -552,6 +551,7 @@ function DocsViewerBody({
         return;
       }
       const sessionData = await sessionRes.json();
+      signal.throwIfAborted();
       console.log(t('DocsViewerBody.message015'), sessionData);
 
       if (!sessionData.session) {
@@ -576,13 +576,9 @@ function DocsViewerBody({
 
       let targetWorkspace = null;
       for (const ws of workspaces) {
-        const wsPath = ws.path.replace(/\\/g, '/').toLowerCase();
-        const cwdPath = sessionCwd.replace(/\\/g, '/').toLowerCase();
-        if (
-          wsPath === cwdPath ||
-          wsPath.endsWith('/' + cwdPath) ||
-          cwdPath.endsWith('/' + wsPath)
-        ) {
+        const wsPath = ws.path.replace(/\\/g, '/').replace(/\/$/, '').toLowerCase();
+        const cwdPath = sessionCwd.replace(/\\/g, '/').replace(/\/$/, '').toLowerCase();
+        if (wsPath === cwdPath) {
           targetWorkspace = ws;
           break;
         }
@@ -599,7 +595,7 @@ function DocsViewerBody({
         console.log(t('DocsViewerBody.message023'), targetWorkspace.id);
 
         try {
-          await fetch(`${ROUTE}/config`, {
+          await locateFetch(`${ROUTE}/config`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ workspaceId: targetWorkspace.id }),
@@ -612,10 +608,11 @@ function DocsViewerBody({
         onSelectWorkspace(targetWorkspace);
 
         await new Promise((resolve) => setTimeout(resolve, 100));
+        signal.throwIfAborted();
       }
 
       console.log(t('DocsViewerBody.message026'));
-      const branchRes = await fetch(
+      const branchRes = await locateFetch(
         `${ROUTE}/git-branch?workspaceId=${encodeURIComponent(targetWorkspace.id)}`,
       );
       if (!branchRes.ok) {
@@ -623,6 +620,7 @@ function DocsViewerBody({
         return;
       }
       const branchData = await branchRes.json();
+      signal.throwIfAborted();
       console.log(t('DocsViewerBody.message028'), branchData);
       if (!branchData.branch) {
         console.error(t('DocsViewerBody.message029'));
@@ -651,7 +649,7 @@ function DocsViewerBody({
         setPendingCreateReq(null);
         setShowCreateConfirm(false);
         try {
-          const cleared = await fetch(`${ROUTE}/config`, {
+          const cleared = await locateFetch(`${ROUTE}/config`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -668,7 +666,10 @@ function DocsViewerBody({
         }
         if (targetWorkspace.id !== workspace.id) {
           await new Promise((resolve) => setTimeout(resolve, 200));
+          signal.throwIfAborted();
         }
+        signal.throwIfAborted();
+        setCreationRefresh((value) => value + 1);
         setActivePanel('create');
         setInitialCreateBranch(true);
         showToast({
@@ -694,7 +695,7 @@ function DocsViewerBody({
       );
 
       console.log(t('DocsViewerBody.message040'));
-      const treeRes = await fetch(
+      const treeRes = await locateFetch(
         `${ROUTE}/tree?workspaceId=${encodeURIComponent(targetWorkspace.id)}&t=${Date.now()}`,
       );
       if (!treeRes.ok) {
@@ -702,6 +703,7 @@ function DocsViewerBody({
         return;
       }
       const treeData = await treeRes.json();
+      signal.throwIfAborted();
       console.log(t('DocsViewerBody.message042'), treeData);
 
       const { match: existingReq, ambiguous } = findBranchRequirement(
@@ -720,7 +722,7 @@ function DocsViewerBody({
         setSelectedFile(null);
 
         try {
-          await fetch(`${ROUTE}/config`, {
+          await locateFetch(`${ROUTE}/config`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -741,7 +743,9 @@ function DocsViewerBody({
       setPendingCreateReq({ workspace: targetWorkspace, developer, date, title, requirementId });
       setShowCreateConfirm(true);
     } catch (e) {
-      console.error(t('DocsViewerBody.message050'), e);
+      if (!signal.aborted) {
+        console.error(t('DocsViewerBody.message050'), e);
+      }
     }
   };
 
@@ -787,8 +791,17 @@ function DocsViewerBody({
         knowledge.refresh();
       },
       onDirtyChange: setFileDirty,
+      onOpenWikiEvents: () => {
+        setKnowledgeTab('events');
+        setActivePanel('knowledge');
+      },
+      onOpenWikiUpdate: () => {
+        setKnowledgeTab('wiki');
+        setActivePanel('knowledge');
+      },
       active: !activePanel || (activePanel === 'knowledge' && knowledgeTab === 'documents'),
       assist: h(DocumentAssist, {
+        assistant: true,
         key: `${selectedFile.workspaceId || workspace.id}:${selectedFile.path}`,
         workspaceId: selectedFile.workspaceId || workspace.id,
         path: selectedFile.path,
@@ -815,6 +828,7 @@ function DocsViewerBody({
         docsDir,
         onClose: handlePanelClose,
         initialCreateBranch,
+        refreshVersion: creationRefresh,
         onExisting: (req, branch) => {
           const data = { branch, existingRequirement: req };
           setCreationStatus(data);
@@ -866,7 +880,7 @@ function DocsViewerBody({
       });
     }
     if (activePanel === 'log') {
-      return h(LogPanel, { onClose: handlePanelClose });
+      return h(LogPanel, { workspaceId: workspace.id, onClose: handlePanelClose });
     }
     if (activePanel === 'settings') {
       return h(SettingsPanel, { workspaceId: workspace.id, onClose: handlePanelClose });
@@ -949,8 +963,6 @@ function DocsViewerBody({
       rightHeaderTitle = t('DocsViewerBody.message054');
     } else if (activePanel === 'writing') {
       rightHeaderTitle = t('DocsViewerBody.message056');
-    } else if (activePanel === 'sync') {
-      rightHeaderTitle = t('DocsViewerBody.message064');
     } else if (activePanel === 'log') {
       rightHeaderTitle = t('DocsViewerBody.message070');
     } else if (activePanel === 'settings') {
@@ -1131,7 +1143,14 @@ function DocsViewerBody({
           'div',
           { className: css.workspace },
           activePanel === 'knowledge' &&
-            h(KnowledgeTabs, { tab: knowledgeTab, onTabChange: changeKnowledgeTab }),
+            h(KnowledgeTabs, {
+              tab: knowledgeTab,
+              onTabChange: changeKnowledgeTab,
+              onClose: handlePanelClose,
+              backTargetRef: setHeaderBackTarget,
+            }),
+          activePanel === 'knowledge' &&
+            h(KnowledgeSecondaryTabs, { tab: knowledgeTab, onTabChange: changeKnowledgeTab }),
           h(
             'div',
             { className: css.workspaceBody },
@@ -1146,6 +1165,19 @@ function DocsViewerBody({
                 selectedReq,
                 key: `${workspace.id}:${knowledgeTab}`,
                 multiSelect: knowledgeTab === 'files',
+                selectionActions:
+                  knowledgeTab === 'files' &&
+                  h(
+                    Button,
+                    {
+                      className: 'rh-btn rh-btn-primary rh-btn-sm',
+                      disabled: !knowledge.selected.length || knowledge.running,
+                      onClick: () => knowledge.start(),
+                    },
+                    knowledge.running
+                      ? t('knowledgeLayout.importing')
+                      : t('knowledgeLayout.importMany', { count: knowledge.selected.length }),
+                  ),
                 selectedPaths: knowledge.selected,
                 onSelectionChange: knowledge.setSelected,
                 onSelectFile: handleSelectFile,
@@ -1157,63 +1189,59 @@ function DocsViewerBody({
               {
                 className: 'rh-right-panel' + ' ' + css.content,
               },
-              h(
-                'div',
-                {
-                  className: `rh-right-header${activePanel === 'writing' ? ` ${css.writingHeader}` : ''}`,
-                },
-                h('div', { className: 'rh-header-back-slot', ref: setHeaderBackTarget }),
+              activePanel !== 'sync' &&
+                activePanel !== 'log' &&
+                activePanel !== 'settings' &&
+                (activePanel !== 'knowledge' || filePreviewBreadcrumb) &&
                 h(
                   'div',
-                  { className: 'rh-right-header-main' },
-                  filePreviewBreadcrumb
-                    ? h(Breadcrumb, { items: filePreviewBreadcrumb })
-                    : activePanel !== 'writing' &&
-                        h(
-                          'span',
-                          { className: 'rh-right-header-title' },
-                          rightHeaderTitle || t('DocsViewerBody.message073'),
-                        ),
-                  filePreviewBreadcrumb &&
-                    /\.(md|txt|text|html?|json|pdf|docx|xlsx)$/i.test(selectedFile.name) &&
-                    h(FileKnowledgeAction, {
-                      key: `${selectedFile.workspaceId || workspace.id}:${selectedFile.path}`,
-                      workspaceId: selectedFile.workspaceId || workspace.id,
-                      path: selectedFile.path,
-                      revision: fileRevision,
-                      dirty: fileDirty,
-                      onChanged: knowledge.refresh,
-                    }),
-                  activePanel === 'writing' &&
-                    h('div', { className: css.writingToolbarSlot, ref: setWritingToolbarTarget }),
-                  filePreviewBreadcrumb &&
-                    h('div', { className: 'rh-preview-actions', ref: setPreviewToolbarTarget }),
-                  activePanel === 'knowledge' &&
-                    knowledgeTab === 'files' &&
+                  {
+                    className:
+                      activePanel === 'knowledge'
+                        ? css.documentToolbar
+                        : `rh-right-header${activePanel === 'writing' ? ` ${css.writingHeader}` : ''}`,
+                  },
+                  activePanel !== 'knowledge' &&
+                    h('div', { className: 'rh-header-back-slot', ref: setHeaderBackTarget }),
+                  h(
+                    'div',
+                    { className: 'rh-right-header-main' },
+                    filePreviewBreadcrumb
+                      ? h(Breadcrumb, { items: filePreviewBreadcrumb })
+                      : activePanel !== 'writing' &&
+                          h(
+                            'span',
+                            { className: 'rh-right-header-title' },
+                            rightHeaderTitle || t('DocsViewerBody.message073'),
+                          ),
+                    filePreviewBreadcrumb &&
+                      /\.(md|txt|text|html?|json|pdf|docx|xlsx)$/i.test(selectedFile.name) &&
+                      h(FileKnowledgeAction, {
+                        key: `${selectedFile.workspaceId || workspace.id}:${selectedFile.path}`,
+                        workspaceId: selectedFile.workspaceId || workspace.id,
+                        path: selectedFile.path,
+                        revision: fileRevision,
+                        dirty: fileDirty,
+                        onChanged: knowledge.refresh,
+                      }),
+                    activePanel === 'writing' &&
+                      h('div', { className: css.writingToolbarSlot, ref: setWritingToolbarTarget }),
+                    filePreviewBreadcrumb &&
+                      h('div', { className: 'rh-preview-actions', ref: setPreviewToolbarTarget }),
+                  ),
+                  activePanel !== 'knowledge' &&
+                    (activePanel || selectedFile) &&
                     h(
                       Button,
                       {
-                        className: 'rh-btn rh-btn-primary',
-                        disabled: !knowledge.selected.length || knowledge.running,
-                        onClick: () => knowledge.start(),
+                        type: 'button',
+                        className: 'rh-btn rh-btn-ghost rh-btn-sm rh-right-close',
+                        onClick: handlePanelClose,
+                        'aria-label': t('DocsViewerBody.message076'),
                       },
-                      knowledge.running
-                        ? t('knowledgeLayout.importing')
-                        : t('knowledgeLayout.importMany', { count: knowledge.selected.length }),
+                      t('common.close'),
                     ),
                 ),
-                (activePanel || selectedFile) &&
-                  h(
-                    Button,
-                    {
-                      type: 'button',
-                      className: 'rh-btn rh-btn-ghost rh-btn-sm rh-right-close',
-                      onClick: handlePanelClose,
-                      'aria-label': t('DocsViewerBody.message076'),
-                    },
-                    t('common.close'),
-                  ),
-              ),
               // Skip rh-right-body wrapper for file preview to avoid extra layer
               h(
                 'div',
@@ -1277,6 +1305,14 @@ function DocsViewerBody({
                     workspaceId: workspace.id,
                     requirement: selectedReq,
                     onSaved: () => refreshSelectedReqRef.current(),
+                    onOpenWikiEvents: () => {
+                      setKnowledgeTab('events');
+                      setActivePanel('knowledge');
+                    },
+                    onOpenWikiUpdate: () => {
+                      setKnowledgeTab('wiki');
+                      setActivePanel('knowledge');
+                    },
                   }),
                 ),
               activePanel !== 'writing' &&
@@ -1284,7 +1320,9 @@ function DocsViewerBody({
                   ? renderRightContent()
                   : h(
                       'div',
-                      { className: `rh-right-body${isKnowledgeSearch ? ' ' + css.inactive : ''}` },
+                      {
+                        className: `rh-right-body${activePanel === 'knowledge' ? ` ${css.knowledgeBody}` : ''}${isKnowledgeSearch ? ' ' + css.inactive : ''}`,
+                      },
                       renderRightContent(),
                     )),
             ),

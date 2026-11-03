@@ -17,7 +17,7 @@ import {
   completeSync,
   removeSyncTask,
 } from './sync-state.js';
-import { defaultSyncBaseBranch, listSyncCommits } from './sync-branches.js';
+import { defaultSyncBaseBranch, listSyncCommits, listSyncBranches } from './sync-branches.js';
 
 const execFileAsync = promisify(execFile);
 const reservations = new Map();
@@ -102,19 +102,23 @@ async function readWorkingChanges(cwd) {
  * @param cwd - Working directory for the operation.
  * @param requirementId - Requirement identity within the workspace.
  * @param currentBranch - Current local branch name.
- * @returns The matching branch, or null when it is absent or ambiguous.
+ * @param [targetBranch] - Explicit local branch, which must belong to the requirement.
+ * @returns The matching branch; rejects workspace-root mismatches and absent or ambiguous branches.
  */
-export async function findBranchByRequirement(cwd, requirementId, currentBranch) {
+export async function findBranchByRequirement(cwd, requirementId, currentBranch, targetBranch) {
+  const branches = await listSyncBranches(cwd);
   const current = currentBranch ?? (await git(cwd, 'branch', '--show-current'));
-  const branches = (
-    await git(cwd, 'for-each-ref', '--format=%(refname:short)', 'refs/heads')
-  ).split('\n');
   const matches = branches.filter(
     (branch) =>
       branch === requirementId || parseBranchName(branch)?.requirementId === requirementId,
   );
   let branchName;
-  if (matches.includes(current)) {
+  if (targetBranch !== undefined) {
+    if (!matches.includes(targetBranch)) {
+      throw new Error('SYNC_BRANCH_INVALID');
+    }
+    branchName = targetBranch;
+  } else if (matches.includes(current)) {
     branchName = current;
   } else if (matches.length === 1) {
     branchName = matches[0];
@@ -144,10 +148,16 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
   }
   await options.onProgress?.({ stage: 'commits' });
   const current = await git(cwd, 'branch', '--show-current');
-  const branchName = await findBranchByRequirement(cwd, requirementId, current);
+  const branchName = await findBranchByRequirement(
+    cwd,
+    requirementId,
+    current,
+    options.targetBranch,
+  );
   const commitHash = await git(cwd, 'rev-parse', '--verify', `refs/heads/${branchName}^{commit}`);
   const selectionMode = options.commitHashes !== undefined;
   const sessionSnapshots = options.sessionSnapshots || [];
+  const designReference = options.designReference;
   const successes = history.filter(
     (item) =>
       item.schemaVersion === 2 &&
@@ -155,10 +165,11 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
       item.docType === docType &&
       taskModel.hasPublishedDocument(item) &&
       item.commitHash &&
+      !item.designReference &&
       !item.selectionMode,
   );
   let baseline = null;
-  for (const item of selectionMode || sessionSnapshots.length ? [] : successes) {
+  for (const item of selectionMode || sessionSnapshots.length || designReference ? [] : successes) {
     if (await isAncestor(cwd, commitHash, item.commitHash)) {
       return {
         skipped: true,
@@ -375,7 +386,7 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
     const base = await at(baseline);
     const target = await at(commitHash);
     let final = target;
-    if (current === branchName) {
+    if (includeWorkingChanges && current === branchName) {
       try {
         if (!(await lstat(join(cwd, file))).isFile()) {
           throw new Error('SOURCE_NOT_REGULAR: ' + file);
@@ -401,7 +412,7 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
   if (JSON.stringify(await readWorkingChanges(cwd)) !== JSON.stringify(uncommittedChanges)) {
     throw new Error('INPUT_CHANGED: 工作区在捕获期间变化');
   }
-  if (selectionMode || sessionSnapshots.length) {
+  if (selectionMode || sessionSnapshots.length || designReference) {
     const identity = [
       comparison?.baseline || baseline,
       commits.map((commit) => commit.hash),
@@ -410,6 +421,9 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
     ];
     if (sessionSnapshots.length) {
       identity.push(sessionSnapshots);
+    }
+    if (designReference) {
+      identity.push({ path: designReference.path, sourceHash: designReference.sourceHash });
     }
     selectionKey = hashBytes(Buffer.from(JSON.stringify(identity)));
     if (
@@ -509,12 +523,14 @@ export async function beginCommitSync(cwd, reqDir, fields, { signal, onProgress 
         fields.docType,
         await getSyncHistory(fields.workspaceId, fields.requirementId),
         {
+          targetBranch: fields.targetBranch,
           baseBranch: fields.baseBranch,
           commitHashes: fields.commitHashes,
           branchTip: fields.branchTip,
           baseCommit: fields.baseCommit,
           includeWorkingChanges: fields.includeWorkingChanges,
           sessionSnapshots: fields.sessionSnapshots,
+          designReference: fields.designReference,
           onProgress,
         },
       ),

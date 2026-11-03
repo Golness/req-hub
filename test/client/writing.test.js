@@ -79,6 +79,7 @@ const button = (text) =>
   [...container.querySelectorAll('button')].find((b) => b.textContent === text);
 const click = async (node) => act(async () => node.click());
 async function renderScopes(props = {}) {
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({ width: 1000, height: 600, top: 0, left: 0, right: 1000, bottom: 600 }));
   await render(props);
   await click(button('调整范围'));
 }
@@ -166,6 +167,36 @@ it('saves to the selected directory and sends overwrite consent only after confi
   expect(saved.at(-1).expectedVersion).toBe('existing-version');
   expect(onSaved).toHaveBeenCalledTimes(1);
   expect(document.querySelector('[role=dialog]')).toBeNull();
+});
+
+it('tracks Wiki processing after saving and supplies the selected parent session', async () => {
+  const original = fetchMock.getMockImplementation();
+  fetchMock.mockImplementation(async (url, options) => {
+    if (url.endsWith('/save')) {
+      return { ok: true, json: async () => ({
+        path: 'alice/2026-10-23-orders/requirement.md',
+        wiki: { state: 'saved', documentId: 'doc', processingStatus: 'running' },
+      }) };
+    }
+    if (url.includes('/source-state?')) {
+      return { ok: true, json: async () => ({
+        documentId: 'doc', processingStatus: 'failed', error: { code: 'WIKI_EXECUTION_FAILED' },
+      }) };
+    }
+    return original(url, options);
+  });
+  localStorage.setItem(writingDraftKey('ws', 'alice/2026-10-23-orders'),
+    JSON.stringify({ requirement: before }));
+  const open = vi.fn();
+  await render({ requirement: { id: '2026-10-23-orders', path: 'alice/2026-10-23-orders' },
+    onOpenWikiEvents: open });
+  await click(button('保存'));
+  expect(fetchMock.mock.calls.find(([url]) => url.endsWith('/save'))[1].headers['x-session-id'])
+    .toBe('parent');
+  expect(container.textContent).toContain('文档已保存 · Wiki：失败');
+  await click(button('查看 Wiki 运行事件'));
+  expect(open).toHaveBeenCalledOnce();
+  expect(container.querySelector('.ProseMirror').textContent).toContain('原始规则');
 });
 it('keeps the draft editable with visible status while cancellation waits for the child', async () => {
   let cancelled = false,
@@ -262,7 +293,7 @@ it('identifies the changed reference on terminal validation failure', async () =
   await render();
   await click(button('优化'));
   const alert = [...container.querySelectorAll('[role=alert]')].find((node) =>
-    node.textContent.includes('AI 运行期间'),
+    node.textContent.includes('引用资料已变更'),
   );
   expect(alert).toBeDefined();
   expect(alert.textContent).toContain('跨工作区库 · alice/orders.md');
@@ -289,7 +320,7 @@ it('explains invalid knowledge before AI starts and reports skipped references d
   await render();
   await click(button('优化'));
   const alert = [...container.querySelectorAll('[role=alert]')].find((node) =>
-    node.textContent.includes('尚未启动 AI'),
+    node.textContent.includes('资料均已失效'),
   );
   expect(alert).toBeDefined();
   expect(alert.textContent).toContain('alice/orders.md');
@@ -483,7 +514,7 @@ it('does not overwrite edits made while the AI analyzes a frozen draft', async (
   });
   await click(button('全部采用'));
   expect(container.querySelector('[aria-label="差异审阅"] [role="alert"]').textContent).toContain(
-    '草稿已在分析后修改',
+    '草稿已修改',
   );
   expect(JSON.parse(localStorage.getItem(writingDraftKey('ws'))).requirement).toBe(edited);
   await click(button('返回'));

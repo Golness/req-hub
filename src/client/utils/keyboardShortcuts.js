@@ -61,8 +61,12 @@ function setupKeyboardShortcuts(handlers) {
   }
 
   const handleKeyDown = (e) => {
-    // Respect host menus before handling plugin shortcuts, including Escape.
-    if (e.defaultPrevented || e.target.closest?.('[role="menu"]')) {
+    // Menus and plugin modals own their keys before workspace shortcuts.
+    if (
+      e.defaultPrevented ||
+      e.target.closest?.('[role="menu"],[data-rh-modal]') ||
+      document.activeElement?.closest?.('[data-rh-modal]')
+    ) {
       return;
     }
 

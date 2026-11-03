@@ -3,9 +3,10 @@ const React = require('react');
 const { t } = require('../locale.js');
 const { ROUTE } = require('../constants.js');
 const { Button } = require('./shared/Button.js');
-const { Checkbox, Modal } = require('./shared/controls.js');
+const { Checkbox } = require('./shared/controls.js');
 const { DocumentAssist } = require('./ContextAssist.js');
 const { Disclosure } = require('./shared/Disclosure.js');
+const { KnowledgeAssistant } = require('./shared/KnowledgeAssistant.js');
 const css = require('./WritingKnowledge.module.css').default;
 const h = React.createElement;
 const ERROR_KEYS = {
@@ -29,6 +30,7 @@ function WritingKnowledge({
   overview,
   locked,
   open,
+  pinned = false,
   onClose,
 }) {
   const [data, setData] = React.useState(null);
@@ -101,12 +103,6 @@ function WritingKnowledge({
   const body = h(
     'div',
     { className: css.body },
-    h(
-      'div',
-      { className: css.heading },
-      h('h3', null, t('writing.wikiAssistant')),
-      h(Button, { size: 'sm', onClick: onClose }, t('writing.hideAssistant')),
-    ),
     h(
       'section',
       null,
@@ -237,13 +233,6 @@ function WritingKnowledge({
         h('pre', { className: css.text }, detail.body),
       ),
   );
-  if (open) {
-    return h(
-      Modal,
-      { open, title: t('writing.wikiAssistant'), onClose, className: css.drawer },
-      body,
-    );
-  }
-  return h('aside', { className: css.aside, 'aria-label': t('writing.wikiAssistant') }, body);
+  return h(KnowledgeAssistant, { title: t('writing.wikiAssistant'), open, pinned, onClose }, body);
 }
 module.exports = { WritingKnowledge };

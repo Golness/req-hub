@@ -17,7 +17,7 @@ function labelText(node) {
 
 /**
  * Plugin Menu follows host placement and keyboard behavior; long lists add search.
- * @param props - Data, state and callbacks supplied by the owning surface.
+ * @param props - Data, callbacks and optional menuClassName for the portaled menu.
  * @returns The rendered component content.
  */
 function Select({
@@ -27,6 +27,7 @@ function Select({
   onChange,
   disabled = false,
   className = '',
+  menuClassName = '',
   id,
   placeholder = t('common.select'),
   searchable,
@@ -124,7 +125,8 @@ function Select({
       dense: true,
       align: 'start',
       className: `rh-select ${className}`.trim(),
-      listClassName: `rh-select-menu${canSearch ? ' rh-select-menu-searchable' : ''}`,
+      listClassName:
+        `rh-select-menu${canSearch ? ' rh-select-menu-searchable' : ''} ${menuClassName}`.trim(),
     },
     canSearch &&
       h(

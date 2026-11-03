@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ReqHub Component Preview</title>
+<style>
+  :root, [data-theme="light"] {
+    --dsw-alias-brand-primary-new-colorprimary-new-color: #2563eb;
+    --dsw-alias-label-primary: #1a1a1a;
+    --dsw-alias-label-secondary: #6b7280;
+    --dsw-alias-label-tertiary: #9ca3af;
+    --dsw-alias-label-primary-foreground: #ffffff;
+    --dsw-alias-bg-base: #f7f8fa;
+    --dsw-alias-bg-layer-1: #ffffff;
+    --dsw-alias-bg-layer-2: #f3f4f6;
+    --dsw-alias-bg-mask-1: rgba(0,0,0,0.35);
+    --dsw-alias-border-l1: #e5e7eb;
+    --dsw-alias-border-l3: #d1d5db;
+    --dsw-alias-interactive-bg-hover: rgba(37,99,235,0.08);
+    --dsw-alias-interactive-bg-active: rgba(37,99,235,0.14);
+    --dsw-alias-button-elevated-fill: #ffffff;
+    --dsw-alias-button-floating-hover: #f3f4f6;
+    --dsw-alias-button-primary-fill: #2563eb;
+    --dsw-alias-button-primary-hover: #1d4ed8;
+    --dsw-alias-button-tool-bar-fill: #f9fafb;
+    --dsw-alias-button-tool-bar-hover: #f3f4f6;
+    --dsw-alias-state-success-primary: #16a34a;
+    --dsw-alias-state-success-bg: #f0fdf4;
+    --dsw-alias-state-error-primary: #dc2626;
+    --dsw-alias-state-error-bg: #fef2f2;
+    --dsw-alias-state-warn-primary: #d97706;
+    --dsw-alias-state-business-primary: #2563eb;
+    --dsw-alias-toast-bg: #1f2937;
+    --dsw-alias-toast-label: #ffffff;
+    --dsw-elevation-soft: 0 1px 2px rgba(0,0,0,0.05);
+    --dsw-elevation-prominent: 0 8px 24px rgba(0,0,0,0.18);
+    --dsw-elevation-panel: 0 4px 16px rgba(0,0,0,0.14);
+    --dsw-radius-xs: 4px;
+    --dsw-radius-sm: 6px;
+    --dsw-radius-md: 8px;
+    --dsw-radius-lg: 12px;
+    --dsw-radius-panel: 12px;
+    --dsw-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --ds-font-family-code: "SF Mono", Menlo, Consolas, monospace;
+    --dsw-menu-surface-fill: #ffffff;
+    --dsw-menu-backdrop-filter: none;
+    --dsw-static-neutral-bluish-00: #ffffff;
+    --dsh-frame-overlay-top: 24px;
+    --dsh-frame-chrome-top: 0px;
+  }
+  [data-theme="dark"] {
+    --dsw-alias-brand-primary-new-colorprimary-new-color: #3b82f6;
+    --dsw-alias-label-primary: #e5e7eb;
+    --dsw-alias-label-secondary: #9ca3af;
+    --dsw-alias-label-tertiary: #6b7280;
+    --dsw-alias-label-primary-foreground: #ffffff;
+    --dsw-alias-bg-base: #0f1117;
+    --dsw-alias-bg-layer-1: #1a1d26;
+    --dsw-alias-bg-layer-2: #252830;
+    --dsw-alias-bg-mask-1: rgba(0,0,0,0.6);
+    --dsw-alias-border-l1: #2d3039;
+    --dsw-alias-border-l3: #3d4049;
+    --dsw-alias-interactive-bg-hover: rgba(59,130,246,0.12);
+    --dsw-alias-interactive-bg-active: rgba(59,130,246,0.2);
+    --dsw-alias-button-elevated-fill: #252830;
+    --dsw-alias-button-floating-hover: #2d3039;
+    --dsw-alias-button-primary-fill: #3b82f6;
+    --dsw-alias-button-primary-hover: #2563eb;
+    --dsw-alias-button-tool-bar-fill: #1a1d26;
+    --dsw-alias-button-tool-bar-hover: #252830;
+    --dsw-alias-state-success-primary: #22c55e;
+    --dsw-alias-state-success-bg: rgba(34,197,94,0.1);
+    --dsw-alias-state-error-primary: #ef4444;
+    --dsw-alias-state-error-bg: rgba(239,68,68,0.1);
+    --dsw-alias-state-warn-primary: #f59e0b;
+    --dsw-alias-state-business-primary: #3b82f6;
+    --dsw-alias-toast-bg: #252830;
+    --dsw-alias-toast-label: #e5e7eb;
+    --dsw-elevation-soft: 0 1px 2px rgba(0,0,0,0.3);
+    --dsw-elevation-prominent: 0 8px 24px rgba(0,0,0,0.5);
+    --dsw-elevation-panel: 0 4px 16px rgba(0,0,0,0.4);
+    --dsw-menu-surface-fill: #252830;
+    --dsw-static-neutral-bluish-00: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 0; font-family: var(--dsw-font-family); background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); }
+  #preview-root { width: 100%; height: 100vh; overflow: hidden; }
+</style>
+</head>
+<body data-scene="create">
+<div id="preview-root"></div>
+
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="../lib/preview-bundle.js"></script>
+
+<script>
+// The IIFE bundle exposes exports on a global (or we read from the module system)
+// preview-bundle.js is IIFE — its return value is the module.exports
+// We need to capture it. Let's patch __ModuleLoader__ approach:
+// Actually the IIFE doesn't set a global. Let's use a different approach.
+
+// Re-approach: the preview bundle is IIFE, so its exports are lost unless we
+// capture them. Let's use a wrapper script.
+</script>
+</body>
+</html>

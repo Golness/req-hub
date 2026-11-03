@@ -78,7 +78,7 @@ export function installSyncTools(ctx) {
         'Write one assigned analysis output: changes accepts a structured {changes,pending} object; report takes Markdown text. Rejected outputs are not written. Never overwrite a candidate document.';
     } else {
       description =
-        'Edit an authorized candidate block through the native exact editor. Supply the current candidate hash. Read candidate again after each edit.';
+        'Edit an authorized candidate block through the native exact editor. Supply the current candidate hash. Use the returned candidateHash for the next edit. Read candidate again only to locate exact text.';
     }
     disposers.push(
       ctx.tools.register({

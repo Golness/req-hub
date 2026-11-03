@@ -21,9 +21,30 @@ beforeEach(()=>{
 });
 afterEach(async()=>{await act(async()=>root.unmount());document.body.innerHTML='';vi.unstubAllGlobals();vi.restoreAllMocks();});
 const button=text=>[...container.querySelectorAll('button')].find(b=>b.textContent.trim()===text);
-async function open(){await act(async()=>root.render(React.createElement(DocsViewerContext.Provider,{value:{refreshTree:vi.fn(),headerBackTarget:container}},React.createElement(SyncPanel,{workspaceId:'ws',selectedReq:requirement,onClose:vi.fn()}))));await act(async()=>button('同步需求文档').click());}
+async function open(){await act(async()=>root.render(React.createElement(DocsViewerContext.Provider,{value:{refreshTree:vi.fn(),headerBackTarget:container}},React.createElement(SyncPanel,{workspaceId:'ws',selectedReq:requirement,onClose:vi.fn()}))));await act(async()=>button('自定义同步').click());await act(async()=>button('同步需求文档').click());}
 async function loaded(){await act(async()=>{await new Promise(resolve=>setTimeout(resolve,300));});}
 async function change(input,value){await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set.call(input,value);input.dispatchEvent(new Event('input',{bubbles:true}));});}
+
+it.each(['requirement', 'design'])('keeps scoped choices and live action summaries in the %s layout', async (type) => {
+  await open();
+  if (type === 'design') {
+    await act(async () => button('返回').click());
+    await act(async () => button('同步技术方案').click());
+  }
+  await loaded();
+  expect([...container.querySelectorAll('section[aria-labelledby] > header h3')].map((node) => node.textContent))
+    .toEqual(['同步目标', '代码范围', '参考资料', '会话来源']);
+  const footer = container.querySelector('footer[aria-label="同步选择汇总"]');
+  expect(footer.textContent).toContain('提交 3');
+  expect(container.querySelector('[aria-label="展开会话来源"]').getAttribute('aria-expanded')).toBe('false');
+  expect(container.textContent.includes('需求基准参考')).toBe(type === 'design');
+  await act(async () => button('清空').click());
+  expect(footer.textContent).toContain('提交 0');
+  expect(button(type === 'design' ? '开始同步技术方案' : '开始同步需求文档').disabled).toBe(true);
+  await act(async () => button('全选').click());
+  expect(footer.textContent).toContain('提交 3');
+  expect(button(type === 'design' ? '开始同步技术方案' : '开始同步需求文档').disabled).toBe(false);
+});
 
 it('defaults the base, selects target-only commits, filters the list and sends only checked hashes',async()=>{
  await open();await loaded();expect(container.querySelector('[aria-label="同步基准分支"]').value).toBe('main');
@@ -36,6 +57,69 @@ it('defaults the base, selects target-only commits, filters the list and sends o
  const payload=JSON.parse(fetchMock.mock.calls.find(([,options])=>options?.method==='POST')[1].body);
  expect(payload).toMatchObject({baseBranch:'main',commitHashes:[commits[0].hash,commits[2].hash],branchTip:'f'.repeat(40),baseCommit:'a'.repeat(40)});
  expect(payload).not.toHaveProperty('runAnalysis');
+});
+
+it('requires selection for typed design references and submits only the selected scoped file', async () => {
+  const original = fetchMock.getMockImplementation();
+  fetchMock.mockImplementation((url, options) =>
+    url.includes('/sync-design-references?')
+      ? response({ files: ['requirement.md', 'attachments/business.csv'] })
+      : original(url, options),
+  );
+  await open();
+  await act(async () => button('返回').click());
+  await act(async () => button('同步技术方案').click());
+  await loaded();
+  const input = container.querySelector('[aria-label="需求基准参考（可选）"]');
+  expect(input).not.toBeNull();
+  expect(button('开始同步技术方案').disabled).toBe(false);
+  await change(input, 'business');
+  expect(button('开始同步技术方案').disabled).toBe(true);
+  await loaded();
+  const option = [...document.querySelectorAll('[role="option"]')].find(
+    (node) => node.textContent === 'attachments/business.csv',
+  );
+  await act(async () => option.click());
+  expect(button('开始同步技术方案').disabled).toBe(false);
+  await act(async () => button('开始同步技术方案').click());
+  const payload = JSON.parse(
+    fetchMock.mock.calls.find(([url]) => url.endsWith('/phased-sync'))[1].body,
+  );
+  expect(payload).toMatchObject({
+    docType: 'design',
+    designReferencePath: 'attachments/business.csv',
+  });
+});
+
+it('submits selected knowledge scopes without starting impact or recommendation requests', async () => {
+  const original = fetchMock.getMockImplementation();
+  fetchMock.mockImplementation(async (url, options) =>
+    url.endsWith('/writing/options')
+      ? response({ scopes: [{ id: 'business', title: '业务规则知识库' }] })
+      : original(url, options),
+  );
+  await open();
+  await loaded();
+  expect(container.textContent).not.toContain('关联影响与一致性审阅');
+  await act(async () =>
+    [...container.querySelectorAll('button')]
+      .find((node) => node.textContent.includes('参考知识库'))
+      .click(),
+  );
+  const checkbox = [...container.querySelectorAll('label')]
+    .find((node) => node.textContent.includes('业务规则知识库'))
+    .querySelector('input');
+  await act(async () => checkbox.click());
+  await act(async () => button('开始同步需求文档').click());
+  const payload = JSON.parse(
+    fetchMock.mock.calls.find(([url]) => url.endsWith('/phased-sync'))[1].body,
+  );
+  expect(payload.knowledgeScopeIds).toEqual(['business']);
+  expect(payload).not.toHaveProperty('knowledgeReferenceRefs');
+  expect(payload).not.toHaveProperty('knowledgeQuery');
+  expect(fetchMock.mock.calls.some(([url]) => url.includes('/knowledge/enhancements/'))).toBe(
+    false,
+  );
 });
 it('supports clear and select-all without interpreting zero checked commits as all',async()=>{
  await open();await loaded();await act(async()=>button('清空').click());expect(button('开始同步需求文档').disabled).toBe(true);

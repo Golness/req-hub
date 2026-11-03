@@ -82,3 +82,27 @@
   line-height: var(--rh-line-height);
   font-weight: 400;
 }
+
+.documentToolbar {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  min-width: 0;
+  gap: 8px;
+  padding: 6px var(--rh-panel-padding);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+  font-size: var(--rh-font-size);
+  line-height: var(--rh-line-height);
+}
+.documentToolbar :global(.rh-breadcrumb) {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  min-height: 28px;
+}
+
+.knowledgeBody {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}

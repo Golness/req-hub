@@ -1,0 +1,97 @@
+.view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  container-type: inline-size;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  line-height: 20px;
+}
+.overview {
+  flex-shrink: 0;
+  margin: 12px var(--rh-panel-padding) 0;
+  padding: 16px;
+  background: var(--dsw-alias-bg-layer-1);
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+}
+.heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.status {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+}
+.view[data-status='failed'] .status,
+.view[data-status='failed'] :global(.rh-sync-progress-percent) {
+  color: var(--dsw-alias-state-error-primary);
+}
+.view[data-status='completed'] .status {
+  color: var(--dsw-alias-state-success-primary);
+}
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+.progress:global(.rh-sync-progress) {
+  padding: 0;
+  margin-top: 12px;
+  border: 0;
+  background: transparent;
+}
+.progress :global(.rh-sync-progress-header),
+.progress :global(.rh-sync-progress-eta) {
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.fill:global(.rh-sync-progress-fill) {
+  background: var(--dsw-alias-state-business-primary);
+}
+.fill[data-status='failed'] {
+  background: var(--dsw-alias-state-error-primary);
+}
+.fill[data-status='aborted'] {
+  background: var(--dsw-alias-state-warning-primary);
+}
+.content {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  padding: 16px var(--rh-panel-padding);
+}
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px var(--rh-panel-padding);
+  border-top: 0.5px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-1);
+}
+@container (max-width: 520px) {
+  .overview {
+    margin-inline: 12px;
+    padding: 12px;
+  }
+  .content,
+  .footer {
+    padding-inline: 12px;
+  }
+}

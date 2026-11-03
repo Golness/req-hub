@@ -84,6 +84,16 @@ function validate(value) {
       issues.push({ message: 'ai.delegation must be an object', path: ['ai', 'delegation'] });
     }
   }
+  if (value.wiki?.dailyUpdateTimeZone !== undefined) {
+    try {
+      new Intl.DateTimeFormat('en', { timeZone: value.wiki.dailyUpdateTimeZone }).format();
+    } catch {
+      issues.push({
+        message: 'wiki.dailyUpdateTimeZone must be a valid IANA time zone',
+        path: ['wiki', 'dailyUpdateTimeZone'],
+      });
+    }
+  }
   return issues.length ? { issues } : { value: structuredClone(value) };
 }
 // Native graph metadata supports Cordis validation and host schema inspection.
@@ -113,7 +123,13 @@ export const Config = Schema.object({
     }).default(undefined),
   }).default(undefined),
   wiki: Schema.object({
-    autoManage: Schema.boolean().default(true),
+    autoManage: Schema.boolean().default(false),
+    autoManageDelayMs: Schema.natural().max(3600000).default(30000),
+    dailyUpdateEnabled: Schema.boolean().default(false),
+    dailyUpdateTime: Schema.string()
+      .pattern(/^(?:[01]\d|2[0-3]):[0-5]\d$/)
+      .default('02:00'),
+    dailyUpdateTimeZone: Schema.string().default('Asia/Shanghai'),
     maxConcurrentJobs: Schema.natural().min(1).max(8).default(2),
     maxWikiPagesPerScope: Schema.natural().min(1).max(10000).default(500),
     maxInputBytes: Schema.natural().min(1000).max(20000000).default(2000000),

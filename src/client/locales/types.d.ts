@@ -64,6 +64,16 @@ export declare const zh: {
   readonly 'review.rejected': string;
   readonly 'review.empty': string;
   readonly 'review.identical': string;
+  readonly 'review.compareTitle': string;
+  readonly 'review.readCount': string;
+  readonly 'review.readMode': string;
+  readonly 'review.editMode': string;
+  readonly 'review.baseVersion': string;
+  readonly 'review.targetVersion': string;
+  readonly 'review.identicalHelp': string;
+  readonly 'review.showDocument': string;
+  readonly 'review.changesTitle': string;
+  readonly 'review.changesOnly': string;
   readonly 'review.changed': string;
   readonly 'writing.missingScopes': string;
   readonly 'ai.preparing': string;
@@ -642,6 +652,8 @@ export declare const zh: {
   readonly 'sync.error.OUTPUT_NOT_WRITTEN': string;
   readonly 'sync.storage.deleteTask': string;
   readonly 'sync.storage.deleteAttempt': string;
+  readonly 'sync.storage.deleteTaskHint': string;
+  readonly 'sync.storage.deleteAttemptHint': string;
   readonly 'sync.storage.collect': string;
   readonly 'sync.storage.failed': string;
   readonly 'sync.storage.usage': string;

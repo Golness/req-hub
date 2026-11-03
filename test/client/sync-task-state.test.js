@@ -38,6 +38,7 @@ afterEach(async () => { await act(async () => root.unmount()); document.body.inn
 const button = text => [...container.querySelectorAll('button')].find(el => el.textContent.trim() === text);
 async function start() {
   await act(async () => root.render(React.createElement(DocsViewerContext.Provider, { value: { refreshTree: vi.fn() } }, React.createElement(SyncPanel, { workspaceId: 'ws', selectedReq: req, onClose: vi.fn() }))));
+  await act(async () => button('自定义同步').click());
   await act(async () => button('同步需求文档').click());
   await act(async () => new Promise(resolve => setTimeout(resolve, 300)));
   await act(async () => button('开始同步需求文档').click());
@@ -116,8 +117,13 @@ it('distinguishes raw code size from complete input budgets and exposes their co
   await act(async()=>root.render(React.createElement(DocsViewerContext.Provider,{value:{}},React.createElement(SyncPanel,{workspaceId:'ws',selectedReq:req,focusedSync:sync,onClose:vi.fn()}))));
   expect(container.textContent).toContain('代码正文估算：614.7k tokens');
   expect(container.textContent).toContain('输入预算 90.0k tokens');
-  await act(async()=>[...container.querySelectorAll('.rh-sync-step-label')].find(el=>el.textContent==='代码差异分析').click());
-  await act(async()=>[...container.querySelectorAll('span')].find(el=>el.textContent==='1 块').click());
+  const codeStep = container.querySelector('[data-sync-step="code_analysis"]');
+  const budgetToggle = [...codeStep.querySelectorAll('button')].find(el => el.textContent.includes('预算明细'));
+  expect(codeStep.querySelector('button').getAttribute('aria-expanded')).toBe('false');
+  await act(async () => codeStep.querySelector('button').click());
+  expect(budgetToggle.getAttribute('aria-expanded')).toBe('false');
+  await act(async () => budgetToggle.click());
+  expect(document.getElementById(budgetToggle.getAttribute('aria-controls')).hidden).toBe(false);
   expect(container.textContent).toContain('证据读取 30.0k · 公共材料 10.0k · 提示词 5.0k · 预留 45.0k');
   expect(container.textContent).toContain('不代表代码量或实际消耗');
 });
