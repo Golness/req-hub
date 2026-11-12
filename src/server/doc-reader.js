@@ -5,7 +5,7 @@ import { log } from './logger.js';
 
 /**
  * Find a requirement directory by ID.
- * Searches through all developer directories.
+ * Searches direct date directories and developer directories.
  * @param {string} docsRoot - Document root directory
  * @param {string} requirementId - Requirement ID to find
  * @returns {Promise<string|null>} Full path to requirement directory, or null if not found
@@ -18,6 +18,9 @@ export async function findRequirementDir(docsRoot, requirementId) {
         continue;
       }
       const devPath = join(docsRoot, dev.name);
+      if (dev.name === requirementId) {
+        return devPath;
+      }
       const reqs = await readdir(devPath, { withFileTypes: true });
       for (const req of reqs) {
         if (req.isDirectory() && req.name === requirementId) {

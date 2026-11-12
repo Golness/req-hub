@@ -6,7 +6,9 @@ import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
 import { WritingRuntime, installWritingTools, WRITING_TOOLS } from '../../src/server/writing-runtime.js';
 import { createWritingRoutes } from '../../src/server/routes/writing-routes.js';
-import { KnowledgeService } from '../../src/server/knowledge/build-service.js';
+import { KnowledgeContext } from '../../src/server/knowledge-v2/context.js';
+import { resolveScope, ScopeStore } from '../../src/server/knowledge-v2/scope.js';
+import { importFiles } from '../../src/server/knowledge-v2/source-repository.js';
 import { PROMPT_REGISTRY } from '../../src/server/prompts.js';
 import { createOperations } from '../../src/server/operations.js';
 
@@ -54,13 +56,37 @@ let root, service, routes, server, base, definitions, streamHook, execute;
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'rh-writing-')); await mkdir(join(root, 'docs/alice/2026-10-23-orders'), { recursive: true });
   const registry = { list: () => [{ id: 'ws', title: '本工作区', path: root }, { id: 'other', title: '另一个库', path: root }] };
-  service = new KnowledgeService({ registry, databasePath: join(root, 'kb.sqlite'), configLoader: async () => ({ docsDir: 'docs' }) });
+  const stores = new Map();
+  service = new KnowledgeContext({
+    registry,
+    root: join(root, 'v2'),
+    scope: async (workspaceId) => {
+      const store = stores.get(workspaceId);
+      if (!store) {
+        throw new Error('KB_WORKSPACE_MISSING');
+      }
+      return store;
+    },
+    release: async () => null,
+  });
   for (const id of ['ws', 'other']) {
     await writeFile(join(root, 'docs/alice/2026-10-23-orders', `${id}.md`), `${id} 审核通过后才能发货`);
-    const scope = await service.scope(id);
-    const { job } = await service.build(scope, { requestKey: id, files: [{ relativePath: `alice/2026-10-23-orders/${id}.md` }] });
-    await Promise.all([...service.tasks]); expect(scope.store.job(job.id).status).toBe('completed');
+    const resolved = await resolveScope({
+      root: join(root, 'v2'),
+      workspace: registry.list().find((workspace) => workspace.id === id),
+      docsDir: 'docs',
+    });
+    const store = new ScopeStore(resolved);
+    await store.init();
+    stores.set(id, store);
+    await importFiles(store, {
+      files: [{ relativePath: `alice/2026-10-23-orders/${id}.md` }],
+      signal: new AbortController().signal,
+    });
   }
+  service.close = async () => {
+    await Promise.all([...stores.values()].map((store) => store.close()));
+  };
   definitions = new Map();
   const ctx = { subagents: { getProvider: () => ({ capabilities: { toolFilter: true }, inheritsParentContext: false }) },
     tools: { register: d => { definitions.set(d.name, d); return () => {}; }, guard: () => () => {} },
@@ -139,7 +165,7 @@ it('optimizes in repeated rounds using only selected global knowledge and never 
   expect(PROMPT_REGISTRY.template).toBeUndefined();
 });
 it('uses only the explicitly checked related document when no whole knowledge scope is selected', async () => {
-  const scope = await service.scope('other'); const document = scope.store.list()[0];
+  const scope = await service.scope('other'); const document = scope.store.activeDocumentMetadata()[0];
   const referenceRefs = [{ id: document.id, scopeId: scope.identity, version: document.version }];
   const input = { workspaceId: 'ws', sessionId: 'parent', scopeIds: [], referenceRefs, docType: 'requirement', content: '# Draft', instruction: '' };
   const response = await post('/optimize', input); expect(response.status).toBe(202); const job = await response.json();
@@ -149,7 +175,7 @@ it('uses only the explicitly checked related document when no whole knowledge sc
   expect((await post('/optimize', { ...input, referenceRefs: [{ ...referenceRefs[0], version: document.version + 1 }] })).status).toBe(409);
 });
 it('rejects the writing candidate if a checked reference changes while the child is running', async () => {
-  const scope = await service.scope('other'), document = scope.store.list()[0];
+  const scope = await service.scope('other'), document = scope.store.activeDocumentMetadata()[0];
   const original = execute.getMockImplementation();
   execute.mockImplementation(async (...args) => { const result = await original(...args); await writeFile(join(root, 'docs', document.sources[0].relativePath), 'Changed during model execution'); return result; });
   const response = await post('/optimize', { workspaceId: 'ws', sessionId: 'parent', scopeIds: [], referenceRefs: [{ id: document.id, scopeId: scope.identity, version: document.version }], docType: 'requirement', content: '# Draft', instruction: '' });
@@ -160,15 +186,17 @@ it('rejects the writing candidate if a checked reference changes while the child
 });
 it('excludes already stale snapshots before starting AI while preserving ordinary knowledge browsing', async () => {
   const scope = await service.scope('other');
-  await service.build(scope, { requestKey: 'additional', files: [{ relativePath: 'alice/2026-10-23-orders/ws.md' }] });
-  await Promise.all([...service.tasks]);
+  await importFiles(scope.store.backend, {
+    files: [{ relativePath: 'alice/2026-10-23-orders/ws.md' }],
+    signal: new AbortController().signal,
+  });
   await writeFile(join(root, 'docs/alice/2026-10-23-orders/other.md'), 'Already changed before optimization');
   const response = await post('/optimize', { workspaceId: 'ws', sessionId: 'parent', scopeIds: [scope.identity], docType: 'requirement', content: '# Draft', instruction: '' });
   expect(response.status).toBe(202); const job = await response.json();
   let result; await vi.waitFor(async () => { result = await (await fetch(`${base}/jobs/${job.id}`)).json(); expect(result.status).toBe('completed'); });
   expect(result.excludedSourceCount).toBe(1);
   expect(execute.mock.calls[0][3].runtime.documents.map(doc => doc.sources[0].relativePath)).toEqual(['alice/2026-10-23-orders/ws.md']);
-  expect(scope.store.list()).toHaveLength(2);
+  expect(scope.store.activeDocumentMetadata()).toHaveLength(2);
   expect(result.result.evidence).toHaveLength(1);
 });
 it('fails before invoking AI when a selected library has only invalid sources', async () => {
@@ -180,13 +208,15 @@ it('fails before invoking AI when a selected library has only invalid sources', 
   expect(execute).not.toHaveBeenCalled();
 });
 it('still rejects evidence rebuilt to a newer version during AI execution', async () => {
-  const scope = await service.scope('other'), document = scope.store.list()[0];
+  const scope = await service.scope('other'), document = scope.store.activeDocumentMetadata()[0];
   const original = execute.getMockImplementation();
   execute.mockImplementation(async (...args) => {
     const result = await original(...args);
     await writeFile(join(root, 'docs', document.sources[0].relativePath), 'New indexed source');
-    await service.build(scope, { requestKey: 'rebuild', files: [{ relativePath: document.sources[0].relativePath }] });
-    await Promise.all([...service.tasks]);
+    await importFiles(scope.store.backend, {
+      files: [{ relativePath: document.sources[0].relativePath }],
+      signal: new AbortController().signal,
+    });
     return result;
   });
   const job = await (await post('/optimize', { workspaceId: 'ws', sessionId: 'parent', scopeIds: [scope.identity], docType: 'requirement', content: '# Draft', instruction: '' })).json();

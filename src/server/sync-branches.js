@@ -3,10 +3,16 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { realpath } from 'node:fs/promises';
 import { filterSyncCodeDiff, isSyncCodeFile } from './sync-code-files.js';
+import { syncSignal } from './sync-cancellation.js';
 const exec = promisify(execFile);
 const git = async (cwd, ...args) =>
   (
-    await exec('git', args, { cwd, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
+    await exec('git', args, {
+      cwd,
+      encoding: 'utf8',
+      maxBuffer: 32 * 1024 * 1024,
+      signal: syncSignal(),
+    })
   ).stdout.trimEnd();
 
 /**

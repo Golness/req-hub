@@ -1,4 +1,6 @@
 import { delegationContext, bindOwnedSession } from './delegation-context.js';
+import general from '../shared/general.cjs';
+import { getSubagentScheduler } from './concurrency/SubagentScheduler.js';
 /**
  * Task executor module.
  * All LLM tasks are delegated to DSH Subagent for execution.
@@ -73,9 +75,9 @@ export const TaskExecutorErrorCode = {
  * @type {Object}
  * @property {string} defaultProvider - Default subagent provider
  * @property {Object} defaultAgentOptions - Default agent options
- * @property {number} defaultTimeout - Default timeout in ms (20 min)
+ * @property {number} defaultTimeout - Shared default execution timeout in ms (20 min)
  * @property {number} minTimeout - Minimum timeout in ms (30s)
- * @property {number} maxTimeout - Maximum timeout in ms (20 min)
+ * @property {number} maxTimeout - Maximum timeout in ms (60 min)
  * @property {number} maxSkillTokens - Max skill content tokens (≈100k chars)
  * @property {number} maxPromptTokens - Max prompt tokens (≈200k chars)
  * @property {Object} liveness - Liveness detection config
@@ -86,14 +88,14 @@ export const TaskExecutorConfig = {
   defaultAgentOptions: {
     provider: undefined, // Inherit the parent model unless the caller overrides it.
     model: undefined, // Inherit the parent model unless the caller overrides it.
-    maxTokens: 8000,
+    maxTokens: undefined, // Inherit the Host output policy instead of imposing a smaller cap.
   },
 
-  defaultTimeout: 1200000,
+  defaultTimeout: general.GENERAL_DEFAULTS.taskTimeoutMs,
 
   minTimeout: 30000,
 
-  maxTimeout: 1200000,
+  maxTimeout: 3600000,
 
   maxSkillTokens: 25000,
 
@@ -232,6 +234,10 @@ export class TaskExecutor {
     this.parentAgent = options.parentAgent;
     this.cwd = options.cwd;
     this.signal = options.signal || new AbortController().signal;
+    if (this.ctx?.subagents) {
+      this.scheduler = getSubagentScheduler(this.ctx.subagents, this.config);
+      this.signal = AbortSignal.any([this.signal, this.scheduler.signal]);
+    }
     this.scopedSkills = options.scopedSkills;
     this.callbacks = options.callbacks || {};
     this.warnings = [];
@@ -255,10 +261,11 @@ export class TaskExecutor {
    * @param {Object} [options.variables={}] - Template variables
    * @param {string} [options.description] - Human-readable task description
    * @param {Object} [options.agentOptions] - Subagent options override
-   * @param {number} [options.timeout] - Timeout in ms
+   * Execution deadlines always use general.taskTimeoutMs; per-call overrides are ignored.
    * @returns {Promise<TaskResult>} Task execution result
    */
   async execute(options) {
+    options = { ...options, timeout: general.generalSettings(this.config).taskTimeoutMs };
     const { promptKey, variables = {}, description, agentOptions, timeout } = options;
     const startTime = Date.now();
     this.warnings = [];
@@ -755,7 +762,7 @@ export class TaskExecutor {
    * @returns {Promise<{result: Object, sessionId: string}>} Execution result
    */
   async executeSubagent(run, options) {
-    const { timeout } = options;
+    const timeout = general.generalSettings(this.config).taskTimeoutMs;
     const sessionId = run.id;
 
     await this.callbacks.onProgress?.({
@@ -1083,9 +1090,19 @@ export class TaskExecutor {
     const { promptKey, description } = options;
     let run = null;
     let runController;
+    let slot;
 
     try {
       const promptData = options.preparedPromptData || (await this.loadPrompt(options));
+
+      await this.callbacks.onProgress?.({
+        stage: 'waiting_for_slot',
+        running: this.scheduler.semaphore.runningCount,
+        waiting: this.scheduler.semaphore.waitingCount,
+        concurrency: this.scheduler.semaphore.maxConcurrency,
+      });
+      slot = await this.scheduler.acquire(this.signal);
+      this.signal.throwIfAborted();
 
       const startResult = await this.startSubagent(options, promptData);
       run = startResult.run;
@@ -1175,8 +1192,12 @@ export class TaskExecutor {
     } catch (e) {
       const elapsed = Date.now() - startTime;
 
-      const errorCode =
-        e instanceof TaskExecutorError ? e.code : TaskExecutorErrorCode.EXECUTION_ERROR;
+      let errorCode = TaskExecutorErrorCode.EXECUTION_ERROR;
+      if (this.signal.aborted) {
+        errorCode = TaskExecutorErrorCode.TASK_CANCELLED;
+      } else if (e instanceof TaskExecutorError) {
+        errorCode = e.code;
+      }
 
       log.taskExecutor.error(`Subagent 执行失败: ${e.message}`, {
         code: errorCode,
@@ -1201,7 +1222,11 @@ export class TaskExecutor {
       return result;
     } finally {
       runController?.abort();
-      await this.disposeRun(run, { strict: !!options.syncV2 });
+      try {
+        await this.disposeRun(run, { strict: !!options.syncV2 });
+      } finally {
+        slot?.release();
+      }
     }
   }
 

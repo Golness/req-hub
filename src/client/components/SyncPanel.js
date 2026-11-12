@@ -1,4 +1,6 @@
 'use strict';
+const { formatDateTime, useTimeZone } = require('../time.js');
+const { PagedList } = require('./shared/PagedList.js');
 const { SyncStepList } = require('./SyncSteps.js');
 const progressCss = require('./SyncProgress.module.css').default;
 const { KnowledgeContextPicker } = require('./KnowledgeContextPicker.js');
@@ -12,6 +14,7 @@ const { t } = require('../locale.js');
 const css = require('./SyncPanel.module.css').default;
 const { cssValue } = require('./shared/presentation.js');
 const { Button } = require('./shared/Button.js');
+const { ActionBar } = require('./shared/ActionBar.js');
 const { ModalFrame } = require('./shared/ModalFrame.js');
 const { Input } = require('./shared/Input.js');
 
@@ -21,7 +24,7 @@ const { HeaderBack } = require('./shared/HeaderBack.js');
 const { useState, useEffect, useRef } = React;
 const syncTaskModel = require('../../shared/sync-task.cjs');
 const { readSyncEvents } = require('../utils/syncEvents.js');
-const { syncActivityText, syncErrorText } = require('../utils/syncFeedback.js');
+const { syncActivityText, syncErrorText, syncPhaseLabel } = require('../utils/syncFeedback.js');
 const { SyncTiming } = require('./SyncTiming.js');
 const { SyncVersionCompare } = require('./shared/SyncVersionCompare.js');
 const { DeleteSyncTaskButton } = require('./shared/DeleteSyncTaskButton.js');
@@ -58,9 +61,7 @@ function ActiveSyncSummary({ task, onOpen, label }) {
       h(
         'div',
         { className: css.activeSummaryDetail, role: 'status' },
-        current?.activity
-          ? syncActivityText(current.activity)
-          : current?.label || syncActivityText(),
+        current?.activity ? syncActivityText(current.activity) : syncPhaseLabel(current),
         total > 0 &&
           h('span', null, t('SyncPanel.message041', { value0: completed, value1: total })),
       ),
@@ -504,6 +505,7 @@ function QuickSync({ workspaceId, onRequirementReady, active }) {
  * @returns {JSX.Element}
  */
 function SessionTurnsView({ workspaceId, sessionId, sessionTitle, snapshotVersion, onBack }) {
+  useTimeZone();
   const [turnsData, setTurnsData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -552,7 +554,7 @@ function SessionTurnsView({ workspaceId, sessionId, sessionTitle, snapshotVersio
 
   const expandAll = () => {
     if (turnsData) {
-      setExpandedTurns(new Set(turnsData.turns.map((t) => t.turnNumber)));
+      setExpandedTurns(new Set(turnsData.turns.map((turn) => turn.turnNumber)));
     }
   };
 
@@ -638,82 +640,86 @@ function SessionTurnsView({ workspaceId, sessionId, sessionTitle, snapshotVersio
     h(
       'div',
       { className: css.pane },
-      turnsData.turns.map((turn, idx) => {
-        const isExpanded = expandedTurns.has(turn.turnNumber);
-        const time = turn.time ? new Date(turn.time).toLocaleString() : '';
-        const userInput = turn.messages?.find((message) => message.role === 'user')?.text || '';
+      h(
+        PagedList,
+        { className: css.turnPages },
+        turnsData.turns.map((turn, idx) => {
+          const isExpanded = expandedTurns.has(turn.turnNumber);
+          const time = turn.time ? formatDateTime(turn.time) : '';
+          const userInput = turn.messages?.find((message) => message.role === 'user')?.text || '';
 
-        return h(
-          'div',
-          {
-            key: idx,
-            className: css.pane2,
-          },
-          // Turn header
-          h(
+          return h(
             'div',
             {
-              onClick: () => toggleTurn(turn.turnNumber),
-              className: css.row4,
-              style: {
-                '--rh-background-1': cssValue(
-                  isExpanded ? 'var(--dsw-alias-bg-layer-2)' : 'var(--dsw-alias-bg-layer-1)',
-                ),
-              },
+              key: idx,
+              className: css.pane2,
             },
-            h(
-              'span',
-              { className: css.heading2 },
-              t('SyncPanel.message012', { value0: turn.turnNumber }),
-            ),
-            h('span', { className: css.pane3 }, userInput.substring(0, 100)),
-            !turn.syncable && h('span', { className: css.mutedText3 }, t('SyncPanel.message013')),
-            h('span', { className: css.mutedText4 }, time),
-            h(
-              'span',
-              {
-                className: css.mutedText5,
-                style: {
-                  '--rh-transform-2': cssValue(isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'),
-                },
-              },
-              h(IconChevronDown, { size: 12 }),
-            ),
-          ),
-
-          // Turn content (expanded)
-          isExpanded &&
+            // Turn header
             h(
               'div',
-              { className: css.section3 },
-              (turn.messages || []).map((message, messageIndex) =>
-                h(
-                  'div',
-                  {
-                    key: messageIndex,
-                    className: css.spacing2,
+              {
+                onClick: () => toggleTurn(turn.turnNumber),
+                className: css.row4,
+                style: {
+                  '--rh-background-1': cssValue(
+                    isExpanded ? 'var(--dsw-alias-bg-layer-2)' : 'var(--dsw-alias-bg-layer-1)',
+                  ),
+                },
+              },
+              h(
+                'span',
+                { className: css.heading2 },
+                t('SyncPanel.message012', { value0: turn.turnNumber }),
+              ),
+              h('span', { className: css.pane3 }, userInput.substring(0, 100)),
+              !turn.syncable && h('span', { className: css.mutedText3 }, t('SyncPanel.message013')),
+              h('span', { className: css.mutedText4 }, time),
+              h(
+                'span',
+                {
+                  className: css.mutedText5,
+                  style: {
+                    '--rh-transform-2': cssValue(isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'),
                   },
-                  h('div', { className: css.heading3 }, message.label),
+                },
+                h(IconChevronDown, { size: 12 }),
+              ),
+            ),
+
+            // Turn content (expanded)
+            isExpanded &&
+              h(
+                'div',
+                { className: css.section3 },
+                (turn.messages || []).map((message, messageIndex) =>
                   h(
                     'div',
                     {
-                      className: css.section4,
-                      style: {
-                        '--rh-border-left-7': cssValue(
-                          '3px solid ' +
-                            (message.kind === 'final'
-                              ? 'var(--dsw-alias-state-success-primary)'
-                              : 'var(--rh-accent)'),
-                        ),
-                      },
+                      key: messageIndex,
+                      className: css.spacing2,
                     },
-                    message.text,
+                    h('div', { className: css.heading3 }, message.label),
+                    h(
+                      'div',
+                      {
+                        className: css.section4,
+                        style: {
+                          '--rh-border-left-7': cssValue(
+                            '3px solid ' +
+                              (message.kind === 'final'
+                                ? 'var(--dsw-alias-state-success-primary)'
+                                : 'var(--rh-accent)'),
+                          ),
+                        },
+                      },
+                      message.text,
+                    ),
                   ),
                 ),
               ),
-            ),
-        );
-      }),
+          );
+        }),
+      ),
     ),
   );
 }
@@ -740,20 +746,18 @@ function SyncProgressView({
   requirementId,
   requirementPath,
   onSyncAborted,
+  onRetry,
 }) {
+  useTimeZone();
   const [showAbortConfirm, setShowAbortConfirm] = useState(false);
   const [aborting, setAborting] = useState(false);
 
   // Calculate progress — skipped steps are excluded from the count
   const allSteps = sync.steps || [];
-  const skippedSteps = allSteps.filter((s) => s.status === 'skipped');
   const activeSteps = allSteps.filter((s) => s.status !== 'skipped');
   const totalSteps = activeSteps.length;
   const completedSteps = activeSteps.filter((s) => s.status === 'completed').length;
-  const failedSteps = activeSteps.filter((s) => s.status === 'failed').length;
-  const runningSteps = activeSteps.filter((s) => s.status === 'running').length;
-  const progress =
-    totalSteps > 0 ? Math.round(((completedSteps + failedSteps) / totalSteps) * 100) : 0;
+  const progress = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0;
 
   const handleAbort = async () => {
     setAborting(true);
@@ -836,11 +840,11 @@ function SyncProgressView({
         'div',
         { className: progressCss.meta },
         h('span', null, t('sync.documentTypeLabel'), sync.docTypeName),
-        h('span', null, t('SyncPanel.message038'), new Date(sync.startedAt).toLocaleString()),
+        h('span', null, t('SyncPanel.message038'), formatDateTime(sync.startedAt)),
         sync.completedAt &&
-          h('span', null, t('SyncPanel.message039'), new Date(sync.completedAt).toLocaleString()),
+          h('span', null, t('SyncPanel.message039'), formatDateTime(sync.completedAt)),
         sync.abortedAt &&
-          h('span', null, t('SyncPanel.message040'), new Date(sync.abortedAt).toLocaleString()),
+          h('span', null, t('SyncPanel.message040'), formatDateTime(sync.abortedAt)),
       ),
       // Progress bar
       h(
@@ -865,7 +869,7 @@ function SyncProgressView({
             style: {
               '--rh-width-0': cssValue(`${progress}%`),
               '--rh-background-1': cssValue(
-                sync.status === 'aborted' ? 'var(--dsw-alias-state-warning-primary)' : undefined,
+                sync.status === 'aborted' ? 'var(--dsw-alias-state-warn-primary)' : undefined,
               ),
             },
             role: 'progressbar',
@@ -888,6 +892,8 @@ function SyncProgressView({
         sync.publishState === 'state_committed' &&
         h('div', { className: 'rh-op-info' }, t('SyncPanel.message043')),
       h(SyncStepList, {
+        task: { ...sync, workspaceId, requirementId },
+        onRetry,
         steps: sync.steps,
         generatedFiles: sync.generatedFiles,
         workspaceId: sync.workspaceId,
@@ -897,18 +903,23 @@ function SyncProgressView({
     ),
     sync.id &&
       h(
-        'footer',
-        { className: progressCss.footer, 'aria-label': t('sync.progress.actions') },
-        h(DeleteSyncTaskButton, {
-          task: { ...sync, workspaceId, requirementId },
-          onDeleted: onBack,
-        }),
+        ActionBar,
+        {
+          placement: 'page',
+          className: progressCss.footer,
+          'aria-label': t('sync.progress.actions'),
+          leading: h(DeleteSyncTaskButton, {
+            task: { ...sync, workspaceId, requirementId },
+            onDeleted: onBack,
+          }),
+        },
         sync.status === 'running' &&
           sync.id &&
           h(
             Button,
             {
-              className: 'rh-btn rh-btn-danger-outline',
+              variant: 'outline',
+              tone: 'warning',
               onClick: () => setShowAbortConfirm(true),
             },
             t('SyncPanel.message044'),
@@ -957,7 +968,8 @@ function SyncProgressView({
             h(
               Button,
               {
-                className: 'rh-btn rh-btn-danger',
+                variant: 'outline',
+                tone: 'warning',
                 onClick: handleAbort,
                 disabled: aborting,
               },
@@ -1067,7 +1079,7 @@ function SyncHistoryView({ onSelectSync, workspaceId, requirementId, active = tr
   }
   return h(
     'div',
-    { className: historyCss.page },
+    { className: historyCss.page, 'data-sync-history-list': '' },
     activeTask &&
       h(ActiveSyncSummary, {
         task: activeTask,
@@ -1203,9 +1215,12 @@ function SyncDetailView({ sync: initialSync, onBack, workspaceId, requirementPat
       }
       fetching = true;
       try {
-        const url = sync.id
-          ? `${ROUTE}/sync-detail?${new URLSearchParams({ id: sync.id, workspaceId, requirementId: sync.requirementId })}`
-          : `${ROUTE}/sync-overview`;
+        const preparing =
+          sync.status === 'preparing' || (sync.status === 'cancelling' && !sync.snapshotDir);
+        const url =
+          sync.id && !preparing
+            ? `${ROUTE}/sync-detail?${new URLSearchParams({ id: sync.id, workspaceId, requirementId: sync.requirementId })}`
+            : `${ROUTE}/sync-overview`;
         const response = await fetch(url, { signal: controller.signal });
         if (!response.ok) {
           throw Error('SYNC_DETAIL_FAILED');
@@ -1240,7 +1255,7 @@ function SyncDetailView({ sync: initialSync, onBack, workspaceId, requirementPat
       controller.abort();
       clearInterval(timer);
     };
-  }, [workspaceId, sync.id, sync.notificationId, isLiveSync(sync)]);
+  }, [workspaceId, sync.id, sync.snapshotDir, sync.notificationId, isLiveSync(sync)]);
   const displaySync = sync.status === 'preparing' ? { ...sync, status: 'running' } : sync;
 
   if (viewingFile) {
@@ -1285,6 +1300,10 @@ function SyncDetailView({ sync: initialSync, onBack, workspaceId, requirementPat
       onSyncAborted: () => {
         setSync((previous) => ({ ...previous, status: 'cancelling' }));
       },
+      onRetry: (next) => {
+        setSync(next);
+        onUpdate?.(next);
+      },
     }),
   );
 }
@@ -1316,6 +1335,7 @@ function PhasedSyncUI({
   refreshTree,
   quick = false,
 }) {
+  useTimeZone();
   const { syncActivity } = React.useContext(DocsViewerContext);
   const [selectedSessions, setSelectedSessions] = useState([]);
   const [codexSelection, setCodexSelection] = useState({ ids: [], versions: {} });
@@ -1520,7 +1540,8 @@ function PhasedSyncUI({
   }, [comparisonKey]);
 
   // Resolve only the identified task's persisted outcome after a transport interruption.
-  const connectToSyncSSE = (syncId, sequenceId = quickSyncId.current) => {
+  const connectToSyncSSE = (syncId, sequenceId = quickSyncId.current, singleAttempt = false) => {
+    const trackQuick = quick && !singleAttempt;
     observationRef.current?.();
     clearInterval(pollRef.current);
     const controller = new AbortController();
@@ -1563,13 +1584,13 @@ function PhasedSyncUI({
       fetching = true;
       try {
         let url = `${ROUTE}/sync-overview`;
-        if (quick && sequenceId) {
+        if (trackQuick && sequenceId) {
           url = `${ROUTE}/quick-sync-status?${new URLSearchParams({
             id: sequenceId,
             workspaceId,
             requirementId: selectedReq.id,
           })}`;
-        } else if (!quick && syncId) {
+        } else if (!trackQuick && syncId) {
           url = `${ROUTE}/sync-detail?id=${syncId}&workspaceId=${workspaceId}&requirementId=${encodeURIComponent(selectedReq.id)}`;
         }
         const response = await fetch(url, { signal: controller.signal });
@@ -1591,7 +1612,7 @@ function PhasedSyncUI({
         if (stopped || !mounted.current) {
           return;
         }
-        let sequence = quick ? data.quickSync : null;
+        let sequence = trackQuick ? data.quickSync : null;
         if (
           sequence &&
           !sequenceId &&
@@ -1616,9 +1637,9 @@ function PhasedSyncUI({
             (task) =>
               task?.workspaceId === workspaceId &&
               task.requirementId === selectedReq.id &&
-              (quick || task.docType === activeTab),
+              (trackQuick || task.docType === activeTab),
           );
-        if ((!sync && !sequence) || (!quick && syncId && sync.id !== syncId)) {
+        if ((!sync && !sequence) || (!trackQuick && syncId && sync?.id !== syncId)) {
           throw new Error(t('SyncPanel.message058'));
         }
         if (sync) {
@@ -1671,7 +1692,7 @@ function PhasedSyncUI({
     });
 
     const initialSync = {
-      id: `sync-${Date.now()}`,
+      id: window.crypto?.randomUUID?.() || `sync-${Date.now()}`,
       workspaceId,
       requirementId: selectedReq.id,
       docType,
@@ -1715,7 +1736,7 @@ function PhasedSyncUI({
           active.docType === docType
         ) {
           quickSyncId.current = active.quickSyncId || quickSyncId.current;
-          setCurrentSync({ ...initialSync, ...active, id: initialSync.id, status: 'running' });
+          setCurrentSync({ ...initialSync, ...active, status: 'running' });
         }
       } catch (error) {
         // The POST request remains authoritative for preparation failures.
@@ -1752,6 +1773,7 @@ function PhasedSyncUI({
           workspaceId,
           requirementId: selectedReq.id,
           docType,
+          requestId: initialSync.id,
           targetBranch: selectedReq.targetBranch,
           quick,
           ...(!quick && docType === 'design' && designReferencePath ? { designReferencePath } : {}),
@@ -1789,6 +1811,14 @@ function PhasedSyncUI({
             setSyncing(false);
           }
           return true;
+        }
+        if (data.sync && !isLiveSync(data.sync)) {
+          setCurrentSync(data.sync);
+          setView('progress');
+          setSyncing(false);
+          setError(syncErrorText(data.error || data.sync.error));
+          window.dispatchEvent(new Event('req-hub-sync-change'));
+          return data.sync.status === 'completed';
         }
         if (data.active && data.sync) {
           if (response.status === 409) {
@@ -2023,6 +2053,12 @@ function PhasedSyncUI({
           return next;
         });
       },
+      onRetry: (next) => {
+        setCurrentSync(next);
+        setError(null);
+        setSyncing(true);
+        void connectToSyncSSE(next.id, null, true);
+      },
     });
   }
 
@@ -2052,39 +2088,43 @@ function PhasedSyncUI({
           h(
             'div',
             { className: 'rh-sync-commit-list' },
-            visibleCommits.map((commit) =>
-              h(
-                'label',
-                {
-                  className: `rh-sync-commit${selectedCommits.includes(commit.hash) ? ' selected' : ''}`,
-                  key: commit.hash,
-                },
-                h('input', {
-                  type: 'checkbox',
-                  checked: selectedCommits.includes(commit.hash),
-                  disabled: syncing,
-                  'aria-label': t('SyncPanel.message081', { value0: commit.shortHash }),
-                  onChange: (event) =>
-                    setSelectedCommits((previous) =>
-                      event.target.checked
-                        ? [...previous, commit.hash]
-                        : previous.filter((hash) => hash !== commit.hash),
-                    ),
-                }),
+            h(
+              PagedList,
+              { resetKey: commitSearch, className: css.commitPages, inspect: false },
+              visibleCommits.map((commit) =>
                 h(
-                  'span',
-                  { className: 'rh-sync-commit-content' },
+                  'label',
+                  {
+                    className: `rh-sync-commit${selectedCommits.includes(commit.hash) ? ' selected' : ''}`,
+                    key: commit.hash,
+                  },
+                  h('input', {
+                    type: 'checkbox',
+                    checked: selectedCommits.includes(commit.hash),
+                    disabled: syncing,
+                    'aria-label': t('SyncPanel.message081', { value0: commit.shortHash }),
+                    onChange: (event) =>
+                      setSelectedCommits((previous) =>
+                        event.target.checked
+                          ? [...previous, commit.hash]
+                          : previous.filter((hash) => hash !== commit.hash),
+                      ),
+                  }),
                   h(
                     'span',
-                    { className: 'rh-sync-commit-title', title: commit.subject },
-                    h('code', null, commit.shortHash),
-                    ' ',
-                    commit.subject,
-                  ),
-                  h(
-                    'span',
-                    { className: 'rh-sync-hint' },
-                    `${commit.author} · ${new Date(commit.date).toLocaleString()}${commit.merge ? t('SyncPanel.message082') : ''}`,
+                    { className: 'rh-sync-commit-content' },
+                    h(
+                      'span',
+                      { className: 'rh-sync-commit-title', title: commit.subject },
+                      h('code', null, commit.shortHash),
+                      ' ',
+                      commit.subject,
+                    ),
+                    h(
+                      'span',
+                      { className: 'rh-sync-hint' },
+                      `${commit.author} · ${formatDateTime(commit.date)}${commit.merge ? t('SyncPanel.message082') : ''}`,
+                    ),
                   ),
                 ),
               ),

@@ -1,5 +1,6 @@
 'use strict';
 const React = require('react');
+const { ActionBar } = require('./shared/ActionBar.js');
 const { HeaderBack } = require('./shared/HeaderBack.js');
 const { Input } = require('./shared/Input.js');
 const { Button } = require('./shared/Button.js');
@@ -148,28 +149,28 @@ function SyncSetup({
         ),
     ),
     h(
-      'footer',
-      { className: css.footer, 'aria-label': t('sync.layout.selectionSummary') },
-      error && h('p', { role: 'alert', className: css.error }, error),
-      h(
-        'div',
-        { className: css.footerRow },
-        h(
+      ActionBar,
+      {
+        placement: 'page',
+        className: css.footer,
+        'aria-label': t('sync.layout.selectionSummary'),
+        status: h(
           'div',
           { className: css.summary },
+          error && h('p', { role: 'alert', className: css.error }, error),
           h('div', { 'aria-live': 'polite' }, selectionSummary),
           h('p', { className: css.hint }, t('sync.layout.flow')),
         ),
-        h(
-          Button,
-          {
-            variant: 'primary',
-            className: css.start,
-            onClick: onStart,
-            disabled: startDisabled,
-          },
-          actionLabel,
-        ),
+      },
+      h(
+        Button,
+        {
+          variant: 'primary',
+          className: css.start,
+          onClick: onStart,
+          disabled: startDisabled,
+        },
+        actionLabel,
       ),
     ),
   );

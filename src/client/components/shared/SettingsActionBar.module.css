@@ -1,0 +1,38 @@
+.bar {
+  box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 12px;
+  border-top: 0.5px solid var(--dsw-alias-border-l1);
+}
+.leading {
+  display: flex;
+  align-items: center;
+  flex: 1 1 200px;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-right: auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  margin-inline-start: auto;
+}
+.status {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.page {
+  padding: 12px var(--rh-panel-padding, 16px);
+}

@@ -1,4 +1,5 @@
 'use strict';
+const { formatDateTime, useTimeZone } = require('../../time.js');
 const { t } = require('../../locale.js');
 const React = require('react');
 const { Select } = require('./Select.js');
@@ -11,12 +12,11 @@ const h = React.createElement;
  * @returns The rendered component content.
  */
 function VersionSelect({ label, versions, value, onChange }) {
+  useTimeZone();
   const id = React.useId();
   const versionDate = (version) => {
     const date = new Date(version.completedAt || version.startedAt);
-    return Number.isNaN(date.getTime())
-      ? t('VersionSelect.message001')
-      : date.toLocaleString('zh-CN', { hour12: false });
+    return Number.isNaN(date.getTime()) ? t('VersionSelect.message001') : formatDateTime(date);
   };
   return h(
     'div',

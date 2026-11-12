@@ -1,94 +1,38 @@
 import { estimateArtifactReadTokens } from '../../sync-budget.js';
+import {
+  freezeKnowledgeContext as freezeV2KnowledgeContext,
+  resolveKnowledgeReferences as resolveV2KnowledgeReferences,
+} from '../../knowledge-v2/reference-context.js';
 import { fail } from './contracts.js';
 
 /**
- * Resolve selected scopes before retrieval; never search the global index and filter afterwards.
- * @param knowledge - The knowledge service enforcing workspace and source ownership.
- * @param [refs] - Selected document identities and expected versions.
- * @param signal - Cancellation propagated from the owning task.
- * @returns Frozen document references; inaccessible or changed sources reject.
+ * Resolve exact V2 references for enhancement jobs.
+ * @param knowledge - V2 read-only knowledge context.
+ * @param refs - Exact {id|documentId, scopeId, version} references.
+ * @param signal - Owning task cancellation signal.
+ * @returns Frozen documents and their authorized origins.
  */
 export async function resolveKnowledgeReferences(knowledge, refs = [], signal) {
-  if (!Array.isArray(refs) || refs.length > 30) {
-    fail('ENHANCEMENT_INVALID_INPUT');
-  }
-  const result = [];
-  const seen = new Set();
-  for (const ref of refs) {
-    signal?.throwIfAborted();
-    if (
-      !ref ||
-      typeof ref.id !== 'string' ||
-      typeof ref.scopeId !== 'string' ||
-      !Number.isSafeInteger(ref.version)
-    ) {
-      fail('ENHANCEMENT_INVALID_INPUT');
-    }
-    if (seen.has(ref.id)) {
-      fail('ENHANCEMENT_INVALID_INPUT');
-    }
-    seen.add(ref.id);
-    const origin = knowledge
-      .database()
-      .scopes()
-      .find((scope) => scope.id === ref.scopeId);
-    if (!origin) {
-      fail('ENHANCEMENT_SCOPE_DENIED', 403);
-    }
-    const scope = await knowledge.scope(origin.workspace_id);
-    if (scope.identity !== ref.scopeId) {
-      fail('ENHANCEMENT_SCOPE_DENIED', 403);
-    }
-    await knowledge.refreshSources(scope);
-    const doc = scope.store.entry(ref.id);
-    if (
-      !doc ||
-      doc.version !== ref.version ||
-      doc.sources.some((source) => source.status !== 'active')
-    ) {
-      let reason = 'source_changed';
-      if (!doc) {
-        reason = 'missing';
-      } else if (doc.version !== ref.version) {
-        reason = 'version_changed';
-      }
-      fail('ENHANCEMENT_INPUT_CHANGED', 409, {
-        documentId: ref.id,
-        scopeId: ref.scopeId,
-        workspaceTitle: origin.workspace_title,
-        expectedVersion: ref.version,
-        actualVersion: doc?.version ?? null,
-        reason,
-        sources: doc?.sources.map(({ relativePath, status }) => ({ relativePath, status })) || [],
-      });
-    }
-    const { versions, ...snapshot } = doc;
-    result.push({ origin, doc: { ...snapshot, scopeId: ref.scopeId } });
-  }
-  return result;
+  return resolveV2KnowledgeReferences(knowledge, refs, signal);
 }
+
 /**
- * Freeze only selected knowledge and references within the complete input budget.
- * @param knowledge - The knowledge service enforcing workspace and source ownership.
- * @param [scopeIds] - Explicitly selected knowledge scope identities.
- * @param query - User search text.
- * @param signal - Cancellation propagated from the owning task.
- * @param [referenceRefs] - Additional exact-version read-only references.
- * @returns Versioned read-only knowledge documents.
+ * Freeze V2 documents into the bounded artifact shape consumed by enhancement workers.
+ * @param knowledge - V2 read-only knowledge context.
+ * @param scopeIds - Explicitly selected scope identities.
+ * @param query - Retrieval query.
+ * @param signal - Owning task cancellation signal.
+ * @param referenceRefs - Additional exact-version references.
+ * @returns Versioned read-only artifacts; no session or current-page state is consulted.
  */
 export async function freezeKnowledgeContext(
   knowledge,
   scopeIds = [],
-  query,
+  query = '',
   signal,
   referenceRefs = [],
 ) {
-  if (
-    Array.isArray(scopeIds) &&
-    !scopeIds.length &&
-    Array.isArray(referenceRefs) &&
-    !referenceRefs.length
-  ) {
+  if (!scopeIds.length && !referenceRefs.length) {
     return [];
   }
   if (
@@ -101,18 +45,25 @@ export async function freezeKnowledgeContext(
   ) {
     fail('ENHANCEMENT_INVALID_INPUT');
   }
+  const frozen = await freezeV2KnowledgeContext(
+    knowledge,
+    scopeIds,
+    query,
+    signal,
+    referenceRefs,
+  );
   const documents = [];
   const seen = new Set();
   let tokens = 0;
-  const append = (doc, id) => {
+  for (const doc of frozen.documents) {
     if (seen.has(doc.id)) {
-      return;
+      continue;
     }
     seen.add(doc.id);
     const artifactId = 'knowledge.' + documents.length;
     const text = JSON.stringify({
       documentId: doc.id,
-      scopeId: id,
+      scopeId: doc.scopeId,
       version: doc.version,
       sources: doc.sources,
       body: doc.body,
@@ -125,35 +76,10 @@ export async function freezeKnowledgeContext(
       id: artifactId,
       text,
       documentId: doc.id,
-      scopeId: id,
+      scopeId: doc.scopeId,
       version: doc.version,
-      sourceHash: doc.sources[0].sourceHash,
+      sourceHash: doc.sources[0]?.sourceHash || null,
     });
-  };
-  for (const { doc } of await resolveKnowledgeReferences(knowledge, referenceRefs, signal)) {
-    append(doc, doc.scopeId);
-  }
-  for (const id of [...new Set(scopeIds)]) {
-    signal?.throwIfAborted();
-    const origin = knowledge
-      .database()
-      .scopes()
-      .find((scope) => scope.id === id);
-    if (!origin) {
-      fail('ENHANCEMENT_SCOPE_DENIED', 403);
-    }
-    const scope = await knowledge.scope(origin.workspace_id);
-    if (scope.identity !== id) {
-      fail('ENHANCEMENT_SCOPE_DENIED', 403);
-    }
-    await knowledge.refreshSources(scope);
-    for (const hit of scope.store.search(query, 3).hits) {
-      const doc = scope.store.entry(hit.id);
-      if (!doc || doc.sources.some((source) => source.status !== 'active')) {
-        fail('ENHANCEMENT_INPUT_CHANGED', 409);
-      }
-      append(doc, id);
-    }
   }
   return documents;
 }

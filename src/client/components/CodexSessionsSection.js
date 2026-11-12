@@ -1,4 +1,5 @@
 'use strict';
+const { formatDateTime, useTimeZone } = require('../time.js');
 const { Disclosure } = require('./shared/Disclosure.js');
 const { t } = require('../locale.js');
 const { Input } = require('./shared/Input.js');
@@ -14,6 +15,7 @@ const { ConversationRefreshProgress } = require('./ConversationRefreshProgress.j
 
 const EMPTY = { ids: [], versions: {} };
 function ImportWarnings({ warnings = [] }) {
+  useTimeZone();
   return warnings.length
     ? h(
         Disclosure,
@@ -49,6 +51,7 @@ function CodexSessionsSection({
   active = true,
   toolbarTarget,
 }) {
+  useTimeZone();
   const [data, setData] = React.useState({ workspace: null, sessions: [] });
   React.useEffect(() => {
     onCountChange?.(data.sessions.length);
@@ -293,7 +296,7 @@ function CodexSessionsSection({
         { className: 'rh-sync-hint', role: 'status' },
         t('CodexSessionsSection.message026', {
           value0: data.sessions.filter((session) => session.snapshotVersion).length,
-          value1: data.refreshedAt ? ' · ' + new Date(data.refreshedAt).toLocaleString() : '',
+          value1: data.refreshedAt ? ' · ' + formatDateTime(data.refreshedAt) : '',
         }),
       ),
     !acquireOnly &&

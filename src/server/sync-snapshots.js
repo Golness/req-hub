@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { getSyncScope } from './sync-state.js';
 import taskModel from '../shared/sync-task.cjs';
+import clock from '../shared/time.cjs';
 
 /**
  * Read only the artifact recorded for the selected sync attempt.
@@ -23,9 +24,16 @@ export async function readSyncSnapshot(reqDir, sync) {
  * @param history - Stored sync attempts for the selected requirement.
  * @param id1 - The first attempt identity within the requirement history.
  * @param id2 - The second attempt identity within the requirement history.
+ * @param timeZone - Saved general time zone used for comparison labels.
  * @returns The version-comparison result.
  */
-export async function compareSyncSnapshots(reqDir, history, id1, id2) {
+export async function compareSyncSnapshots(
+  reqDir,
+  history,
+  id1,
+  id2,
+  timeZone = clock.DEFAULT_TIME_ZONE,
+) {
   const oldSync = history.find((sync) => sync.id === id1);
   const newSync = history.find((sync) => sync.id === id2);
   if (
@@ -48,6 +56,17 @@ export async function compareSyncSnapshots(reqDir, history, id1, id2) {
     readSyncSnapshot(reqDir, newSync),
   ]);
   const label = (sync) =>
-    `${sync.docTypeName || sync.docType} · ${(sync.commitHash || sync.id).slice(0, 8)} · ${new Date(sync.startedAt).toLocaleString()}`;
-  return { oldContent, newContent, oldLabel: label(oldSync), newLabel: label(newSync) };
+    `${sync.docTypeName || sync.docType} · ${(sync.commitHash || sync.id).slice(0, 8)} · ${clock.formatTimestamp(sync.startedAt, timeZone)}`;
+  const version = (sync) => ({
+    label: `${sync.docTypeName || sync.docType} · ${(sync.commitHash || sync.id).slice(0, 8)}`,
+    startedAt: sync.startedAt,
+  });
+  return {
+    oldContent,
+    newContent,
+    oldLabel: label(oldSync),
+    newLabel: label(newSync),
+    oldVersion: version(oldSync),
+    newVersion: version(newSync),
+  };
 }

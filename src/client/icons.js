@@ -12,6 +12,7 @@ const ICON_COMPONENTS = {
   trace: 'IconClockOutlineRegular',
   edit: 'IconEditOutlineRegular',
   log: 'IconFlatListOutlineRegular',
+  reports: 'IconWorkspaceTreeOutlineRegular',
   settings: 'IconSettingsOutlineRegular',
   folder: 'IconFolderCloseRegular',
   folderOpen: 'IconFolderOpenRegular',

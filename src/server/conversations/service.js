@@ -51,12 +51,27 @@ export class ConversationService {
       refreshedAt: JSON.parse(binding.payload).refreshedAt || null,
     };
   }
-  refresh(workspace, project, adapter, onProgress = () => {}) {
+  /**
+   * Import one source through the shared queue with caller-owned cancellation.
+   * @param workspace - Authorized destination workspace.
+   * @param project - Source project identity.
+   * @param adapter - Read-only source adapter receiving the combined signal.
+   * @param onProgress - Import progress callback.
+   * @param options - Optional parent signal; abort stops reads and commits before releasing ownership.
+   * @returns Import completion after owned work settles, rejecting on cancellation or failure.
+   */
+  refresh(workspace, project, adapter, onProgress = () => {}, { signal } = {}) {
     if (this.closed) {
       return Promise.reject(conversationError('SESSION_SERVICE_CLOSED', 503));
     }
     onProgress({ phase: 'queued', completed: 0, total: null });
     const controller = new AbortController();
+    const abort = () => controller.abort(signal.reason);
+    if (signal?.aborted) {
+      abort();
+    } else {
+      signal?.addEventListener('abort', abort, { once: true });
+    }
     this.controllers.set(controller, workspace);
     const job = {
       id: randomUUID(),
@@ -89,7 +104,8 @@ export class ConversationService {
         save();
         onProgress({ phase: 'inventory', completed: 0, total: null });
         project ||= (await this.store.binding(this.owner, workspace, adapter.source))?.project;
-        const inventory = await adapter.inventory(project);
+        const inventory = await adapter.inventory(project, { signal: controller.signal });
+        controller.signal.throwIfAborted();
         const origin = inventory.workspaces.find((item) => item.id === project);
         if (!origin) {
           throw conversationError('SESSION_WORKSPACE_MISSING', 404);
@@ -113,7 +129,7 @@ export class ConversationService {
           delete details.sourcePath;
           delete details.nativeId;
           try {
-            const snapshot = await adapter.snapshot(session);
+            const snapshot = await adapter.snapshot(session, { signal: controller.signal });
             controller.signal.throwIfAborted();
             await this.store.put(scope, details, snapshot, { signal: controller.signal });
             importedCount++;
@@ -157,10 +173,14 @@ export class ConversationService {
       .catch((error) => {
         // The caller retains the rejected operation; keep the shared queue usable for later requests.
       })
-      .finally(() => this.controllers.delete(controller));
+      .finally(() => {
+        this.controllers.delete(controller);
+        signal?.removeEventListener('abort', abort);
+      });
     return pending;
   }
-  async snapshots(workspace, ids, adapter) {
+  async snapshots(workspace, ids, adapter, { signal } = {}) {
+    signal?.throwIfAborted();
     if (!ids.length) {
       return [];
     }
@@ -168,9 +188,10 @@ export class ConversationService {
     if (!binding || binding.instance !== adapter.instance) {
       throw conversationError('SESSION_WORKSPACE_MISSING');
     }
-    const inventory = await adapter.inventory(binding.project);
+    const inventory = await adapter.inventory(binding.project, { signal });
+    signal?.throwIfAborted();
     const results = await Promise.allSettled(
-      ids.map((id) => this.snapshot(workspace, id, adapter, inventory)),
+      ids.map((id) => this.snapshot(workspace, id, adapter, inventory, { signal })),
     );
     const failure = results.find((result) => result.status === 'rejected');
     if (failure) {
@@ -178,7 +199,8 @@ export class ConversationService {
     }
     return results.map((result) => result.value);
   }
-  async snapshot(workspace, id, adapter, inventory) {
+  async snapshot(workspace, id, adapter, inventory, { signal } = {}) {
+    signal?.throwIfAborted();
     const binding = await this.store.binding(this.owner, workspace, adapter.source);
     if (!binding || binding.instance !== adapter.instance) {
       throw conversationError('SESSION_WORKSPACE_MISSING');
@@ -189,7 +211,8 @@ export class ConversationService {
         adapter.source === 'codex' ? 'CODEX_SESSION_MISSING' : 'SESSION_MISSING',
       );
     }
-    inventory ||= await adapter.inventory(binding.project);
+    inventory ||= await adapter.inventory(binding.project, { signal });
+    signal?.throwIfAborted();
     const source = inventory.sessions.find(
       (item) => item.id === id && item.workspaceId === binding.project,
     );
@@ -198,7 +221,8 @@ export class ConversationService {
         adapter.source === 'codex' ? 'CODEX_SESSION_ARCHIVED' : 'SESSION_ARCHIVED',
       );
     }
-    const fresh = await adapter.snapshot(source);
+    const fresh = await adapter.snapshot(source, { signal });
+    signal?.throwIfAborted();
     if (fresh.version !== row.version) {
       throw conversationError('SESSION_CHANGED');
     }

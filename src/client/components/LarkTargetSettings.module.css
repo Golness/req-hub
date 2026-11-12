@@ -1,0 +1,32 @@
+.breadcrumb {
+  min-width: 0;
+  overflow-x: auto;
+}
+.list {
+  height: 260px;
+  min-width: 0;
+  max-width: 100%;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+}
+.radio,
+.spacer {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--dsw-alias-state-business-primary);
+}
+.name[data-rh-button] {
+  flex: 1;
+  justify-content: flex-start;
+  min-width: 0;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

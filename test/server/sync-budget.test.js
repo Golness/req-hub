@@ -7,9 +7,9 @@ describe('sync estimates and effective Host capacity', () => {
     expect(analysisReadPageLimit(228729)).toBe(112);
     expect(analysisReadPageLimit(150000)).toBe(74);
     expect(analysisReadPageLimit(32000)).toBe(24);
-    expect(analysisReadPageLimit(1000000)).toBe(128);
+    expect(analysisReadPageLimit(1000000)).toBe(489);
     expect(analysisReadPageLimit(228729,24)).toBe(24);
-    expect(()=>analysisReadPageLimit(228729,129)).toThrow('INVALID');
+    expect(()=>analysisReadPageLimit(228729,1025)).toThrow('INVALID');
   });
   it('uses one multilingual token estimate rather than UTF-8 byte counts', () => {
     expect(estimateSubagentInputTokens('x'.repeat(9000))).toBe(3008);

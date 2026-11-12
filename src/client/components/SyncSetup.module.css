@@ -18,8 +18,7 @@
 }
 .pageHeading,
 .heading,
-.actions,
-.footerRow {
+.actions {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -102,12 +101,7 @@ p.hint {
   position: sticky;
   bottom: 0;
   z-index: 1;
-  padding: 12px var(--rh-panel-padding);
-  border-top: 0.5px solid var(--dsw-alias-border-l1);
   background: var(--dsw-alias-bg-layer-1);
-}
-.footerRow {
-  justify-content: space-between;
 }
 .summary {
   flex: 1 1 280px;
@@ -120,7 +114,6 @@ p.hint {
   margin: 4px 0 0;
 }
 .start {
-  min-height: 36px;
   flex-shrink: 0;
 }
 .error {
@@ -151,10 +144,11 @@ p.hint {
     margin-inline-start: 0;
     width: 100%;
   }
-  .start {
-    width: 100%;
-  }
-  .footer {
-    padding-inline: 12px;
-  }
+}
+
+.setup :global(.rh-sync-commit-list):has(> [data-paged-list]) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-height: none;
 }

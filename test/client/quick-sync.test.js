@@ -454,7 +454,8 @@ it('opens history details in the history tab and returns to its list', async () 
   expect(fetchMock.mock.calls.some(([url]) => url.includes('/sync-history?'))).toBe(false);
   await click(button('同步历史'));
   const panel = container.querySelector('#sync-content-history');
-  await click(panel.querySelector('[data-sync-record] button'));
+  await click([...panel.querySelectorAll('[data-sync-record] button')]
+    .find((node) => node.textContent === '查看详情'));
   expect(container.querySelector('#sync-tab-history').getAttribute('aria-selected')).toBe('true');
   expect(button('返回')).toBeTruthy();
   await click(button('返回'));

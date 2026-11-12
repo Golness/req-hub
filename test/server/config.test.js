@@ -28,9 +28,93 @@ beforeEach(() => {
   mockExistsSync.mockReturnValue(false);
 });
 
+it.each([
+  { taskTimeoutMs: 29999 },
+  { taskTimeoutMs: 3600001 },
+  { knowledgeMaxInputBytes: 999 },
+  { knowledgeMaxResultBytes: 1000001 },
+])('rejects invalid general execution policy %j', async general => {
+  await expect(saveConfig({ general })).rejects.toThrow('INVALID_CONFIG');
+});
+
+it.each([300000, 1200000, 3600000])('preserves an explicit deadline of %s ms', async (timeout) => {
+  mockExistsSync.mockReturnValue(true);
+  mockReadFile.mockResolvedValue(JSON.stringify({ general: { taskTimeoutMs: timeout } }));
+  expect((await loadConfig()).general.taskTimeoutMs).toBe(timeout);
+});
+
 describe('loadConfig', () => {
-  it.each([{autoManage:'yes'},{dailyUpdateEnabled:'yes'},{dailyUpdateTime:'24:00'},{dailyUpdateTime:'9:30'},{dailyUpdateTimeZone:'Invalid/Zone'},{maxConcurrentJobs:0},{maxConcurrentJobs:9},{maxWikiPagesPerScope:0},{maxInputBytes:999},{maxResultBytes:1000001},{maxSourceDocuments:201},{maxAffectedPages:0},{timeoutMs:999},{smallFileThresholdBytes:-1}])('rejects invalid Wiki execution settings %j',async wiki=>{
-    mockExistsSync.mockReturnValue(true);mockReadFile.mockResolvedValue(JSON.stringify({wiki}));await expect(loadConfig()).rejects.toThrow('INVALID_CONFIG');
+  it('validates workspace publication bindings independently of CLI connection settings', async () => {
+    mockExistsSync.mockReturnValue(true);
+    const binding = {
+      workspaceRoot: 'C:/projects/alpha', kind: 'wiki', token: 'WikABC',
+      url: 'https://team.feishu.cn/wiki/WikABC', title: 'Parent', spaceId: '123',
+      objToken: 'DocABC', objType: 'docx', appId: 'cli_test', accountId: 'ou_user',
+      profile: '', identity: 'user', checkedAt: '2026-11-05T00:00:00.000Z',
+    };
+    mockReadFile.mockResolvedValue(JSON.stringify({ larkTargets: { alpha: binding } }));
+    expect((await loadConfig()).larkTargets.alpha).toEqual(binding);
+    const defaultBinding = { ...binding, useDefault: true };
+    mockReadFile.mockResolvedValue(JSON.stringify({ larkTargets: { alpha: defaultBinding } }));
+    expect((await loadConfig()).larkTargets.alpha).toEqual(defaultBinding);
+    for (const larkTargets of [null, [], { alpha: { ...binding, kind: 'docx' } }]) {
+      mockReadFile.mockResolvedValue(JSON.stringify({ larkTargets }));
+      await expect(loadConfig()).rejects.toThrow('INVALID_CONFIG');
+    }
+  });
+
+  it('validates CLI settings and refuses credential fields in plugin storage', async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFile.mockResolvedValue(JSON.stringify({ lark: {} }));
+    expect((await loadConfig()).lark).toEqual({
+      executable: 'lark-cli', profile: '', identity: 'user', timeoutMs: 30000,
+    });
+    for (const lark of [null, { appSecret: 'private' }, { executable: 'lark-cli --help' },
+      { identity: 'auto' }, { timeoutMs: 120001 }, { profile: 'bad profile' }]) {
+      mockReadFile.mockResolvedValue(JSON.stringify({ lark }));
+      await expect(loadConfig()).rejects.toThrow('INVALID_CONFIG');
+    }
+  });
+  it('validates the shared subagent limit and defaults an existing delegation to three', async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFile.mockResolvedValue(JSON.stringify({ ai: { delegation: {} } }));
+    expect((await loadConfig()).ai.delegation.maxConcurrency).toBe(3);
+    for (const maxConcurrency of [0, 17, 1.5, '3']) {
+      mockReadFile.mockResolvedValue(JSON.stringify({ ai: { delegation: { maxConcurrency } } }));
+      await expect(loadConfig()).rejects.toThrow('INVALID_CONFIG');
+    }
+  });
+  it('defaults daily conversation import off and rejects a non-boolean opt-in', async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFile.mockResolvedValue(JSON.stringify({}));
+    expect((await loadConfig()).knowledgeV2.dailyImportConversations).toBe(false);
+    mockReadFile.mockResolvedValue(
+      JSON.stringify({ knowledgeV2: { dailyImportConversations: 'yes' } }),
+    );
+    await expect(loadConfig()).rejects.toThrow('INVALID_CONFIG');
+    mockReadFile.mockResolvedValue(
+      JSON.stringify({ knowledgeV2: { dailyImportConversations: true } }),
+    );
+    expect((await loadConfig()).knowledgeV2.dailyImportConversations).toBe(true);
+  });
+  it.each([
+    { knowledgeV2: { autoManage: 'yes' } },
+    { knowledgeV2: { dailyUpdateEnabled: 'yes' } },
+    { knowledgeV2: { dailyUpdateTime: '24:00' } },
+    { knowledgeV2: { dailyUpdateTime: '9:30' } },
+    { enhancements: { maxConcurrentJobs: 0 } },
+    { enhancements: { maxConcurrentJobs: 9 } },
+  ])('rejects invalid automation settings %j', async (config) => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFile.mockResolvedValue(JSON.stringify(config));
+    await expect(loadConfig()).rejects.toThrow('INVALID_CONFIG');
+  });
+  it('drops the obsolete wiki section instead of migrating it', async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFile.mockResolvedValue(
+      JSON.stringify({ wiki: { autoManage: true, dailyUpdateTime: '02:00' } }),
+    );
+    expect((await loadConfig()).wiki).toBeUndefined();
   });
   it('retains explicit empty skill bindings in both prompt protocols',async()=>{
     mockExistsSync.mockReturnValue(true);mockReadFile.mockResolvedValue(JSON.stringify({ai:{skillBindings:{writing:null},syncV2:{contractVersion:2,skillBindings:{'phased-merge-design':null}}}}));
@@ -42,7 +126,7 @@ describe('loadConfig', () => {
     mockReadFile.mockResolvedValue(JSON.stringify({sync:{maxAnalysisReadPages:24}}));
     expect((await loadConfig()).sync.maxAnalysisReadPages).toBe(24);
   });
-  it.each([{ maxAnalysisReadPages: 0 }, { maxAnalysisReadPages: 129 }, { maxCompletionReminders: 6 }, {maxInvalidOutputWrites:0}, {maxInvalidOutputWrites:21}])('rejects invalid sync execution limits %j', async sync => {
+  it.each([{ maxAnalysisReadPages: 0 }, { maxAnalysisReadPages: 1025 }, { maxCompletionReminders: 6 }, {maxInvalidOutputWrites:0}, {maxInvalidOutputWrites:21}])('rejects invalid sync execution limits %j', async sync => {
     mockExistsSync.mockReturnValue(true); mockReadFile.mockResolvedValue(JSON.stringify({ sync }));
     await expect(loadConfig()).rejects.toThrow('INVALID_CONFIG');
   });
@@ -53,10 +137,18 @@ describe('loadConfig', () => {
     mockExistsSync.mockReturnValue(false);
     const config = await loadConfig();
     expect(config).toEqual({
+      general: { timeZone: 'Asia/Shanghai', taskTimeoutMs: 1200000, knowledgeMaxInputBytes: 2000000, knowledgeMaxResultBytes: 250000 },
       docsDir: 'docs',
       workspaceId: null,
       developerName: null,
       requirementId: null,
+      knowledgeV2: {
+        autoManage: false,
+        autoManageDelayMs: 30000,
+        dailyImportConversations: false,
+        dailyUpdateEnabled: false,
+        dailyUpdateTime: '02:00',
+      },
     });
   });
 
@@ -189,4 +281,17 @@ describe('autoDefaultConfig', () => {
     expect(result.workspaceId).toBe('ws1');
     // Should not throw
   });
+});
+
+
+it.each([
+  { defaultUsername: '../alice' }, { defaultUsername: 'alice/bob' },
+  { defaultUsername: 'a*' }, { sync: { dailyOffsetDays: -1 } },
+  { sync: { dailyOffsetDays: 1.5 } }, { sync: { dailyOffsetDays: 366 } },
+  { sync: { dailyUpdateTime: '24:00' } }, { general: { timeZone: 'Invalid/Zone' } },
+  { sync: { dailyUpdateEnabled: 'yes' } },
+])('rejects invalid daily sync configuration %j', async (value) => {
+  mockExistsSync.mockReturnValue(true);
+  mockReadFile.mockResolvedValue(JSON.stringify(value));
+  await expect(loadConfig()).rejects.toThrow('INVALID_CONFIG');
 });

@@ -1,0 +1,17 @@
+.panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  min-width: 0;
+}
+.tabs {
+  min-width: 0;
+  overflow-x: auto;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+}
+.content {
+  min-width: 0;
+}
+.content[hidden] {
+  display: none;
+}

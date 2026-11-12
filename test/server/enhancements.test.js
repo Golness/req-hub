@@ -3,7 +3,9 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
-import { KnowledgeService } from '../../src/server/knowledge/build-service.js';
+import { KnowledgeContext } from '../../src/server/knowledge-v2/context.js';
+import { resolveScope, ScopeStore } from '../../src/server/knowledge-v2/scope.js';
+import { importFiles } from '../../src/server/knowledge-v2/source-repository.js';
 import { EnhancementService } from '../../src/server/knowledge/enhancements/service.js';
 import { EnhancementStore } from '../../src/server/knowledge/enhancements/store.js';
 import { buildGraph, impact } from '../../src/server/knowledge/enhancements/graph.js';
@@ -14,7 +16,7 @@ import { freezeKnowledgeContext } from '../../src/server/knowledge/enhancements/
 import { createEnhancementRoutes } from '../../src/server/routes/enhancement-routes.js';
 import { createOperations } from '../../src/server/operations.js';
 
-let root, knowledge, service, scope, ctx;
+let root, knowledge, service, scope, ctx, backendStore;
 const doc = (id, path, body, version = 1) => ({ id, title: id, version, body, type: 'document', sources: [{ relativePath: path, sourceHash: `hash-${id}-${version}`, status: 'active' }] });
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'rh-enhancements-'));
@@ -23,15 +25,39 @@ beforeEach(async () => {
   await writeFile(join(root, 'docs/alice/2026-10-23-order/requirement.md'), '# Order\n\n依赖 [Payment](../../bob/2026-10-23-order/design.md)\n\n`src/order.js`\n');
   await writeFile(join(root, 'docs/bob/2026-10-23-order/design.md'), '# Payment\n\n`src/payment.js`\n');
   const registry = { list: () => [{ id: 'w', path: root, title: 'Work' }] };
-  knowledge = new KnowledgeService({ registry, databasePath: join(root, 'store/knowledge.sqlite'), configLoader: async () => ({ docsDir: 'docs' }) });
+  const resolved = await resolveScope({
+    root: join(root, 'v2'),
+    workspace: registry.list()[0],
+    docsDir: 'docs',
+  });
+  backendStore = new ScopeStore(resolved);
+  await backendStore.init();
+  await importFiles(backendStore, {
+    files: [
+      'alice/2026-10-23-order/requirement.md',
+      'bob/2026-10-23-order/design.md',
+    ].map((relativePath) => ({ relativePath })),
+    signal: new AbortController().signal,
+  });
+  const application = {
+    registry,
+    root: join(root, 'v2'),
+    scope: async (workspaceId) => {
+      if (workspaceId !== 'w') {
+        throw new Error('KB_WORKSPACE_MISSING');
+      }
+      return backendStore;
+    },
+    release: async () => null,
+  };
+  knowledge = new KnowledgeContext(application);
+  knowledge.close = async () => backendStore.close();
   scope = await knowledge.scope('w');
-  await knowledge.build(scope, { requestKey: 'import', files: ['alice/2026-10-23-order/requirement.md', 'bob/2026-10-23-order/design.md'].map(relativePath => ({ relativePath })) });
-  await Promise.all([...knowledge.tasks]);
   ctx = { tools: { get: () => undefined } };
   service = new EnhancementService({ knowledge, ctx, configLoader: async () => ({ enhancements: { enabled: true } }) });
 });
 afterEach(async () => { await service?.close(); await knowledge?.close(); await rm(root, { recursive: true, force: true }); });
-const input = () => ({ kind: 'graph-build', requestKey: 'graph', documentRefs: scope.store.list().map(entry => ({ id: entry.id, version: entry.version, scopeId: scope.identity })), scopeIds: [scope.identity] });
+const input = () => ({ kind: 'graph-build', requestKey: 'graph', documentRefs: scope.store.activeDocumentMetadata().map(entry => ({ id: entry.id, version: entry.version, scopeId: scope.identity })), scopeIds: [scope.identity] });
 const finish = async job => { await Promise.all([...service.tasks]); return service.database().job(scope.identity, job.id); };
 
 it('materializes document links from the current source without manual document selection or MCP', async () => {
@@ -82,7 +108,14 @@ it('uses the current draft plus only checked references for semantic checking an
   const completed = await finish(await service.start(scope, request, 'parent'));
   expect(completed.status).toBe('completed'); expect(service.semantic).toHaveBeenCalledTimes(1);
   expect(seen[0]).toEqual([completed.draftId, doc.id]);
-  service.semantic = async () => { await writeFile(join(root, 'docs/bob/2026-10-23-order/design.md'), '# Changed during checking'); return { findings: [], patterns: [] }; };
+  service.semantic = async () => {
+    await writeFile(join(root, 'docs/bob/2026-10-23-order/design.md'), '# Changed during checking');
+    await importFiles(backendStore, {
+      files: [{ relativePath: 'bob/2026-10-23-order/design.md' }],
+      signal: new AbortController().signal,
+    });
+    return { findings: [], patterns: [] };
+  };
   const changed = await finish(await service.start(scope, { ...request, requestKey: 'reference-changed' }, 'parent'));
   expect(changed.status).toBe('failed'); expect(changed.error.code).toBe('ENHANCEMENT_INPUT_CHANGED'); expect(changed.result).toBeUndefined();
 });
@@ -116,11 +149,13 @@ it('does not report failed or cancelled indexing as successful or release its sl
 it('refreshes workspace MCP status with enhancements disabled and no documents without replacing the graph', async () => {
   const built = await finish(await service.start(scope, input()));
   service.configLoader = async () => ({ enhancements: { enabled: false } });
+  service.runIndex = vi.fn();
   const refresh = vi.fn(async (_scope, graph) => { graph.code = { status: 'not_indexed' }; });
   service.provider.refresh = refresh;
   const job = await finish(await service.start(scope, { kind: 'code-refresh', requestKey: 'status', documentRefs: [] }));
   expect(job.status).toBe('completed'); expect(job.result.code.status).toBe('not_indexed');
   expect(job.manifest).toEqual([]); expect(refresh).toHaveBeenCalledTimes(1);
+  expect(service.runIndex).not.toHaveBeenCalled();
   expect(service.database().current(scope.identity).id).toBe(built.result.id);
   await expect(service.start(scope, { ...input(), requestKey: 'disabled' })).rejects.toThrow('ENHANCEMENT_DISABLED');
 });
@@ -220,7 +255,7 @@ it('uses a fresh matching MCP index for code candidates, keeps their origin and 
   await mkdir(join(root,'src'));
   await writeFile(join(root,'src/order.js'),'import payment from "./payment.js";');
   await writeFile(join(root,'src/payment.js'),'export default 1;');
-  await writeFile(join(root,'.gitignore'),'store/\n');
+  await writeFile(join(root,'.gitignore'),'store/\nv2/\n');
   execFileSync('git',['init','-q'],{cwd:root});execFileSync('git',['add','docs','src','.gitignore'],{cwd:root});
   execFileSync('git',['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','fixture'],{cwd:root});
   const head=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
@@ -266,7 +301,11 @@ it('enforces selected scope/version ownership and request-key fingerprints, and 
 });
 it('runs structural checks locally and never treats a rule finding as established business fact', async () => {
   await writeFile(join(root,'docs/alice/2026-10-23-order/requirement.md'),'## Empty\n\n## TODO\n待补充');
-  await knowledge.build(scope,{requestKey:'new-version',files:[{relativePath:'alice/2026-10-23-order/requirement.md'}]}); await Promise.all([...knowledge.tasks]);
+  await importFiles(backendStore, {
+    files: [{ relativePath: 'alice/2026-10-23-order/requirement.md' }],
+    signal: new AbortController().signal,
+  });
+  await knowledge.refreshSources(scope);
   const job = await finish(await service.start(scope,{...input(),kind:'quality-check'}));
   expect(job.result.method).toBe('rules'); expect(job.result.findings.some(f=>f.kind==='missing_title')).toBe(true);
   expect(job.result.findings.every(f=>f.status==='needsConfirmation'&&f.proposal===null)).toBe(true);

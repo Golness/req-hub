@@ -172,7 +172,61 @@ describe('sync v2 controlled evidence access',()=>{
   for(const listener of h.hooks.get('session/event'))listener({id:runtime.id},event('late'));
   expect(runtime.failure.message).toBe('actual provider failure');
  }));
- it('keeps a bounded 12KB output contract',()=>expect(OUTPUT_LIMIT).toBe(12000));
+  it('writes a merged change list larger than the former 12 KB cap', async () =>
+    fixture(async ({ root, h, store, installation }) => {
+      const path = join(root, 'changes.json');
+      const runtime = installation.create({
+        store,
+        allowed: [],
+        required: [],
+        outputs: { changes: path },
+      });
+      try {
+        await bind(h, runtime);
+        const content = {
+          changes: Array.from({ length: 29 }, (_, id) => ({
+            id: String(id),
+            proposal: '审批规则'.repeat(50),
+          })),
+          pending: [],
+        };
+        expect(Buffer.byteLength(JSON.stringify(content))).toBeGreaterThan(12000);
+        const receipt = await call(h, runtime, 'req_hub_sync_write', {
+          outputId: 'changes',
+          content,
+        });
+        expect(receipt.written).toBe(true);
+        expect(JSON.parse(await readFile(path, 'utf8'))).toEqual(content);
+      } finally {
+        runtime.close();
+      }
+    }));
+  it('accepts the UTF-8 size boundary and preserves output after an oversized rewrite', async () =>
+    fixture(async ({ root, h, store, installation }) => {
+      const path = join(root, 'report.md');
+      const runtime = installation.create({
+        store,
+        allowed: [],
+        required: [],
+        outputs: { report: path },
+      });
+      try {
+        await bind(h, runtime);
+        const content = '中'.repeat(Math.floor(OUTPUT_LIMIT / 3)) + 'a';
+        expect(Buffer.byteLength(content)).toBe(OUTPUT_LIMIT);
+        await call(h, runtime, 'req_hub_sync_write', { outputId: 'report', content });
+        await expect(
+          call(h, runtime, 'req_hub_sync_write', {
+            outputId: 'report',
+            content: content + '中',
+          }),
+        ).rejects.toThrow('256.003 KB; limit is 256 KB');
+        expect(await readFile(path, 'utf8')).toBe(content);
+        expect(runtime.invalidOutputWrites).toBe(1);
+      } finally {
+        runtime.close();
+      }
+    }));
  it('denies a normal agent access to the sync artifact tools',async()=>fixture(async({h})=>{
   await expect(h.definitions.get('req_hub_sync_read').execute({artifactId:'secret'},{agent:{session:{id:'other'}}})).rejects.toThrow('DENIED');
  }));

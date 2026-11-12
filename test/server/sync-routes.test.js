@@ -23,6 +23,224 @@ function evidence(task,name) {return store().readEvidence(task,name);}
 const requirementId='2026-10-20-route-test';
 const git=(...args)=>execFileSync('git',args,{cwd:repo,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
 const source='# 标题\r\n\r\n旧规则\r\n\r\n## 无关\r\n保持  空格\r\n';
+
+it('retries only the failed edit using verified analysis checkpoints in a new attempt', async () => {
+  const original = harness.ctx.subagents.start;
+  harness.ctx.subagents.start = async (provider, request) => {
+    if (JSON.stringify(request.prompt).includes('manifest.edit')) {
+      throw new Error('EDIT_TEMPORARY_FAILURE');
+    }
+    return original(provider, request);
+  };
+  expect((await dispatch()).body).toContain('EDIT_TEMPORARY_FAILURE');
+  const failed = (await getSyncHistory(workspaceId, requirementId))[0];
+  expect(failed.status).toBe('failed');
+  const completedCalls = harness.requests.length;
+  harness.ctx.subagents.start = original;
+  const response = await dispatch({
+    retrySyncId: failed.id,
+    snapshotDir: failed.snapshotDir,
+    retryPhase: 'merge',
+  });
+  expect(response.body).toContain('"type":"done"');
+  const history = await getSyncHistory(workspaceId, requirementId);
+  const retried = history.find((item) => item.retryOf === failed.id);
+  expect(retried?.status).toBe('completed');
+  expect(retried.id).not.toBe(failed.id);
+  expect(retried.steps.find((item) => item.phase === 'code_analysis').chunks[0].reused).toBe(true);
+  expect(history.find((item) => item.id === failed.id).status).toBe('failed');
+  expect(harness.requests.slice(completedCalls)).toHaveLength(1);
+  expect(JSON.stringify(harness.requests.at(-1).prompt)).toContain('manifest.edit');
+  expect(await readFile(join(reqDir, 'requirement.md'), 'utf8')).toContain('新规则');
+});
+
+it('rejects stale attempts, completed retry nodes and changed prompt contracts without reusing outputs', async () => {
+  const original = harness.ctx.subagents.start;
+  harness.ctx.subagents.start = async (provider, request) => {
+    if (JSON.stringify(request.prompt).includes('manifest.edit')) {
+      throw new Error('EDIT_FAILURE');
+    }
+    return original(provider, request);
+  };
+  await dispatch();
+  const failed = (await getSyncHistory(workspaceId, requirementId))[0];
+  expect((await dispatch({ retrySyncId: failed.id, snapshotDir: failed.snapshotDir + '-stale' })).status)
+    .toBe(409);
+  expect((await dispatch({ retrySyncId: failed.id, snapshotDir: failed.snapshotDir,
+    retryPhase: 'code_analysis', retryChunkIndex: 0 })).status).toBe(409);
+  const { loadConfig } = await import('../../src/server/config.js');
+  const previous = await loadConfig();
+  loadConfig.mockResolvedValue({ ...previous, ai: { syncV2: { prompts: {
+    'phased-code-analysis-requirement': 'New analysis policy',
+  } } } });
+  const calls = harness.requests.length;
+  try {
+    const response = await dispatch({ retrySyncId: failed.id, snapshotDir: failed.snapshotDir });
+    expect(response.body).toContain('SYNC_RETRY_INPUT_CHANGED');
+    expect(harness.requests).toHaveLength(calls);
+    expect(await readFile(join(reqDir, 'requirement.md'), 'utf8')).toBe(source);
+  } finally {
+    loadConfig.mockResolvedValue(previous);
+  }
+});
+
+it('stops preparation by request identity before any child starts and permits retry', async () => {
+  await routes.dispose();
+  const { readSessionSnapshot } = await import('../../src/server/session-utils.js');
+  const snapshot = await readSessionSnapshot({ readSession: async () => ({ events: sessionEvents() }) }, 'codex:one');
+  let entered;
+  const ready = new Promise((resolve) => { entered = resolve; });
+  const snapshots = vi.fn(async (_ids, _workspaceId, { signal }) => {
+    entered();
+    await new Promise((resolve, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+    });
+  });
+  routes = createSyncRoutes(
+    { list: () => [{ id: workspaceId, path: repo }] }, {}, {},
+    { get: () => harness.parentAgent }, harness.ctx,
+    { codexService: {
+      list: async () => ({ sessions: [{ id: 'codex:one', cwd: repo }] }),
+      snapshots,
+    } },
+  );
+  const running = dispatch({
+    requestId: 'preparation-request', sessionIds: ['codex:one'],
+    sessionVersions: { 'codex:one': snapshot.version },
+  });
+  await ready;
+  const response = await postRoute('/req-hub/sync-abort', {
+    workspaceId, requirementId, syncId: 'preparation-request',
+  });
+  expect(response.data.success).toBe(true);
+  await running;
+  expect(harness.requests).toHaveLength(0);
+  expect(syncSupervisor.owner).toBeNull();
+  const stopped = (await getSyncHistory(workspaceId, requirementId))[0];
+  expect(stopped.status).toBe('aborted');
+  expect(stopped.retryRequest.sessionIds).toEqual(['codex:one']);
+  snapshots.mockResolvedValue([snapshot]);
+  expect((await dispatch({ retrySyncId: stopped.id, snapshotDir: stopped.snapshotDir })).body)
+    .toContain('"type":"done"');
+});
+
+it('resumes an actively stopped attempt while reusing its completed code analysis', async () => {
+  const original = harness.ctx.subagents.start;
+  let entered;
+  const editing = new Promise((resolve) => { entered = resolve; });
+  harness.ctx.subagents.start = async (provider, request) => {
+    if (JSON.stringify(request.prompt).includes('manifest.edit')) {
+      entered();
+      return {
+        id: 'cancelled-edit',
+        result: new Promise((resolve) => {
+          request.signal.addEventListener('abort', () => resolve({ stopReason: 'aborted', output: [] }), { once: true });
+        }),
+        dispose: async () => {},
+      };
+    }
+    return original(provider, request);
+  };
+  const running = dispatch();
+  await editing;
+  const active = await getActiveSync(workspaceId, requirementId);
+  await postRoute('/req-hub/sync-abort', {
+    workspaceId, requirementId, syncId: active.id, snapshotDir: active.snapshotDir,
+  });
+  await running;
+  const stopped = (await getSyncHistory(workspaceId, requirementId))[0];
+  expect(stopped.status).toBe('aborted');
+  const calls = harness.requests.length;
+  harness.ctx.subagents.start = original;
+  expect((await dispatch({ retrySyncId: stopped.id, snapshotDir: stopped.snapshotDir })).body)
+    .toContain('"type":"done"');
+  expect(harness.requests.slice(calls)).toHaveLength(1);
+  expect(JSON.stringify(harness.requests.at(-1).prompt)).toContain('manifest.edit');
+});
+
+it('reuses successful chunks when one chunk fails instead of rerunning its entire phase', async () => {
+  for (const index of [0, 1]) {
+    await writeFile(join(repo, `large-${index}.js`), 'x'.repeat(210000));
+  }
+  git('add', 'large-0.js', 'large-1.js');
+  git('commit', '-m', 'large chunks');
+  const original = harness.ctx.subagents.start;
+  harness.ctx.subagents.start = async (provider, request) => {
+    if (JSON.stringify(request.prompt).includes('manifest.code-1')) {
+      throw new Error('ONE_CHUNK_FAILED');
+    }
+    return original(provider, request);
+  };
+  await dispatch();
+  const failed = (await getSyncHistory(workspaceId, requirementId))[0];
+  const chunks = failed.steps.find((step) => step.phase === 'code_analysis').chunks;
+  expect(chunks.length).toBeGreaterThan(1);
+  expect(chunks.some((chunk) => chunk.status === 'completed')).toBe(true);
+  expect(chunks[1].status).toBe('failed');
+  const firstCalls = harness.requests.length;
+  harness.ctx.subagents.start = original;
+  const retried = await dispatch({
+    retrySyncId: failed.id, snapshotDir: failed.snapshotDir,
+    retryPhase: 'code_analysis', retryChunkIndex: 1,
+  });
+  expect(retried.body).toContain('"type":"done"');
+  const calls = harness.requests.slice(firstCalls);
+  expect(calls.filter((request) => /manifest\.code-\d/.test(JSON.stringify(request.prompt))))
+    .toHaveLength(1);
+  expect(JSON.stringify(calls)).not.toContain('manifest.code-0');
+  const task = (await getSyncHistory(workspaceId, requirementId)).find((item) => item.retryOf === failed.id);
+  expect(task.steps.find((step) => step.phase === 'code_analysis').chunks[0].reused).toBe(true);
+});
+
+it('starts code and discussion independently before either analysis completes', async () => {
+  withSessionQuery(sessionEvents());
+  const session = (await getRoute('/req-hub/sessions?workspaceId=' + workspaceId)).data.sessions[0];
+  const original = harness.ctx.subagents.start;
+  const sources = new Set();
+  let release;
+  const both = new Promise((resolve) => { release = resolve; });
+  harness.ctx.subagents.start = async (provider, request) => {
+    const match = JSON.stringify(request.prompt).match(/manifest\.(code|discussion)-0/);
+    if (match) {
+      sources.add(match[1]);
+      if (sources.size === 2) {
+        release();
+      }
+      await both;
+    }
+    return original(provider, request);
+  };
+  const response = await dispatch({ sessionIds: ['s'], sessionVersions: { s: session.snapshotVersion } });
+  expect(sources).toEqual(new Set(['code', 'discussion']));
+  expect(response.body).toContain('"type":"done"');
+}, 15000);
+
+it('reuses edit and validation after a publication conflict while retaining the original baseline', async () => {
+  const original = harness.ctx.subagents.start;
+  harness.ctx.subagents.start = async (provider, request) => {
+    const handle = await original(provider, request);
+    if (JSON.stringify(request.prompt).includes('manifest.edit')) {
+      const result = handle.result;
+      handle.result = result.then(async (value) => {
+        await writeFile(join(reqDir, 'requirement.md'), 'concurrent edit');
+        return value;
+      });
+    }
+    return handle;
+  };
+  await dispatch();
+  const failed = (await getSyncHistory(workspaceId, requirementId))[0];
+  expect(failed.status).toBe('failed');
+  expect(failed.steps.find((step) => step.phase === 'validate').status).toBe('completed');
+  const calls = harness.requests.length;
+  await writeFile(join(reqDir, 'requirement.md'), source);
+  harness.ctx.subagents.start = original;
+  expect((await dispatch({ retrySyncId: failed.id, snapshotDir: failed.snapshotDir })).body)
+    .toContain('"type":"done"');
+  expect(harness.requests).toHaveLength(calls);
+  const retried = (await getSyncHistory(workspaceId, requirementId)).find((item) => item.retryOf === failed.id);
+  expect(retried.steps.find((step) => step.phase === 'validate').reused).toBe(true);
+});
 async function getRoute(path) {
  const res={body:'',writeHead(status){this.status=status;},end(text=''){this.body+=text;}};
  await routes.find(route=>route.path===path.split('?')[0]).handler({method:'GET',url:path},res);
@@ -627,4 +845,49 @@ describe('Host-owned quick sync', () => {
     expect((await getRoute(query)).data.quickSync.status).toBe('completed');
     expect((await getRoute(query.replace(workspaceId, 'wrong-workspace'))).status).toBe(404);
   });
+});
+
+
+it('runs the scheduled adapter through the actual quick pipeline and retains both document tasks', async () => {
+  const { runScheduledQuickSync } = await import('../../src/server/sync-daily-scheduler.js');
+  const events = [];
+  const result = await runScheduledQuickSync(routes, {
+    workspaceId,
+    requirementId,
+    targetBranch: 'feature/dev/' + requirementId,
+  }, harness.parentAgent, new AbortController().signal, (event) => events.push(event));
+  expect(result.status).toBe(200);
+  expect(result.value.type).toBe('done');
+  expect(result.tasks.map((task) => task.docType).sort()).toEqual(['design', 'requirement']);
+  expect(result.tasks.every((task) => task.status === 'completed')).toBe(true);
+  expect(events.some((event) => event.type === 'document_done')).toBe(true);
+  expect(syncSupervisor.owner).toBeNull();
+  const repeated = await runScheduledQuickSync(routes, {
+    workspaceId, requirementId, targetBranch: 'feature/dev/' + requirementId,
+  }, harness.parentAgent, new AbortController().signal, () => {});
+  expect(repeated.value.skipped).toBe(true);
+  expect(repeated.tasks).toHaveLength(2);
+});
+
+it('propagates scheduled cancellation into an active quick child and drains the sequence', async () => {
+  const { runScheduledQuickSync } = await import('../../src/server/sync-daily-scheduler.js');
+  let entered;
+  const ready = new Promise((resolve) => { entered = resolve; });
+  const start = vi.fn(async (_provider, request) => {
+    entered();
+    return { id: 'scheduled-paused', dispose: async () => {}, result: new Promise((resolve) => {
+      request.signal.addEventListener('abort', () => resolve({ stopReason: 'aborted', output: [] }), { once: true });
+    }) };
+  });
+  harness.ctx.subagents.start = start;
+  const controller = new AbortController();
+  const running = runScheduledQuickSync(routes, {
+    workspaceId, requirementId, targetBranch: 'feature/dev/' + requirementId,
+  }, harness.parentAgent, controller.signal, () => {});
+  await ready;
+  controller.abort(new Error('SYNC_SCHEDULE_CANCELLED'));
+  await expect(running).rejects.toThrow('SYNC_SCHEDULE_CANCELLED');
+  expect(syncSupervisor.owner).toBeNull();
+  expect(start).toHaveBeenCalledOnce();
+  expect((await getSyncHistory(workspaceId, requirementId))[0].status).toBe('aborted');
 });

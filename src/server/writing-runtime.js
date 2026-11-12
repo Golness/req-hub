@@ -1,7 +1,7 @@
 import { runtimeForRequest } from './delegation-context.js';
 import { syncReadPage } from './sync-budget.js';
 import { randomUUID } from 'node:crypto';
-import { relevanceScore } from './knowledge/retrieval.js';
+import { relevanceScore } from './knowledge-v2/context.js';
 import { estimateSubagentInputTokens, MAX_SYNC_INPUT_TOKENS } from './token-utils.js';
 
 export const WRITING_TOOLS = [

@@ -9,10 +9,16 @@ const { Button: HostButton, Tooltip } = require('./controls.js');
  * @returns The rendered component content.
  */
 const Button = React.forwardRef(function Button(
-  { className = '', variant: requestedVariant, size: requestedSize, ...props },
+  { className = '', variant: requestedVariant, size: requestedSize, tone: requestedTone, ...props },
   ref,
 ) {
   const compact = /rh-btn-(sm|icon|pill)/.test(className);
+  let tone = requestedTone || 'neutral';
+  if (!requestedTone && /rh-btn-danger/.test(className)) {
+    tone = 'danger';
+  } else if (!requestedTone && /rh-btn-warning/.test(className)) {
+    tone = 'warning';
+  }
   let variant = requestedVariant;
   if (!variant) {
     if (/rh-btn-ghost|rh-modal-item|rh-codex-workspace/.test(className)) {
@@ -31,6 +37,7 @@ const Button = React.forwardRef(function Button(
     ref,
     className,
     variant,
+    tone,
     size: requestedSize || (compact ? 'sm' : 'md'),
   });
   return iconOnly

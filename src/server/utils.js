@@ -34,6 +34,11 @@ export function parseBranchName(branch) {
   if (!branch) {
     return null;
   }
+  const feature = branch.match(/^feature\/(?:([^/]+)\/)?(\d{4}-\d{2}-\d{2})-(.+)$/);
+  if (feature) {
+    const [, developer, date, title] = feature;
+    return { developer: developer || null, date, title, requirementId: `${date}-${title}` };
+  }
 
   const match1 = branch.match(/^(?:feature\/)?([^/-]+)[/-](\d{4}-\d{2}-\d{2})-(.+)$/);
   if (match1) {

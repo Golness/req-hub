@@ -15,23 +15,14 @@ const req = {
   title: '订单',
   date: '2026-10-23',
 };
+const relativePath = `${req.path}/rules.txt`;
 const source = {
-  relativePath: `${req.path}/rules.txt`,
-  startLine: 1,
-  endLine: 2,
-  workspaceId: 'ws',
-  workspaceTitle: '工作区',
-};
-const entry = {
-  id: 'entry',
+  id: 'src-1',
+  kind: 'file',
   title: '订单规则',
-  snippet: '审核规则',
-  body: '审核规则',
-  tags: [],
-  sources: [source],
-  workspaceId: 'ws',
-  workspaceTitle: '工作区',
-  version: 1,
+  revision: 'rev-1',
+  bytes: 12,
+  origin: { relativePath },
 };
 let root, container;
 beforeEach(() => {
@@ -42,10 +33,16 @@ beforeEach(() => {
     'fetch',
     vi.fn(async (url) => {
       let data = {};
-      if (url.includes('/knowledge/entries/')) data = entry;
-      else if (url.includes('/knowledge/search?')) data = { hits: [entry], knowledgeReady: true };
+      if (url.includes('/knowledge-v2/pages')) data = { pages: [], generationId: null };
+      else if (url.includes('/knowledge-v2/jobs')) data = { jobs: [] };
+      else if (url.includes('/knowledge-v2/sources?')) data = { items: [source], total: 1 };
+      else if (url.includes('/knowledge-v2/sources/src-1'))
+        data = { source, content: '审核规则', provenance: { importedAt: '2026-10-23T00:00:00Z' } };
+      else if (url.includes('/knowledge-v2/')) data = {};
       else if (url.includes('/tree?'))
         data = { tree: { developers: [{ name: 'alice', requirements: [req] }] } };
+      else if (url.includes('/file-tree'))
+        data = { tree: [{ type: 'file', path: 'rules.txt', name: 'rules.txt' }] };
       else if (url.includes('/sessions?')) data = { sessions: [{ id: 's', title: '讨论会话' }] };
       else if (url.includes('/session-turns?')) data = { success: true, turns: [] };
       else if (url.includes('/sync-branch-info'))
@@ -62,22 +59,25 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
-async function open() {
+async function open(overrides = {}) {
   await act(async () =>
     root.render(
       React.createElement(DocsViewerBody, {
         workspace: { id: 'ws', title: '工作区' },
         docsDir: 'docs',
         workspaces: [],
+        initialReqId: req.id,
         onConfigChange: vi.fn(),
         onSelectWorkspace: vi.fn(),
+        ...overrides,
       }),
     ),
   );
 }
 const click = async (element) => act(async () => element.click());
+const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)); });
 const button = (text) =>
-  [...container.querySelectorAll('button')].find((el) => el.textContent.trim() === text);
+  [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === text);
 const rail = (text) =>
   [...container.querySelectorAll('.rh-rail-btn')].find((el) => el.textContent.trim() === text);
 function backCount(count) {
@@ -113,50 +113,22 @@ it('uses a single header return for nested sync pages and removes it at the root
   backCount(0);
 });
 
-it('returns from a source to search detail and results, and hides navigation on other pages', async () => {
-  await open();
-  await click(rail('知识库'));
-  await click(container.querySelector('#knowledge-tab-files'));
-  await click(
-    [...container.querySelectorAll('nav[aria-label="知识库功能"] button')].find(
-      (node) => node.textContent === '搜索',
-    ),
-  );
-  backCount(0);
-  const input = container.querySelector('[aria-label="搜索整个知识库"]');
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(
-      input,
-      '审核',
-    );
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+it('returns from a knowledge source to its file and back to the owning knowledge tab', async () => {
+  await open({
+    initialLocation: {
+      reportTarget: { kind: 'knowledge', workspaceId: 'ws', documentId: 'src-1' },
+    },
   });
-  await act(async () =>
-    container
-      .querySelector('form[role="search"]')
-      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
-  );
-  await click(container.querySelector('.rh-knowledge-hit'));
-  backCount(1);
-  await click(rail('同步'));
-  backCount(0);
-  await click(rail('知识库'));
-  backCount(1);
-  await click(
-    [...container.querySelectorAll('[aria-label="知识详情"] button')].find((el) =>
-      el.textContent.includes('rules.txt'),
-    ),
-  );
-  backCount(1);
-  expect(container.querySelector('.rh-file-preview')).toBeTruthy();
-  await click(button('返回'));
-  backCount(1);
-  expect(container.querySelector('#knowledge-tab-files').getAttribute('aria-selected')).toBe(
-    'true',
-  );
-  expect(container.querySelector('[aria-label="知识详情"]')).toBeTruthy();
-  expect(input.value).toBe('审核');
-  await click(button('返回'));
-  backCount(0);
-  expect(container.querySelector('.rh-knowledge-hit')).toBeTruthy();
+  const tabs = container.querySelector('[role="tablist"][aria-label="知识库功能"]');
+  expect(tabs).not.toBeNull();
+  expect([...tabs.querySelectorAll('[role="tab"]')].find((node) => node.getAttribute('aria-selected') === 'true').textContent).toBe('资料');
+  await settle();
+  await click(button('打开原文件'));
+  expect(container.querySelector('#files-tree')).not.toBeNull();
+  expect(container.querySelector('.rh-breadcrumb').textContent).toContain('rules.txt');
+  expect(container.querySelector('.rh-file-preview')).not.toBeNull();
+  await click(container.querySelector('.rh-right-close'));
+  expect(container.querySelector('.rh-file-preview')).toBeNull();
+  const restored = container.querySelector('[role="tablist"][aria-label="知识库功能"]');
+  expect([...restored.querySelectorAll('[role="tab"]')].find((node) => node.getAttribute('aria-selected') === 'true').textContent).toBe('资料');
 });

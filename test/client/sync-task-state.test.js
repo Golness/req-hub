@@ -73,6 +73,32 @@ it('recovers authoritative failure state after a stream disconnect instead of le
   events = [{ type: 'sync_started', syncId: 'real-task' }, { type: 'state', sync: task() }];
   await start(); expect(container.textContent).toContain('同步失败'); expect(button('终止同步任务')).toBeUndefined();
 });
+it('uses the initial request identity to stop preparation before the sync POST responds', async () => {
+  const original = fetch.getMockImplementation();
+  let release;
+  let input;
+  fetch.mockImplementation(async (url, options) => {
+    if (url.includes('/phased-sync')) {
+      input = JSON.parse(options.body);
+      return new Promise((resolve) => { release = resolve; });
+    }
+    if (url.includes('/sync-abort')) {
+      return json({ success: true, status: 'cancelling' });
+    }
+    return original(url, options);
+  });
+  await start();
+  expect(input.requestId).toBeTruthy();
+  await act(async () => button('终止同步任务').click());
+  const confirm = [...document.querySelectorAll('[role="dialog"] button')]
+    .find((node) => node.textContent.includes('确认终止'));
+  await act(async () => confirm.click());
+  const abort = fetch.mock.calls.find(([url]) => url.includes('/sync-abort'));
+  expect(JSON.parse(abort[1].body).syncId).toBe(input.requestId);
+  const stopped = task('aborted');
+  await act(async () => release(json({ error: 'SYNC_USER_CANCELLED', sync: stopped })));
+  expect(container.textContent).toContain('已终止');
+});
 it('keeps cancellation visible until the server confirms that the task ended', async () => {
   postJson = { active: true, sync: task('cancelling') }; detail = task('aborted');
   await start(); expect(container.textContent).toContain('正在终止'); expect(button('终止同步任务')).toBeUndefined();
@@ -107,7 +133,7 @@ it('opens preparation again and follows its handoff to a persistent execution',a
  fetch.mockImplementation(async(url,...args)=>url.includes('/sync-active?')?json({active:true,sync:active}):url.includes('/sync-overview')?json({active}):original(url,...args));await act(async()=>root.render(React.createElement(DocsViewerContext.Provider,{value:{syncActivity:preparing}},React.createElement(SyncPanel,{workspaceId:'ws',selectedReq:req,onClose:vi.fn()}))));await act(async()=>button('查看当前同步进度').click());expect(container.textContent).toContain('正在冻结代码文件');expect(button('终止同步任务')).toBeUndefined();active={...task(),notificationId:'notice',startedAt:123};detail=task('failed');await act(async()=>new Promise(resolve=>setTimeout(resolve,1200)));await act(async()=>new Promise(resolve=>setTimeout(resolve,100)));expect(container.textContent).toContain('同步失败');expect(fetch.mock.calls.some(([url])=>url.includes('/sync-detail?id=real-task'))).toBe(true);
 });
 it('makes an active design execution accessible from history even with no completed records',async()=>{
- const original=fetch.getMockImplementation(),active={...task(),docType:'design',docTypeName:'技术方案'};detail=active;fetch.mockImplementation(async(url,...args)=>url.includes('/sync-history?')?json({history:[],activeSync:active}):original(url,...args));await act(async()=>root.render(React.createElement(DocsViewerContext.Provider,{value:{}},React.createElement(SyncPanel,{workspaceId:'ws',selectedReq:req,onClose:vi.fn()}))));await act(async()=>button('同步历史').click());expect(button('查看进行中的同步：技术方案')).toBeDefined();await act(async()=>button('查看进行中的同步：技术方案').click());expect(container.textContent).toContain('同步进行中');expect(container.textContent).toContain('代码差异分析');
+ const original=fetch.getMockImplementation(),active={...task(),docType:'design',docTypeName:'技术方案'};detail=active;fetch.mockImplementation(async(url,...args)=>url.includes('/sync-history?')?json({history:[],activeSync:active}):original(url,...args));await act(async()=>root.render(React.createElement(DocsViewerContext.Provider,{value:{}},React.createElement(SyncPanel,{workspaceId:'ws',selectedReq:req,onClose:vi.fn()}))));await act(async()=>button('同步历史').click());expect(button('查看进行中的同步：技术方案')).toBeDefined();await act(async()=>button('查看进行中的同步：技术方案').click());expect(container.textContent).toContain('同步进行中');expect(container.textContent).toContain('分析代码变更');
 });
 it('distinguishes raw code size from complete input budgets and exposes their components', async()=>{
   const sync=task('failed');
@@ -115,15 +141,22 @@ it('distinguishes raw code size from complete input budgets and exposes their co
   const step=sync.steps.find(item=>item.phase==='code_analysis');
   Object.assign(step,{totalTokens:90000,chunks:[{index:0,status:'failed',tokens:90000,inputBudget:{evidenceTokens:30000,commonTokens:10000,promptTokens:5000,reservedTokens:45000}}]});
   await act(async()=>root.render(React.createElement(DocsViewerContext.Provider,{value:{}},React.createElement(SyncPanel,{workspaceId:'ws',selectedReq:req,focusedSync:sync,onClose:vi.fn()}))));
-  expect(container.textContent).toContain('代码正文估算：614.7k tokens');
-  expect(container.textContent).toContain('输入预算 90.0k tokens');
+  expect(container.querySelector('.rh-sync-progress-percent').textContent).toBe('0%');
   const codeStep = container.querySelector('[data-sync-step="code_analysis"]');
-  const budgetToggle = [...codeStep.querySelectorAll('button')].find(el => el.textContent.includes('预算明细'));
   expect(codeStep.querySelector('button').getAttribute('aria-expanded')).toBe('false');
   await act(async () => codeStep.querySelector('button').click());
-  expect(budgetToggle.getAttribute('aria-expanded')).toBe('false');
-  await act(async () => budgetToggle.click());
-  expect(document.getElementById(budgetToggle.getAttribute('aria-controls')).hidden).toBe(false);
-  expect(container.textContent).toContain('证据读取 30.0k · 公共材料 10.0k · 提示词 5.0k · 预留 45.0k');
-  expect(container.textContent).toContain('不代表代码量或实际消耗');
+  const details = codeStep.querySelector('[aria-haspopup="dialog"]');
+  await act(async () => details.click());
+  const dialog = document.querySelector('[role="dialog"]');
+  const technical = [...dialog.querySelectorAll('button')]
+    .find((node) => node.textContent.includes('技术详情'));
+  expect(technical.getAttribute('aria-expanded')).toBe('false');
+  await act(async () => technical.click());
+  expect(document.getElementById(technical.getAttribute('aria-controls')).hidden).toBe(false);
+  expect(dialog.textContent).toContain('90,000');
+  expect(dialog.textContent).toContain('30,000');
+  expect(dialog.textContent).toContain('10,000');
+  expect(dialog.textContent).toContain('5,000');
+  expect(dialog.textContent).toContain('45,000');
+  expect(dialog.textContent).toContain('不代表代码量或实际消耗');
 });

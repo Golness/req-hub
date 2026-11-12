@@ -1,8 +1,8 @@
 'use strict';
+const { formatDate, useTimeZone } = require('../time.js');
 const { Checkbox } = require('./shared/controls.js');
 const { t } = require('../locale.js');
 const css = require('./CreateDirForm.module.css').default;
-const { cssValue } = require('./shared/presentation.js');
 const { Input } = require('./shared/Input.js');
 const { DatePicker } = require('./shared/DatePicker.js');
 const { Button } = require('./shared/Button.js');
@@ -27,6 +27,11 @@ function parseBranchName(branch) {
     return null;
   }
 
+  const feature = branch.match(/^feature\/(?:([^/]+)\/)?(\d{4}-\d{2}-\d{2})-(.+)$/);
+  if (feature) {
+    const [, developer, date, title] = feature;
+    return { developer: developer || null, date, title, requirementId: `${date}-${title}` };
+  }
   const match1 = branch.match(/^(?:feature\/)?([^/-]+)[/-](\d{4}-\d{2}-\d{2})-(.+)$/);
   if (match1) {
     const [, developer, date, title] = match1;
@@ -65,9 +70,10 @@ function CreateDirForm({
   onCreated,
   onExisting,
 }) {
+  useTimeZone();
   const formId = React.useId();
   const [developer, setDeveloper] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(formatDate(new Date()));
   const [title, setTitle] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -95,10 +101,15 @@ function CreateDirForm({
     setError(null);
     (async () => {
       try {
-        const res = await fetch(
-          `${ROUTE}/create-status?workspaceId=${encodeURIComponent(workspaceId)}`,
-          { signal: controller.signal, cache: 'no-store' },
-        );
+        const [res, defaults] = await Promise.all([
+          fetch(`${ROUTE}/create-status?workspaceId=${encodeURIComponent(workspaceId)}`, {
+            signal: controller.signal,
+            cache: 'no-store',
+          }),
+          fetch(`${ROUTE}/config`, { signal: controller.signal, cache: 'no-store' })
+            .then((response) => (response.ok ? response.json() : {}))
+            .catch(() => ({})),
+        ]);
         if (!res.ok) {
           throw new Error('CREATE_FAILED');
         }
@@ -106,6 +117,7 @@ function CreateDirForm({
         if (controller.signal.aborted) {
           return;
         }
+        setDeveloper((value) => value || defaults.defaultUsername || '');
         if (data.existingRequirement) {
           if (!callbacks.current.onExisting) {
             showToast({
@@ -131,7 +143,7 @@ function CreateDirForm({
         const parsed = parseBranchName(data.branch);
         if (parsed) {
           if (parsed.developer) {
-            setDeveloper(parsed.developer);
+            setDeveloper((value) => value || parsed.developer);
           }
           setDate(parsed.date);
           setTitle(parsed.title);
@@ -150,6 +162,9 @@ function CreateDirForm({
   }, [workspaceId, checkRevision, refreshVersion]);
 
   const updateMain = async () => {
+    if (loading || !creation?.canUpdateMain) {
+      return;
+    }
     const controller = new AbortController();
     pullRef.current = controller;
     setLoading(true);
@@ -204,6 +219,24 @@ function CreateDirForm({
 
   const previewPath =
     developer && date && title ? `${docsDir}/${developer}/${date}-${title}/` : null;
+
+  const isMainBranch = ['main', 'master'].includes(currentBranch);
+  const blockedReasons = {
+    CREATE_MAIN_NOT_ROOT: 'create.mainNotRoot',
+    CREATE_MAIN_IN_PROGRESS: 'create.mainInProgress',
+    CREATE_MAIN_DIRTY: 'create.mainDirty',
+  };
+  let mainUpdateHint = t('create.updateMainHint');
+  if (isMainBranch && !creation?.canUpdateMain) {
+    let reason = blockedReasons[creation?.mainUpdateBlockedReason];
+    if (!reason && creation?.inProgress) {
+      reason = 'create.mainInProgress';
+    }
+    if (!reason && creation?.dirty) {
+      reason = 'create.mainDirty';
+    }
+    mainUpdateHint = t(reason || 'create.mainUnavailable');
+  }
 
   const handleCreateClick = () => {
     if (!developer || !date || !title) {
@@ -291,201 +324,151 @@ function CreateDirForm({
   return h(
     'div',
     { className: 'rh-op-panel' + ' ' + css.pane },
-    h('div', { className: 'rh-op-hint' }, t('CreateDirForm.message005')),
-    creation.canUpdateMain &&
+    h(
+      'section',
+      { className: css.card, 'aria-label': t('create.gitStatus') },
       h(
         'div',
-        { className: css.mainActions },
+        { className: css.cardHeader },
         h(
-          Button,
-          { disabled: loading, onClick: updateMain },
-          t(updatingMain ? 'create.updatingMain' : 'create.updateMain', {
-            branch: creation.branch,
+          'div',
+          { className: css.branchIdentity },
+          h('h3', null, t('create.gitStatus')),
+          h('code', null, currentBranch || t('create.noBranch')),
+        ),
+        h(
+          'div',
+          { className: css.gitActions },
+          h(
+            Button,
+            {
+              variant: 'ghost',
+              size: 'sm',
+              disabled: loading,
+              onClick: () => setCheckRevision((value) => value + 1),
+            },
+            t('create.refreshStatus'),
+          ),
+          isMainBranch &&
+            h(
+              Button,
+              {
+                size: 'sm',
+                disabled: loading || !creation.canUpdateMain,
+                'aria-describedby': `${formId}-update-hint`,
+                onClick: updateMain,
+              },
+              t(updatingMain ? 'create.updatingMain' : 'create.updateMain', {
+                branch: currentBranch,
+              }),
+            ),
+        ),
+      ),
+      isMainBranch &&
+        h(
+          'p',
+          { id: `${formId}-update-hint`, className: css.hint, role: 'status' },
+          mainUpdateHint,
+        ),
+    ),
+    h(
+      'section',
+      { className: css.card, 'aria-labelledby': `${formId}-info` },
+      h('h3', { id: `${formId}-info` }, t('create.requirementInfo')),
+      h(
+        'div',
+        { className: css.fields },
+        h(
+          'div',
+          { className: css.field },
+          h('label', { htmlFor: `${formId}-developer` }, t('CreateDirForm.message006')),
+          h(Input, {
+            id: `${formId}-developer`,
+            className: 'rh-form-input',
+            type: 'text',
+            placeholder: t('create.developerExample'),
+            value: developer,
+            disabled: loading,
+            onChange: (event) => setDeveloper(event.target.value),
           }),
         ),
-        h('small', null, t('create.updateMainHint', { branch: creation.branch })),
-      ),
-
-    h(
-      'div',
-      { className: css.spacing },
-
-      h(
-        'div',
-        { className: css.size },
         h(
-          'label',
-          { htmlFor: `${formId}-developer`, className: 'rh-form-label' + ' ' + css.spacing2 },
-          t('CreateDirForm.message006'),
+          'div',
+          { className: css.field },
+          h('label', { htmlFor: `${formId}-date` }, t('CreateDirForm.message007')),
+          h(DatePicker, {
+            id: `${formId}-date`,
+            label: t('CreateDirForm.message007'),
+            value: date,
+            disabled: loading,
+            onChange: (event) => setDate(event.target.value),
+          }),
         ),
-        h(Input, {
-          id: `${formId}-developer`,
-          className: 'rh-form-input',
-          type: 'text',
-          placeholder: t('create.developerExample'),
-          value: developer,
-          onChange: (e) => setDeveloper(e.target.value),
-        }),
-      ),
-
-      h(
-        'div',
-        { className: css.size },
         h(
-          'label',
-          { htmlFor: `${formId}-date`, className: 'rh-form-label' + ' ' + css.spacing2 },
-          t('CreateDirForm.message007'),
+          'div',
+          { className: `${css.field} ${css.titleField}` },
+          h('label', { htmlFor: `${formId}-title` }, t('CreateDirForm.message008')),
+          h(Input, {
+            id: `${formId}-title`,
+            className: 'rh-form-input',
+            type: 'text',
+            placeholder: t('CreateDirForm.message009'),
+            value: title,
+            disabled: loading,
+            onChange: (event) => setTitle(event.target.value),
+          }),
         ),
-        h(DatePicker, {
-          id: `${formId}-date`,
-          label: t('CreateDirForm.message007'),
-          value: date,
-          onChange: (e) => setDate(e.target.value),
-        }),
       ),
-
       h(
         'div',
-        { className: css.size2 },
-        h(
-          'label',
-          { htmlFor: `${formId}-title`, className: 'rh-form-label' + ' ' + css.spacing2 },
-          t('CreateDirForm.message008'),
-        ),
-        h(Input, {
-          id: `${formId}-title`,
-          className: 'rh-form-input',
-          type: 'text',
-          placeholder: t('CreateDirForm.message009'),
-          value: title,
-          onChange: (e) => setTitle(e.target.value),
-        }),
-      ),
-    ),
-
-    h(
-      'div',
-      {
-        className: css.section,
-      },
-      h(
-        'div',
-        {
-          className: css.row,
-          style: { '--rh-margin-bottom-6': cssValue(currentBranch ? 6 : 0) },
-        },
+        { className: css.branchOption },
         h(Checkbox, {
           checked: createBranch,
+          disabled: loading,
           onChange: (checked) => setCreateBranch(checked),
           label: t('CreateDirForm.message010'),
         }),
       ),
-      currentBranch &&
-        h(
-          'div',
-          {
-            className: css.mutedText,
-          },
-          t('CreateDirForm.message011'),
-          h('code', { className: css.content }, currentBranch),
-        ),
     ),
-
-    (generatedBranchName || previewPath) &&
-      h(
-        'div',
-        {
-          className: css.section2,
-        },
-
-        generatedBranchName &&
-          h(
-            'div',
-            {
-              className: css.row2,
-              style: {
-                '--rh-color-3': cssValue(
-                  createBranch
-                    ? 'var(--dsw-alias-state-success-primary)'
-                    : 'var(--dsw-alias-label-secondary)',
-                ),
-                '--rh-margin-bottom-4': cssValue(previewPath ? 6 : 0),
-              },
-            },
-
-            h(
-              'span',
-              null,
-              createBranch ? t('CreateDirForm.message012') : t('CreateDirForm.message013'),
-            ),
-            h(
-              'code',
-              {
-                title: generatedBranchName,
-                className: css.pane2,
-                style: {
-                  '--rh-color-1': cssValue(
-                    createBranch
-                      ? 'var(--dsw-alias-state-success-primary)'
-                      : 'var(--dsw-alias-label-primary)',
-                  ),
-                },
-              },
-              generatedBranchName,
-            ),
-          ),
-
-        previewPath &&
-          h(
-            'div',
-            {
-              title: previewPath,
-              className: css.row3,
-            },
-
-            h('span', null, t('CreateDirForm.message014')),
-            h(
-              'code',
-              {
-                className: css.pane3,
-              },
-              previewPath,
-            ),
-          ),
-      ),
-
-    error &&
-      h(
-        'div',
-        {
-          className: css.row4,
-        },
-        error,
-      ),
-    success &&
-      h(
-        'div',
-        {
-          className: css.section3,
-        },
-        success,
-      ),
-
     h(
-      'div',
-      { className: css.row5 },
+      'section',
+      { className: css.card, 'aria-labelledby': `${formId}-preview` },
+      h('h3', { id: `${formId}-preview` }, t('create.preview')),
+      h(
+        'dl',
+        { className: css.preview },
+        h('dt', null, t('create.directoryLabel')),
+        h(
+          'dd',
+          null,
+          previewPath
+            ? h('code', null, previewPath)
+            : h('span', { className: css.placeholder }, t('create.previewEmpty')),
+        ),
+        h('dt', null, t(createBranch ? 'create.newBranchLabel' : 'create.currentBranchLabel')),
+        h(
+          'dd',
+          null,
+          h(
+            'code',
+            null,
+            (createBranch ? generatedBranchName : currentBranch) || t('create.previewEmpty'),
+          ),
+        ),
+      ),
+    ),
+    error && h('div', { className: css.error, role: 'alert' }, error),
+    success && h('div', { className: css.success, role: 'status' }, success),
+    h(
+      'footer',
+      { className: css.footer },
+      h(Button, { onClick: onClose, disabled: loading }, t('common.cancel')),
       h(
         Button,
-        {
-          className: 'rh-btn rh-btn-primary' + ' ' + css.content2,
-          onClick: handleCreateClick,
-          disabled: loading,
-        },
-        loading ? t('CreateDirForm.message015') : t('CreateDirForm.message016'),
+        { variant: 'primary', onClick: handleCreateClick, disabled: loading },
+        t(loading && !updatingMain ? 'CreateDirForm.message015' : 'CreateDirForm.message016'),
       ),
-      h(Button, { className: 'rh-btn' + ' ' + css.content2, onClick: onClose }, t('common.cancel')),
     ),
-
     showConfirm &&
       h(
         ModalFrame,

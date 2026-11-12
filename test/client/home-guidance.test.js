@@ -177,7 +177,7 @@ it('opens a completion notice in its own workspace and does not force later work
   await render(first.id, { workspaces: [target], onSelectWorkspace: selectWorkspace });
   expect(selectWorkspace).toHaveBeenCalledTimes(1);
 });
-it('removes a running task from the footer silently and immediately enables starting another task', async () => {
+it('opens task details before offering deletion instead of duplicating deletion in the footer', async () => {
   requests();
   const original = fetchMock.getMockImplementation(),
     confirm = vi.spyOn(window, 'confirm'),
@@ -209,7 +209,9 @@ it('removes a running task from the footer silently and immediately enables star
       (button) => button.textContent === '同步需求文档',
     );
   expect(start()).toBeUndefined();
-  await click(container.querySelector('.rh-statusbar [aria-label="删除本次记录"]'));
+  expect(container.querySelector('.rh-statusbar [aria-label="删除本次记录"]')).toBeNull();
+  await click(container.querySelector('.rh-sync-status-link'));
+  await click(container.querySelector('[data-rh-action-bar] [aria-label="删除本次记录"]'));
   expect(container.querySelector('.rh-sync-status')).toBeNull();
   expect(start().disabled).toBe(false);
   expect(confirm).not.toHaveBeenCalled();

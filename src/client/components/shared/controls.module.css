@@ -50,6 +50,27 @@
 .outline {
   border: 0.5px solid var(--dsw-alias-border-l3);
 }
+.button[data-rh-tone='business'] {
+  --rh-action-color: var(--dsw-alias-state-business-primary);
+}
+.button[data-rh-tone='danger'] {
+  --rh-action-color: var(--dsw-alias-state-error-primary);
+}
+.button[data-rh-tone='warning'] {
+  --rh-action-color: var(--dsw-alias-state-warn-label);
+}
+.button[data-rh-tone]:not([data-rh-tone='neutral']) {
+  color: var(--rh-action-color);
+}
+.outline[data-rh-tone]:not([data-rh-tone='neutral']) {
+  border-color: var(--rh-action-color);
+}
+.button[data-rh-tone]:not([data-rh-tone='neutral']):hover:not(:disabled) {
+  background: color-mix(in srgb, var(--rh-action-color) 12%, transparent);
+}
+.button[data-rh-tone]:not([data-rh-tone='neutral']):active:not(:disabled) {
+  background: color-mix(in srgb, var(--rh-action-color) 20%, transparent);
+}
 .toolbar {
   background: var(--dsw-alias-button-tool-bar-fill);
 }
@@ -130,6 +151,42 @@
 }
 .dialog:focus {
   outline: none;
+}
+.dialog[data-headless='false'] {
+  overflow: hidden;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 20px;
+}
+.dialogHeader {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+}
+.dialogTitle {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+}
+.dialogHeader > button {
+  flex-shrink: 0;
+}
+.dialogBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  padding: 16px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
 }
 .menu,
 .popover,

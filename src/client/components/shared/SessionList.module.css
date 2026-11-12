@@ -36,3 +36,11 @@
   background: var(--dsw-alias-bg-layer-2);
   color: var(--dsw-alias-label-primary);
 }
+
+.container:global(.rh-session-list) {
+  display: flex;
+  flex-direction: column;
+  height: min(32vh, 320px);
+  min-height: 120px;
+  overflow: hidden;
+}

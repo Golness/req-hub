@@ -16,9 +16,6 @@ import { executeTask } from '../../src/server/task-executor.js';
 import { ConversationStore } from '../../src/server/conversations/store.js';
 import { ConversationService } from '../../src/server/conversations/service.js';
 import { dshSource } from '../../src/server/conversations/dsh-source.js';
-import { KnowledgeService } from '../../src/server/knowledge/build-service.js';
-import { createConversationKnowledgeRoutes } from '../../src/server/routes/conversation-knowledge-routes.js';
-import { createOperations } from '../../src/server/operations.js';
 
 const dsh = resolve(import.meta.dirname, '../../../deepseek-harness');
 const available = existsSync(join(dsh, 'packages/client/connection/lib/index.js'));
@@ -42,8 +39,10 @@ it.skipIf(!available)('composes ReqHub with real DSH Cordis, WebServer, Connecti
     await ctx.plugin(Connection);
     ctx.provide('workspaceRegistry', { list: () => [{ id: 'fixture', path: root, title: 'Fixture' }] });
     ctx.provide('skills', { load: async () => '', get: async () => null });
-    ctx.provide('agentPresets', {}); ctx.provide('sessionQuery', {}); ctx.provide('subagents', {});
+    ctx.provide('agentDefaultModel', {}); ctx.provide('agentPresets', {}); ctx.provide('sessionQuery', {}); ctx.provide('subagents', {});
     const profileDir = join(root, 'host-profile');
+    await mkdir(join(profileDir, 'req-hub'), { recursive: true });
+    await writeFile(join(profileDir, 'req-hub/config.json'), JSON.stringify({ docsDir: 'docs' }));
     ctx.provide('profileContext', { name: 'fixture', dir: profileDir });
     const fiber = ctx.plugin(ReqHub, {}); await fiber.await();
     expect(configFilePath()).toBe(join(profileDir, 'req-hub/config.json'));
@@ -85,9 +84,9 @@ it.skipIf(!available)('composes ReqHub with real DSH Cordis, WebServer, Connecti
     const conversations = await fetch(base + '/req-hub/conversations-list?workspaceId=fixture', { headers: authenticated });
     expect(conversations.status).toBe(200); expect((await conversations.json()).sessions).toEqual([]);
     expect((await fetch(base + '/req-hub/conversations-list?workspaceId=fixture')).status).toBe(401);
-    const importOptions = await fetch(base + '/req-hub/conversations-knowledge-options', { headers: authenticated });
-    expect(importOptions.status).toBe(200); expect((await importOptions.json()).targets[0].id).toBe('fixture');
-    expect((await fetch(base + '/req-hub/conversations-knowledge-options')).status).toBe(401);
+    const importOptions = await fetch(base + '/req-hub/knowledge-v2/sources/sessions?workspaceId=fixture', { headers: authenticated });
+    expect(importOptions.status).toBe(200); expect((await importOptions.json()).workspace.id).toBe('fixture');
+    expect((await fetch(base + '/req-hub/knowledge-v2/sources/sessions?workspaceId=fixture')).status).toBe(401);
     expect((await fetch(base + '/req-hub/write', { method: 'POST', headers: { ...authenticated, origin: 'https://outside.invalid' }, body: JSON.stringify({ workspaceId: 'fixture', path: 'a.md', content: 'attacked' }) })).status).toBe(403);
     const body = { workspaceId: 'fixture', path: 'a.md', content: '# Via tool' };
     const tool = ctx.tools.get('req_hub_action'); expect(tool).toBeTruthy();
@@ -222,18 +221,6 @@ it.skipIf(!available).each([[false, false], [true, false], [false, true], [false
       expect(document).toContain('Explain stale REQHUB_SYNC_V2=');
       const snapshot = await library.snapshot(workspace.id, parent.session.id, adapter);
       expect(snapshot.version).toBe(entry.snapshotVersion);
-      const targetRegistry = { list: () => [{ id: 'separate-knowledge-workspace', title: 'Knowledge target', path: libraryRoot }] };
-      const knowledge = new KnowledgeService({ registry: targetRegistry, configLoader: async () => ({ docsDir: 'docs' }), databasePath: join(libraryRoot, 'knowledge/library.sqlite') });
-      try {
-        const operations = createOperations(createConversationKnowledgeRoutes(targetRegistry, library, [adapter], knowledge));
-        const detail = await operations.execute({ action: 'conversations-knowledge-detail', query: { id: entry.conversationId, targetWorkspaceId: 'separate-knowledge-workspace' } }, {});
-        expect(detail.status).toBe(200);
-        const imported = await operations.execute({ action: 'conversations-knowledge-import', method: 'POST', body: { targetWorkspaceId: 'separate-knowledge-workspace', selections: [{ id: entry.conversationId, version: entry.snapshotVersion, turnKeys: [detail.value.turns[0].key] }] } }, {});
-        expect(imported.status).toBe(200); expect(imported.value.added).toBe(1);
-        const hit = (await knowledge.searchAll('ordinary parent response')).hits[0];
-        expect(hit.type).toBe('conversation'); expect(hit.workspaceId).toBe('separate-knowledge-workspace');
-        expect(hit.sources[0].conversation.sourceWorkspaceId).toBe(workspace.id);
-      } finally { await knowledge.close(); }
     } finally { await library.close(); await store.close(); await rm(libraryRoot, { recursive: true, force: true }); }
   } finally { installation?.dispose(); await ctx.fiber.dispose(); if (outputRoot) await rm(outputRoot, { recursive: true, force: true }); }
 }, 30000);

@@ -48,12 +48,28 @@ it.each(['main', 'master'])('only fast-forwards a clean %s to its same-name remo
 });
 it('refuses untracked, unstaged and staged changes without altering them', async () => {
   const head = git(local, 'rev-parse', 'HEAD');
-  await writeFile(join(local, 'new.txt'), 'untracked'); expect((await creationStatus(workspace, {})).canUpdateMain).toBe(false);
+  await writeFile(join(local, 'new.txt'), 'untracked');
+  expect(await creationStatus(workspace, {})).toMatchObject({
+    canUpdateMain: false,
+    mainUpdateBlockedReason: 'CREATE_MAIN_DIRTY',
+  });
   await expect(updateMain(workspace, head)).rejects.toThrow('CREATE_MAIN_CHANGED');
   await rm(join(local, 'new.txt')); await writeFile(join(local, 'readme.txt'), 'my edits');
   await expect(updateMain(workspace, head)).rejects.toThrow('CREATE_MAIN_CHANGED'); git(local, 'add', 'readme.txt');
   await expect(updateMain(workspace, head)).rejects.toThrow('CREATE_MAIN_CHANGED');
   expect(await readFile(join(local, 'readme.txt'), 'utf8')).toBe('my edits'); expect(git(local, 'rev-parse', 'HEAD')).toBe(head);
+});
+it('reports an in-progress Git operation as the main-update blocking reason', async () => {
+  expect(await creationStatus(workspace, {})).toMatchObject({
+    canUpdateMain: true,
+    mainUpdateBlockedReason: null,
+  });
+  await mkdir(join(local, '.git', 'rebase-merge'));
+  expect(await creationStatus(workspace, {})).toMatchObject({
+    branch: 'main',
+    canUpdateMain: false,
+    mainUpdateBlockedReason: 'CREATE_MAIN_IN_PROGRESS',
+  });
 });
 it('does not merge divergent histories or leave a merge in progress', async () => {
   await writeFile(join(local, 'local.txt'), 'local'); git(local, 'add', '.'); git(local, 'commit', '-m', 'local');

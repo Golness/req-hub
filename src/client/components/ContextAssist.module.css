@@ -1,5 +1,4 @@
-.assist,
-.settings {
+.assist {
   border-top: 0.5px solid var(--dsw-alias-border-l1);
   padding: 12px;
   font-size: var(--rh-font-size);
@@ -18,22 +17,14 @@
 .compact > .stack {
   margin-top: 0;
 }
-.stack,
-.settings {
+.stack {
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-width: 0;
 }
-.stack p,
-.settings p,
-.settings h3 {
+.stack p {
   margin: 0;
-}
-.settings h3 {
-  font-size: var(--rh-font-size);
-  font-weight: 500;
-  line-height: var(--rh-line-height);
 }
 .actions {
   display: flex;
@@ -78,12 +69,10 @@
   white-space: nowrap;
 }
 .hint,
-.assist small,
-.settings small {
+.assist small {
   color: var(--dsw-alias-label-secondary);
 }
-.assist pre,
-.settings pre {
+.assist pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   max-height: 240px;
@@ -93,6 +82,29 @@
 }
 .task progress {
   width: 100%;
+}
+.indexLogs {
+  align-self: stretch;
+  width: 100%;
+  min-width: 0;
+}
+.indexLogs .indexLogBody {
+  box-sizing: border-box;
+  width: 100%;
+  height: 160px;
+  max-height: 30dvh;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  overflow-anchor: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-alias-bg-layer-1);
+  font-family: var(--ds-font-family-code);
+  font-size: 13px;
+  line-height: 20px;
 }
 .history {
   max-height: 240px;
@@ -107,4 +119,117 @@
   white-space: normal;
   text-align: start;
   overflow-wrap: anywhere;
+}
+
+.pagedSection {
+  height: min(32vh, 260px);
+  flex: none;
+}
+.history {
+  max-height: none;
+  overflow: hidden;
+}
+
+.assistantLayout {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+.assistantContent {
+  flex: 1;
+  min-height: 0;
+  padding-right: 4px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.assistantContent h4,
+.assistantFooter h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+}
+.assistantFooter {
+  flex-shrink: 0;
+  padding-top: 12px;
+  border-top: 0.5px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-1);
+}
+.checkActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.checkDialog {
+  width: min(680px, 100%);
+}
+.relatedSourceList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+.relatedScroll {
+  max-height: 320px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+.relatedItem {
+  padding: 8px 0;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+}
+.relatedName {
+  display: -webkit-box;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  min-height: 28px;
+  padding: 2px 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-weight: 400;
+  line-height: 20px;
+  text-align: left;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.relatedMeta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 22px;
+  margin-top: 2px;
+}
+.relatedMeta small {
+  min-width: 0;
+  margin-right: auto;
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-label-secondary);
+}
+.relatedTag {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 6px;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-state-info-bg);
+  color: var(--dsw-alias-state-info-primary);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.relatedProgress {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+  color: var(--dsw-alias-label-secondary);
 }

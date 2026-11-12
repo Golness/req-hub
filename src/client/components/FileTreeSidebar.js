@@ -1,4 +1,5 @@
 'use strict';
+const { formatDateTime, useTimeZone } = require('../time.js');
 const disclosureCss = require('./shared/Disclosure.module.css').default;
 const { DOCUMENT_NAME_HINTS } = require('../document-name-hints.js');
 const { t } = require('../locale.js');
@@ -22,15 +23,6 @@ const { IconFolder, IconFolderOpen, IconChevronRight } = createIconComponents(h)
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 400;
 const DEFAULT_WIDTH = 220;
-
-function formatTime(isoString) {
-  if (!isoString) {
-    return '';
-  }
-  const d = new Date(isoString);
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 
 function getFileExt(name) {
   const m = name.toLowerCase().match(/\.[^.]+$/);
@@ -107,6 +99,7 @@ function TreeNode({
   onFileClick,
   selection,
 }) {
+  useTimeZone();
   const [contextMenu, setContextMenu] = useState(null);
   if (node.type === 'directory') {
     const isExpanded = expandedDirs.has(node.path);
@@ -235,7 +228,7 @@ function TreeNode({
       'div',
       { className: css.pane },
       h('div', { className: css.pane2 }, node.name),
-      node.mtime && h('div', { className: css.mutedText2 }, formatTime(node.mtime)),
+      node.mtime && h('div', { className: css.mutedText2 }, formatDateTime(node.mtime)),
     ),
     h(
       'span',
@@ -290,6 +283,7 @@ function FileTreeSidebar({
   onExpandedChange,
   id,
 }) {
+  useTimeZone();
   const [tree, setTree] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);

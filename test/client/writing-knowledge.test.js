@@ -48,11 +48,10 @@ it('keeps scope configuration collapsed and never silently selects another proje
   await render();
   expect(container.querySelector('input[type="checkbox"]')).toBeNull();
   await act(async () => button('调整范围').click());
-  expect([...container.querySelectorAll('input')].map((node) => node.checked)).toEqual([
-    true,
-    false,
-  ]);
-  await act(async () => container.querySelectorAll('input')[1].click());
+  expect(
+    [...container.querySelectorAll('input[type="checkbox"]')].map((node) => node.checked),
+  ).toEqual([true, false]);
+  await act(async () => container.querySelectorAll('input[type="checkbox"]')[1].click());
   expect(select).toHaveBeenCalledWith(['own', 'other']);
   expect(container.textContent).not.toContain('GitNexus');
   expect(container.textContent).not.toContain('影响查询深度');

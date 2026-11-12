@@ -15,15 +15,19 @@ import {
 } from '../prompts.js';
 import { json, readBody } from '../utils.js';
 import { log } from '../logger.js';
+import { configureSubagentScheduler } from '../concurrency/SubagentScheduler.js';
+import clock from '../../shared/time.cjs';
+import general from '../../shared/general.cjs';
 
 /**
  * Create configuration routes.
  * @param {Object} registry - Workspace registry service
  * @param {Object} llm - LLM service
  * @param {Object} ctx - Host services used to resolve the active skill scope.
+ * @param {Object} [options] - Callback after successful saves, with effective and previous values.
  * @returns {Array<Object>} Array of route definitions
  */
-export function createConfigRoutes(registry, llm, ctx = {}) {
+export function createConfigRoutes(registry, llm, ctx = {}, options = {}) {
   return [
     // GET and POST share one registration because the router matches paths before methods.
     {
@@ -65,27 +69,79 @@ export function createConfigRoutes(registry, llm, ctx = {}) {
             const body = await readBody(req);
             const newConfig = JSON.parse(body);
             const existing = await loadConfig();
+            const delegation = newConfig.ai?.delegation;
 
             // Deep merge for ai object
-            const merged = {
+            const merged = general.withoutIndependentSettings({
               ...existing,
               ...newConfig,
+              general: { ...existing.general, ...newConfig.general },
+              sync: { ...existing.sync, ...newConfig.sync },
+              ...(newConfig.lark !== undefined
+                ? { lark: { ...existing.lark, ...newConfig.lark } }
+                : {}),
               ai: {
                 ...existing.ai,
                 ...newConfig.ai,
+                ...(delegation && typeof delegation === 'object' && !Array.isArray(delegation)
+                  ? { delegation: { ...existing.ai?.delegation, ...delegation } }
+                  : {}),
                 prompts: {
                   ...existing.ai?.prompts,
                   ...newConfig.ai?.prompts,
                 },
               },
-            };
+            });
+            if (newConfig.larkTargets !== undefined) {
+              return json(res, { error: 'LARK_USER_REQUIRED' }, 403);
+            }
+            if (newConfig.lark !== undefined) {
+              if (req.operationExec) {
+                return json(res, { error: 'LARK_USER_REQUIRED' }, 403);
+              }
+              const { validateLarkSettings } = await import('../lark-settings.js');
+              validateLarkSettings(newConfig.lark);
+              validateLarkSettings(merged.lark);
+              return json(res, { error: 'LARK_CHECK_REQUIRED' }, 400);
+            }
+            if (
+              req.operationExec &&
+              (merged.defaultUsername !== existing.defaultUsername ||
+                ['dailyUpdateEnabled', 'dailyUpdateTime', 'dailyOffsetDays'].some(
+                  (key) => merged.sync?.[key] !== existing.sync?.[key],
+                ))
+            ) {
+              return json(res, { error: 'SYNC_SCHEDULE_USER_REQUIRED' }, 403);
+            }
+            if (
+              req.operationExec &&
+              clock.configTimeZone(merged) !== clock.configTimeZone(existing)
+            ) {
+              return json(res, { error: 'TIME_ZONE_USER_REQUIRED' }, 403);
+            }
+            for (const section of ['knowledgeV2', 'sync']) {
+              if (merged[section]) {
+                merged[section] = { ...merged[section] };
+                delete merged[section].dailyUpdateTimeZone;
+              }
+            }
+
+            if (
+              req.operationExec &&
+              (merged.knowledgeV2?.dailyImportConversations ?? false) !==
+                (existing.knowledgeV2?.dailyImportConversations ?? false)
+            ) {
+              return json(res, { error: 'KNOWLEDGE_V2_USER_REQUIRED' }, 403);
+            }
 
             await saveConfig(merged);
+            configureSubagentScheduler(ctx.subagents, merged);
+            await options.onSaved?.(merged, existing);
             log.config.info('配置已更新');
             json(res, merged);
           } catch (e) {
             log.config.error(`POST /config 失败: ${e.message}`);
-            json(res, { error: e.message }, 500);
+            json(res, { error: e.message }, e.status || 500);
           }
           return;
         }

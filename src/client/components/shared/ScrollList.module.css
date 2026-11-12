@@ -1,0 +1,17 @@
+.scroll {
+  min-height: 0;
+  min-width: 0;
+  max-height: min(48vh, 420px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.scroll:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: -2px;
+}
+.items {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}

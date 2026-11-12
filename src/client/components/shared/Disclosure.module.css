@@ -1,6 +1,9 @@
 .section {
   min-width: 0;
 }
+.dialog.dialog {
+  width: min(680px, 100%);
+}
 .trigger {
   width: 100%;
   min-height: 32px;
@@ -31,4 +34,21 @@
 }
 .content[hidden] {
   display: none;
+}
+.trigger.compact {
+  width: fit-content;
+  max-width: 100%;
+  min-height: 32px;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+}
+.compact .title {
+  font: inherit;
+}
+.compactContent {
+  padding: 12px 0 0;
 }

@@ -1,4 +1,5 @@
 'use strict';
+const { PagedList } = require('./shared/PagedList.js');
 const { t } = require('../locale.js');
 const css = require('./WorkspaceModal.module.css').default;
 const { ModalFrame } = require('./shared/ModalFrame.js');
@@ -30,28 +31,32 @@ function WorkspaceModal({ workspaces, selectedId, onSelect, onClose }) {
     },
     h(
       'div',
-      { className: 'rh-modal', onClick: (e) => e.stopPropagation() },
+      { className: `rh-modal ${css.picker}`, onClick: (e) => e.stopPropagation() },
       h('div', { className: 'rh-modal-title' + ' ' + css.row }, t('WorkspaceModal.message002')),
       workspaces.length === 0
         ? h('div', { className: 'rh-empty' }, t('WorkspaceModal.message003'))
         : h(
             'div',
             { className: 'rh-modal-list', role: 'group' },
-            workspaces.map((ws) =>
-              h(
-                Button,
-                {
-                  key: ws.id,
-                  className: `rh-modal-item${selectedId === ws.id ? ' selected' : ''}`,
-                  'aria-pressed': selectedId === ws.id,
-                  title: ws.title || ws.id,
-                  onClick: () => {
-                    onSelect(ws);
-                    onClose();
+            h(
+              PagedList,
+              { rowHeight: 48, inspect: false },
+              workspaces.map((ws) =>
+                h(
+                  Button,
+                  {
+                    key: ws.id,
+                    className: `rh-modal-item${selectedId === ws.id ? ' selected' : ''}`,
+                    'aria-pressed': selectedId === ws.id,
+                    title: ws.title || ws.id,
+                    onClick: () => {
+                      onSelect(ws);
+                      onClose();
+                    },
                   },
-                },
 
-                h('span', { className: `rh-modal-item-name ${css.name}` }, ws.title || ws.id),
+                  h('span', { className: `rh-modal-item-name ${css.name}` }, ws.title || ws.id),
+                ),
               ),
             ),
           ),

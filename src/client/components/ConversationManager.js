@@ -1,4 +1,6 @@
 'use strict';
+const { formatDateTime, useTimeZone } = require('../time.js');
+const { PagedList } = require('./shared/PagedList.js');
 const React = require('react');
 const { t } = require('../locale.js');
 const { ROUTE } = require('../constants.js');
@@ -40,6 +42,7 @@ const errorText = (code) =>
  * @returns The rendered component content.
  */
 function ConversationManager({ workspaceId, onClose, onChanged }) {
+  useTimeZone();
   const [rows, setRows] = React.useState([]);
   const [jobs, setJobs] = React.useState([]);
   const [usage, setUsage] = React.useState(null);
@@ -240,7 +243,7 @@ function ConversationManager({ workspaceId, onClose, onChanged }) {
               reusable: ((usage.sharedReusableBytes || 0) / 1048576).toFixed(1),
             }),
           ),
-        h(Button, { disabled: busy, onClick: cleanup }, t('conversations.cleanup')),
+        h(Button, { tone: 'danger', disabled: busy, onClick: cleanup }, t('conversations.cleanup')),
       ),
       error && h('p', { role: 'alert', className: 'rh-error' }, error),
       h(
@@ -250,32 +253,37 @@ function ConversationManager({ workspaceId, onClose, onChanged }) {
           'div',
           { className: css.list },
           !visible.length && h('p', null, t('conversations.empty')),
-          visible.map((row) =>
-            h(
-              'div',
-              { key: row.conversationId, className: css.item },
+          h(
+            PagedList,
+            { resetKey: search + source },
+            visible.map((row) =>
               h(
-                Button,
-                {
-                  className: 'rh-btn rh-btn-ghost',
-                  onClick: () => view(row.conversationId),
-                  disabled: busy,
-                },
-                row.title,
-              ),
-              h(
-                'small',
-                null,
-                `${row.source === 'dsh' ? 'DSH' : 'Codex'} · ${row.workspaceTitle} · ${sourceStatus(row.sourceStatus)}`,
-              ),
-              h(
-                Button,
-                {
-                  className: 'rh-btn rh-btn-ghost rh-btn-sm',
-                  disabled: busy,
-                  onClick: () => setDeleting({ id: row.conversationId }),
-                },
-                t('conversations.delete'),
+                'div',
+                { key: row.conversationId, className: css.item },
+                h(
+                  Button,
+                  {
+                    className: 'rh-btn rh-btn-ghost',
+                    onClick: () => view(row.conversationId),
+                    disabled: busy,
+                  },
+                  row.title,
+                ),
+                h(
+                  'small',
+                  null,
+                  `${row.source === 'dsh' ? 'DSH' : 'Codex'} · ${row.workspaceTitle} · ${sourceStatus(row.sourceStatus)}`,
+                ),
+                h(
+                  Button,
+                  {
+                    className: 'rh-btn rh-btn-ghost rh-btn-sm',
+                    disabled: busy,
+                    onClick: () => setDeleting({ id: row.conversationId }),
+                    tone: 'danger',
+                  },
+                  t('conversations.delete'),
+                ),
               ),
             ),
           ),
@@ -290,7 +298,7 @@ function ConversationManager({ workspaceId, onClose, onChanged }) {
               onChange: (event) => view(detail.entry.conversationId, event.target.value),
               options: detail.versions.map((version) => ({
                 id: version.version,
-                label: `${new Date(version.created_at).toLocaleString()} · ${version.version.slice(0, 8)} · ${t('conversations.references', { count: version.references_count })}`,
+                label: `${formatDateTime(version.created_at)} · ${version.version.slice(0, 8)} · ${t('conversations.references', { count: version.references_count })}`,
               })),
             }),
             (detail.references || []).map((reference) =>
@@ -307,6 +315,7 @@ function ConversationManager({ workspaceId, onClose, onChanged }) {
               h(
                 Button,
                 {
+                  tone: 'danger',
                   disabled: busy,
                   onClick: () =>
                     setDeleting({
@@ -339,6 +348,7 @@ function ConversationManager({ workspaceId, onClose, onChanged }) {
               Button,
               {
                 disabled: busy,
+                tone: 'warning',
                 onClick: async () => {
                   try {
                     await request('cancel', {});

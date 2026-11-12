@@ -1,16 +1,8 @@
-/* Action buttons render DSH Button. Feature CSS only owns placement and semantic state. */
+/* Shared plugin-owned controls own action colors and sizes; feature CSS owns placement. */
 .rh-btn-icon {
   width: 28px;
   padding: 0;
   flex: none;
-}
-.rh-btn-danger,
-.rh-btn-danger-outline {
-  color: var(--dsw-alias-state-error-primary);
-}
-.rh-btn-warning,
-.rh-btn-warning-outline {
-  color: var(--dsw-alias-state-warn-primary);
 }
 .rh-btn[aria-pressed='true'] {
   background: var(--dsw-alias-interactive-bg-active);

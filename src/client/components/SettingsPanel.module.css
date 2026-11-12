@@ -1,4 +1,7 @@
 .panel {
+  --rh-settings-max-width: 100%;
+  --rh-settings-label-width: 232px;
+  --rh-settings-field-gap: 12px;
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -28,6 +31,13 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+  scrollbar-gutter: stable;
+}
+.actionDock {
+  flex-shrink: 0;
+  min-width: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 .content {
   padding: var(--rh-panel-padding);
@@ -39,4 +49,72 @@
   margin: 0;
   padding: 12px var(--rh-panel-padding);
   border-top: 0.5px solid var(--dsw-alias-border-l1);
+}
+.modelSettings {
+  container-type: inline-size;
+  container-name: reqhub-general;
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+}
+.advancedFields {
+  display: grid;
+  gap: 14px;
+}
+.settingField {
+  display: grid;
+  grid-template-columns: var(--rh-settings-label-width, 232px) minmax(0, 1fr);
+  align-items: center;
+  justify-items: start;
+  gap: var(--rh-settings-field-gap, 12px);
+  min-width: 0;
+}
+.settingTitle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+.modelControls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+.modelControls .modelSelect {
+  width: 240px;
+  max-width: 100%;
+  min-width: 0;
+}
+.concurrencyInput {
+  width: 96px;
+  max-width: 100%;
+}
+.policyInput {
+  width: 180px;
+  max-width: 100%;
+}
+.timeZoneSelect {
+  width: 320px;
+  max-width: 100%;
+  min-width: 0;
+}
+@container reqhub-general (max-width: 480px) {
+  .settingField {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+  .settingTitle {
+    width: var(--rh-settings-label-width, 232px);
+    max-width: 100%;
+  }
 }

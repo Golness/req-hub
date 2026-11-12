@@ -338,7 +338,7 @@
 
 .rh-badge-warn {
   background: var(--dsw-alias-state-warning-bg);
-  color: var(--dsw-alias-state-warning-primary);
+  color: var(--dsw-alias-state-warn-primary);
 }
 
 .rh-badge-neutral {
@@ -371,7 +371,7 @@
 
 .rh-doctype-tag.cr {
   background: var(--dsw-alias-state-warning-bg);
-  color: var(--dsw-alias-state-warning-primary);
+  color: var(--dsw-alias-state-warn-primary);
 }
 
 .rh-doctype-tag.other {
@@ -491,7 +491,7 @@
 
 .rh-scale-large {
   background: var(--dsw-alias-state-warning-bg);
-  color: var(--dsw-alias-state-warning-primary);
+  color: var(--dsw-alias-state-warn-primary);
 }
 
 .rh-scale-small {
@@ -910,7 +910,7 @@
 }
 
 .rh-log-entry.log-warning {
-  color: var(--dsw-alias-state-warning-primary);
+  color: var(--dsw-alias-state-warn-primary);
 }
 
 .rh-log-entry.log-error {

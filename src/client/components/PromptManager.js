@@ -38,6 +38,7 @@ function getPromptCategory(key, meta) {
  * @returns The rendered component content.
  */
 function PromptManager({
+  workspaceId,
   registry,
   error,
   onRetry,
@@ -57,9 +58,7 @@ function PromptManager({
   const id = useId();
   const categories = CATEGORIES.map((category) => ({
     ...category,
-    entries: Object.entries(registry || {}).filter(
-      ([key, meta]) => getPromptCategory(key, meta) === category.id,
-    ),
+    entries: Object.entries(registry || {}).filter(([key, meta]) => getPromptCategory(key, meta) === category.id),
   })).filter((category) => category.entries.length);
   const category = categories.find((item) => item.id === categoryId) || categories[0];
   const selected =

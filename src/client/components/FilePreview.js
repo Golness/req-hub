@@ -1,11 +1,11 @@
 'use strict';
+const { formatTime, useTimeZone } = require('../time.js');
 const { t } = require('../locale.js');
 const css = require('./FilePreview.module.css').default;
 const { cssValue } = require('./shared/presentation.js');
 const { Button } = require('./shared/Button.js');
 const { KnowledgeAssistant } = require('./shared/KnowledgeAssistant.js');
 const { useKnowledgeAssistant } = require('../hooks/useKnowledgeAssistant.js');
-const { WikiSaveStatus } = require('./WikiSaveStatus.js');
 const { SessionSelectionContext } = require('../context.js');
 
 const React = require('react');
@@ -51,14 +51,13 @@ function FilePreview({
   onToggleToc,
   toolbarTarget,
   onSaved,
-  onOpenWikiEvents,
-  onOpenWikiUpdate,
   onDirtyChange,
   active = true,
   sourceUrl,
   readOnly = false,
   assist,
 }) {
+  useTimeZone();
   const [text, setText] = useState('');
   const [error, setError] = useState(null);
   const [parseWarnings, setParseWarnings] = useState([]);
@@ -68,9 +67,7 @@ function FilePreview({
   const [editContent, setEditContent] = useState('');
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
-  const [wikiReceipt, setWikiReceipt] = useState(null);
   const currentSession = React.useContext(SessionSelectionContext);
-  useEffect(() => setWikiReceipt(null), [workspaceId, relPath]);
   const assistant = useKnowledgeAssistant(active);
   const previewBodyRef = useRef(null);
   const mermaidInitRef = useRef(false);
@@ -111,7 +108,6 @@ function FilePreview({
       });
       const data = await res.json();
       if (data.success) {
-        setWikiReceipt(data.wiki || null);
         setText(editContent);
         setLastSaved(new Date());
         onSaved?.();
@@ -396,7 +392,7 @@ function FilePreview({
           {
             className: css.mutedText,
           },
-          t('FilePreview.message014', { value0: lastSaved.toLocaleTimeString() }),
+          t('FilePreview.message014', { value0: formatTime(lastSaved) }),
         ),
     );
 
@@ -499,13 +495,6 @@ function FilePreview({
     'div',
     { className: `rh-file-preview ${css.preview}`, ref: assistant.ref },
     toolbarTarget ? createPortal(editToolbar, toolbarTarget) : editToolbar,
-    h(WikiSaveStatus, {
-      receipt: wikiReceipt,
-      workspaceId,
-      active,
-      onOpenEvents: onOpenWikiEvents,
-      onOpenUpdate: onOpenWikiUpdate,
-    }),
     h(
       'div',
       { className: 'rh-file-preview-content' },
@@ -538,6 +527,7 @@ function FilePreview({
             title: t('writing.wikiAssistant'),
             open: assistant.open,
             pinned: assistant.pinned,
+            fill: true,
             onClose: assistant.close,
           },
           assist,

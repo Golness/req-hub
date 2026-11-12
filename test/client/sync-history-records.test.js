@@ -44,16 +44,18 @@ it('keeps navigation independent from both deletion scopes and preserves task id
     ),
   );
   const buttons = [...container.querySelectorAll('button')];
-  expect(buttons[1].textContent).toBe('删除本次记录');
-  expect(buttons[1].title).toBe('仅删除本次执行记录及中间文件，保留正式文档');
-  expect(buttons[2].textContent).toBe('删除任务全部记录');
-  expect(buttons[2].title).toBe('删除同一任务的全部执行记录（含重试）及中间文件，保留正式文档');
-  await act(async () => buttons[0].click());
-  expect(buttons[0].textContent).toBe('查看详情');
+  expect(buttons[0].textContent).toBe('删除本次记录');
+  expect(buttons[0].title).toBe('仅删除本次执行记录及中间文件，保留正式文档');
+  expect(buttons[1].textContent).toBe('删除任务全部记录');
+  expect(buttons[1].title).toBe('删除同一任务的全部执行记录（含重试）及中间文件，保留正式文档');
+  expect(buttons[0].dataset.rhTone).toBe('danger');
+  expect(buttons[1].dataset.rhTone).toBe('danger');
+  await act(async () => buttons[2].click());
+  expect(buttons[2].textContent).toBe('查看详情');
   expect(onSelect).toHaveBeenCalledWith(sync);
   onSelect.mockClear();
+  await act(async () => buttons[0].click());
   await act(async () => buttons[1].click());
-  await act(async () => buttons[2].click());
   expect(onSelect).not.toHaveBeenCalled();
   expect(fetch.mock.calls.map(([, options]) => JSON.parse(options.body))).toEqual([
     {

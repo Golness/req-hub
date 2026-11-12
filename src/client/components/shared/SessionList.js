@@ -1,4 +1,6 @@
 'use strict';
+const { formatDate, useTimeZone } = require('../../time.js');
+const { PagedList } = require('./PagedList.js');
 const { t } = require('../../locale.js');
 const { Button } = require('./Button.js');
 const React = require('react');
@@ -34,6 +36,7 @@ function SessionList({
   source = '',
   emptyText = t('SessionList.message001'),
 }) {
+  useTimeZone();
   const id = React.useId();
   if (loading) {
     return h('p', { className: 'rh-sync-hint', role: 'status' }, t('common.loadingEllipsis'));
@@ -43,89 +46,91 @@ function SessionList({
   }
   return h(
     'div',
-    { className: 'rh-session-list' },
-    [...sessions]
-      .sort((a, b) => sessionTime(b) - sessionTime(a))
-      .map((session, index) => {
-        const selected = selectedIds.includes(session.id);
-        const available = !!session.snapshotVersion && session.syncTurnCount > 0;
-        const blocked = disabled || (!selected && !available);
-        let status = t('sessions.selectable');
-        if (session.snapshotError) {
-          status = t('SessionList.message003');
-        } else if (!session.snapshotVersion) {
-          status = t('sessions.notReady');
-        } else if (!session.syncTurnCount) {
-          status = t('sessions.noCompleteTurns');
-        } else if (disabled) {
-          status = t('sessions.temporarilyDisabled');
-        }
-        const time = sessionTime(session);
-        const statusId = `${id}-${index}`;
-        return h(
-          'div',
-          {
-            key: session.id,
-            className: `rh-session-row ${css.row}`,
-            'data-unavailable': !available || disabled,
-          },
-          h(
-            'label',
+    { className: `rh-session-list ${css.container}` },
+    h(
+      PagedList,
+      { resetKey: source, inspect: false },
+      [...sessions]
+        .sort((a, b) => sessionTime(b) - sessionTime(a))
+        .map((session, index) => {
+          const selected = selectedIds.includes(session.id);
+          const available = !!session.snapshotVersion && session.syncTurnCount > 0;
+          const blocked = disabled || (!selected && !available);
+          let status = t('sessions.selectable');
+          if (session.snapshotError) {
+            status = t('SessionList.message003');
+          } else if (!session.snapshotVersion) {
+            status = t('sessions.notReady');
+          } else if (!session.syncTurnCount) {
+            status = t('sessions.noCompleteTurns');
+          } else if (disabled) {
+            status = t('sessions.temporarilyDisabled');
+          }
+          const time = sessionTime(session);
+          const statusId = `${id}-${index}`;
+          return h(
+            'div',
             {
-              className: `rh-session-choice ${css.choice}`,
-              'data-selected': selected,
-              'data-blocked': blocked,
+              key: session.id,
+              className: `rh-session-row ${css.row}`,
+              'data-unavailable': !available || disabled,
             },
-            h('input', {
-              type: 'checkbox',
-              checked: selected,
-              disabled: blocked,
-              'aria-describedby': statusId,
-              onChange: () => onToggle(session.id),
-              'aria-label': t('SessionList.message002', {
-                value0: source,
-                value1: session.title || session.id,
-              }),
-            }),
             h(
-              'span',
-              { className: 'rh-session-info' },
+              'label',
+              {
+                className: `rh-session-choice ${css.choice}`,
+                'data-selected': selected,
+                'data-blocked': blocked,
+              },
+              h('input', {
+                type: 'checkbox',
+                checked: selected,
+                disabled: blocked,
+                'aria-describedby': statusId,
+                onChange: () => onToggle(session.id),
+                'aria-label': t('SessionList.message002', {
+                  value0: source,
+                  value1: session.title || session.id,
+                }),
+              }),
               h(
                 'span',
-                { className: css.titleRow },
+                { className: 'rh-session-info' },
                 h(
                   'span',
-                  { className: 'rh-session-title', title: session.title },
-                  session.title || session.id,
+                  { className: css.titleRow },
+                  h(
+                    'span',
+                    { className: 'rh-session-title', title: session.title },
+                    session.title || session.id,
+                  ),
+                  h('span', { id: statusId, className: css.status }, status),
                 ),
-                h('span', { id: statusId, className: css.status }, status),
-              ),
-              h(
-                'span',
-                { className: 'rh-session-meta', title: session.snapshotError },
-                !session.snapshotError &&
-                  t('SessionList.message004', {
-                    value0: session.turnCount ?? 0,
-                    value1: session.syncTurnCount ?? 0,
-                  }),
-                time
-                  ? `${session.snapshotError ? '' : ' · '}${new Date(time).toLocaleDateString()}`
-                  : '',
+                h(
+                  'span',
+                  { className: 'rh-session-meta', title: session.snapshotError },
+                  !session.snapshotError &&
+                    t('SessionList.message004', {
+                      value0: session.turnCount ?? 0,
+                      value1: session.syncTurnCount ?? 0,
+                    }),
+                  time ? `${session.snapshotError ? '' : ' · '}${formatDate(time)}` : '',
+                ),
               ),
             ),
-          ),
-          h(
-            Button,
-            {
-              type: 'button',
-              className: 'rh-btn rh-btn-ghost rh-btn-sm',
-              disabled: !!session.snapshotError && !session.snapshotVersion,
-              onClick: () => onView(session),
-            },
-            t('SessionList.message005'),
-          ),
-        );
-      }),
+            h(
+              Button,
+              {
+                type: 'button',
+                className: 'rh-btn rh-btn-ghost rh-btn-sm',
+                disabled: !!session.snapshotError && !session.snapshotVersion,
+                onClick: () => onView(session),
+              },
+              t('SessionList.message005'),
+            ),
+          );
+        }),
+    ),
   );
 }
 module.exports = { SessionList };

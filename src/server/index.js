@@ -2,6 +2,7 @@ import { createOperations, installOperationTool } from './operations.js';
 import { authenticatedRoute, disposeAll } from './plugin-boundaries.js';
 import { configureStorage, Config } from './config.js';
 import { join } from 'node:path';
+import { installSubagentScheduler } from './concurrency/SubagentScheduler.js';
 export { Config };
 import { installSyncTools } from './sync-controlled-tools.js';
 /**
@@ -14,13 +15,16 @@ import { installSyncTools } from './sync-controlled-tools.js';
  */
 
 import { createConfigRoutes } from './routes/config-routes.js';
+import { createLarkCliRoutes } from './lark-cli.js';
 import { createTreeRoutes } from './routes/tree-routes.js';
 import { createCreationRoutes } from './routes/creation-routes.js';
 import { createSyncRoutes } from './routes/sync-routes.js';
+import { TaskReports } from './task-reports.js';
+import { SyncDailyScheduler } from './sync-daily-scheduler.js';
 import { createWritingRoutes } from './routes/writing-routes.js';
 import { createEnhancementRoutes } from './routes/enhancement-routes.js';
-import { createKnowledgeRoutes } from './routes/knowledge-routes.js';
-import { createWikiRoutes } from './routes/wiki-routes.js';
+import { createKnowledgeApplication } from './knowledge-v2/application.js';
+import { createKnowledgeV2Routes } from './routes/knowledge-v2-routes.js';
 import { log, getLogs, clearLogs, getLogLevels, getLogTags } from './logger.js';
 import { json } from './utils.js';
 import { setSkillsService } from './prompts.js';
@@ -44,6 +48,7 @@ export const inject = [
   'skills',
   'agents',
   'agentPresets',
+  'agentDefaultModel',
   'sessionQuery',
   'subagents',
   'sessionProjections',
@@ -90,6 +95,7 @@ export function apply(ctx, config = {}) {
   } = ctx;
 
   setSkillsService(skills);
+  const subagentScheduler = installSubagentScheduler(subagents);
 
   log.startup.info('ReqHub 插件启动 (模块化架构 - Subagent 统一委托)');
   log.startup.debug('可用服务', {
@@ -104,49 +110,86 @@ export function apply(ctx, config = {}) {
   });
 
   const disposers = [releaseConfig];
-  const knowledge = createKnowledgeRoutes(workspaceRegistry);
-  const wiki = createWikiRoutes(knowledge.service, ctx);
-  wiki.service.database();
-  knowledge.service.wiki = wiki.service;
-  wiki.service.track(
-    wiki.service.resume().catch((error) => {
-      log.startup.warn('WIKI_RESUME_FAILED: ' + error.message);
-    }),
-  );
-  disposers.push(
-    ctx.on('agent/created', () =>
-      wiki.service.track(
-        wiki.service.resume().catch((error) => {
-          log.startup.warn('WIKI_RESUME_FAILED: ' + error.message);
-        }),
-      ),
-    ),
-  );
-  disposers.push(() => wiki.dispose());
-  const enhancements = createEnhancementRoutes(knowledge.service, ctx);
+  const lark = createLarkCliRoutes(workspaceRegistry);
+  disposers.push(() => lark.dispose());
+  const knowledgeV2 = createKnowledgeApplication({
+    ctx,
+    registry: workspaceRegistry,
+    profileDir: profile?.dir,
+    onSyncError: (error) => log.startup.warn('KNOWLEDGE_SYNC_FAILED: ' + error.message),
+  });
+  disposers.push(() => knowledgeV2.close());
+  const reports = new TaskReports(workspaceRegistry);
+  disposers.push(() => reports.close());
+  knowledgeV2.reports = reports;
+  knowledgeV2.onJobChange = (job) => reports.knowledgeJob(job);
+  const enhancements = createEnhancementRoutes(knowledgeV2.context, ctx);
   disposers.push(() => enhancements.dispose());
-  const writing = createWritingRoutes(workspaceRegistry, llm, agents, ctx, knowledge.service);
+  const writing = createWritingRoutes(
+    workspaceRegistry,
+    llm,
+    agents,
+    ctx,
+    knowledgeV2.context,
+  );
   const creation = createCreationRoutes(workspaceRegistry);
   disposers.push(() => creation.dispose());
   disposers.push(() => writing.dispose());
-  disposers.push(() => knowledge.dispose());
   const syncTools = installSyncTools(ctx);
   if (syncTools) {
     disposers.push(() => syncTools.dispose());
   }
 
   const syncRoutes = createSyncRoutes(workspaceRegistry, llm, sessions, agents, ctx, {
-    knowledgeService: knowledge.service,
+    knowledgeV2,
+  });
+  const scheduledSync = new SyncDailyScheduler({
+    registry: workspaceRegistry,
+    knowledge: knowledgeV2,
+    reports,
+    routes: syncRoutes,
   });
 
   const routes = [
-    ...wiki.routes,
+    ...createKnowledgeV2Routes(knowledgeV2),
     ...enhancements.routes,
-    ...knowledge.routes,
 
-    ...createConfigRoutes(workspaceRegistry, llm, ctx),
+    ...createConfigRoutes(workspaceRegistry, llm, ctx, {
+      onSaved: (config, previous) => {
+        const zoneChanged = config.general?.timeZone !== previous.general?.timeZone;
+        const keys = ['dailyUpdateEnabled', 'dailyUpdateTime', 'dailyOffsetDays'];
+        if (
+          config.defaultUsername !== previous.defaultUsername ||
+          zoneChanged ||
+          keys.some((key) => config.sync?.[key] !== previous.sync?.[key])
+        ) {
+          void scheduledSync.refresh().catch((error) => {
+            log.startup.warn('SYNC_SCHEDULE_REFRESH_FAILED: ' + error.message);
+          });
+        }
+        const knowledgeKeys = [
+          'autoManage',
+          'autoManageDelayMs',
+          'dailyUpdateEnabled',
+          'dailyImportConversations',
+          'dailyUpdateTime',
+        ];
+        if (
+          zoneChanged ||
+          knowledgeKeys.some(
+            (key) => config.knowledgeV2?.[key] !== previous.knowledgeV2?.[key],
+          )
+        ) {
+          void knowledgeV2.sync.refresh().catch((error) => {
+            log.startup.warn('KNOWLEDGE_SYNC_REFRESH_FAILED: ' + error.message);
+          });
+        }
+      },
+    }),
+    ...lark.routes,
+    ...reports.routes(),
 
-    ...createTreeRoutes(workspaceRegistry, { knowledgeService: knowledge.service }),
+    ...createTreeRoutes(workspaceRegistry, { knowledgeService: knowledgeV2 }),
     ...creation.routes,
 
     ...syncRoutes,
@@ -531,8 +574,16 @@ export function apply(ctx, config = {}) {
   let closing;
   const cleanup = () =>
     (closing ||= disposeAll([
+      () => {
+        scheduledSync.beginClose();
+        enhancements.service.beginClose();
+        writing.beginClose();
+        subagentScheduler.beginClose();
+      },
       () => syncRoutes.dispose(),
+      () => scheduledSync.close(),
       ...disposers.slice(1),
+      () => subagentScheduler.close(),
       releaseConfig,
     ]).then(() => {
       log.startup.info('ReqHub 插件卸载');
@@ -542,7 +593,12 @@ export function apply(ctx, config = {}) {
   for (const route of operations.routes) {
     disposers.push(webServer.register(authenticatedRoute(ctx.connection, route)));
   }
-  wiki.service.startDailyScheduler();
+  void knowledgeV2.sync.start().catch((error) => {
+    log.startup.warn('KNOWLEDGE_SYNC_START_FAILED: ' + error.message);
+  });
+  void scheduledSync.refresh().catch((error) => {
+    log.startup.warn('SYNC_SCHEDULE_REFRESH_FAILED: ' + error.message);
+  });
   log.startup.info(`已注册 ${routes.length} 个路由`);
   return cleanup;
 }

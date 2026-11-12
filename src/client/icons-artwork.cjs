@@ -853,3 +853,25 @@ exports.IconSettingsOutlineRegular = IconSettingsOutlineRegular;
 exports.IconStopFillRegular = IconStopFillRegular;
 exports.IconTriangleRightFillRegular = IconTriangleRightFillRegular;
 exports.IconWarningTriangleOutlineRegular = IconWarningTriangleOutlineRegular;
+
+/** Private snapshot of the Host workspace-tree artwork used for grouped task reports. */
+const IconWorkspaceTreeOutlineRegular = ({ size = 16, className }) =>
+  react_jsx_runtime.jsxs('svg', {
+    width: size,
+    height: size,
+    className,
+    viewBox: '0 0 16 16',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    'aria-hidden': 'true',
+    strokeWidth: 1,
+    children: [
+      react_jsx_runtime.jsx('path', {
+        d: 'M14 12.05c0 .8-.65 1.45-1.46 1.45H3.46C2.65 13.5 2 12.85 2 12.05v-8.1c0-.8.65-1.45 1.46-1.45h2.4c.49 0 .94.24 1.21.65l.5.73c.27.4.73.65 1.21.65h3.76c.8 0 1.46.65 1.46 1.45v6.02Z',
+      }),
+      react_jsx_runtime.jsx('path', { d: 'M8.7 8.1v3M11.2 8.1v3' }),
+    ],
+  });
+exports.IconWorkspaceTreeOutlineRegular = IconWorkspaceTreeOutlineRegular;

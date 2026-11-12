@@ -23,6 +23,14 @@ function t(key, params) {
   );
 }
 /**
+ * Report whether the plugin dictionary owns a key, without throwing.
+ * @param key - Candidate locale key.
+ * @returns True when a translation exists.
+ */
+function hasLocaleKey(key) {
+  return Object.hasOwn(zh, key);
+}
+/**
  * Register the plugin dictionary for the lifetime of its owning effect.
  * @param ctx - The injected Client context with locale support.
  * @returns A disposer that clears the binding and unregisters the dictionary.
@@ -35,4 +43,4 @@ function installLocale(ctx) {
     dispose();
   };
 }
-module.exports = { t, installLocale, NAMESPACE };
+module.exports = { t, hasLocaleKey, installLocale, NAMESPACE };

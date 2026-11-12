@@ -1,5 +1,6 @@
 'use strict';
 const React = require('react');
+const { useTimeZone, formatDate } = require('../../time.js');
 const { Button } = require('./Button.js');
 const { Popover } = require('./controls.js');
 const { t } = require('../../locale.js');
@@ -21,8 +22,10 @@ const parse = (value) => {
  * @returns The rendered component content.
  */
 function DatePicker({ id, value, onChange, disabled = false, label }) {
+  useTimeZone();
+  const today = () => parse(formatDate(new Date()));
   const [open, setOpen] = React.useState(false);
-  const [cursor, setCursor] = React.useState(() => parse(value) || new Date());
+  const [cursor, setCursor] = React.useState(() => parse(value) || today());
   const grid = React.useRef(null);
   const focusPending = React.useRef(false);
   React.useLayoutEffect(() => {
@@ -59,7 +62,7 @@ function DatePicker({ id, value, onChange, disabled = false, label }) {
     return date;
   });
   const toggle = () => {
-    setCursor(parse(value) || new Date());
+    setCursor(parse(value) || today());
     setOpen((previous) => !previous);
   };
   return h(
@@ -150,7 +153,7 @@ function DatePicker({ id, value, onChange, disabled = false, label }) {
                 tabIndex: keyOf(date) === keyOf(cursor) ? 0 : -1,
                 'aria-label': keyOf(date),
                 'aria-selected': keyOf(date) === value,
-                'aria-current': keyOf(date) === keyOf(new Date()) ? 'date' : undefined,
+                'aria-current': keyOf(date) === keyOf(today()) ? 'date' : undefined,
                 'data-date-focus': keyOf(date) === keyOf(cursor),
                 'data-outside': date.getMonth() !== cursor.getMonth(),
                 onClick: () => choose(date),
@@ -166,7 +169,7 @@ function DatePicker({ id, value, onChange, disabled = false, label }) {
       { className: css.footer },
       h(
         Button,
-        { size: 'sm', variant: 'ghost', onClick: () => choose(new Date()) },
+        { size: 'sm', variant: 'ghost', onClick: () => choose(today()) },
         t('datePicker.today'),
       ),
     ),

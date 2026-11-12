@@ -93,3 +93,30 @@
   font-size: 12px;
   line-height: 18px;
 }
+
+.modal.modal {
+  height: min(80vh, 760px);
+  overflow: hidden;
+}
+.content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+@media (max-width: 600px) {
+  .list {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+  }
+  .preview {
+    flex: 1;
+    min-height: 0;
+  }
+}

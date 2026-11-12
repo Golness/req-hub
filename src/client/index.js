@@ -1,5 +1,6 @@
 'use strict';
 const { t, installLocale } = require('./locale.js');
+const { installTimeZone } = require('./time.js');
 /**
  * ReqHub - Requirements Hub
  * DSH (Developer Service Hub) plugin entry file.
@@ -30,7 +31,7 @@ const { TAB_ID, TAB_KIND } = require('./constants.js');
 
 const { TabBodyWrapper } = require('./components/TabBodyWrapper.js');
 const { TabTitle } = require('./components/TabTitle.js');
-const { ToastContainer } = require('./components/shared/ToastContainer.js');
+const { ToastContainer, showToast } = require('./components/shared/ToastContainer.js');
 const { TriggerButton } = require('./components/TriggerButton.js');
 
 /**
@@ -42,9 +43,9 @@ const { TriggerButton } = require('./components/TriggerButton.js');
  * @property {Function} apply.dispose - Cleanup function returned by apply that disposes all registrations.
  */
 module.exports = {
-  inject: ['slots', 'sidebarRightTabs', 'sidebarRight', 'layout', 'locale'],
+  inject: ['slots', 'sidebarRightTabs', 'sidebarRight', 'locale'],
   apply(ctx) {
-    const disposers = [ctx.effect(() => installLocale(ctx))];
+    const disposers = [ctx.effect(() => installLocale(ctx)), ctx.effect(() => installTimeZone())];
 
     // Store context globally for components to access
     window.__DSH_CTX__ = ctx;
@@ -123,7 +124,10 @@ module.exports = {
           },
           ({ wide }) => {
             const handleClick = () => {
-              ctx.layout.openRightbar(true, false);
+              if (!ctx.sidebarRight.mounted.getSnapshot()) {
+                showToast({ text: t('trigger.sessionRequired'), tone: 'info' });
+                return;
+              }
               ctx.sidebarRight.openTab(TAB_KIND);
             };
             return h(TriggerButton, { onClick: handleClick, wide });

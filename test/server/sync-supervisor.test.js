@@ -1,6 +1,19 @@
 import { it, expect, vi } from 'vitest';
 import { SyncSupervisor } from '../../src/server/sync-supervisor.js';
 import model from '../../src/shared/sync-task.cjs';
+import { TaskExecutorConfig } from '../../src/server/task-executor.js';
+
+it('keeps a live execution lease throughout the longest supported model execution', async () => {
+  let now = 0;
+  const supervisor = new SyncSupervisor({ now: () => now });
+  const owner = supervisor.acquire({ workspaceId: 'one' });
+  const task = { id: 'long', status: 'running', steps: model.createSyncSteps() };
+  supervisor.attach(owner, task);
+  now = TaskExecutorConfig.maxTimeout;
+  expect(await supervisor.check()).toBe(false);
+  expect(supervisor.snapshot().active.status).toBe('running');
+  expect(owner.controller.signal.aborted).toBe(false);
+});
 
 function setup() {
   let now = 0;

@@ -83,10 +83,11 @@ async function safeEntries(path) {
     throw error;
   }
 }
-async function walk(path, out) {
+async function walk(path, out, signal) {
   for (const entry of await safeEntries(path)) {
+    signal?.throwIfAborted();
     if (entry.isDirectory()) {
-      await walk(join(path, entry.name), out);
+      await walk(join(path, entry.name), out, signal);
     } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
       out.push(join(path, entry.name));
     }
@@ -128,7 +129,8 @@ export class CodexSource {
   constructor(home) {
     this.home = resolve(home);
   }
-  async inventory() {
+  async inventory({ signal } = {}) {
+    signal?.throwIfAborted();
     const entries = await safeEntries(this.home);
     if (!entries.length) {
       return {
@@ -203,6 +205,7 @@ export class CodexSource {
             `SELECT id,cwd,rollout_path,${optional.length ? optional.join(',') + ',' : ''}archived FROM threads WHERE archived=0`,
           )
           .all()) {
+          signal?.throwIfAborted();
           if (subagent(row.source) || subagent(row.thread_source)) {
             continue;
           }
@@ -246,6 +249,7 @@ export class CodexSource {
           workspace.sessionCount++;
         }
       } catch (error) {
+        signal?.throwIfAborted();
         throw codexError(
           'CODEX_DATABASE_READ_FAILED: 无法读取 Codex 会话目录：' + error.message,
           503,
@@ -255,8 +259,9 @@ export class CodexSource {
       }
     } else {
       const files = [];
-      await walk(join(this.home, 'sessions'), files);
+      await walk(join(this.home, 'sessions'), files, signal);
       for (const file of files) {
+        signal?.throwIfAborted();
         try {
           const meta = await prefixInfo(file);
           if (meta.archived || subagent(meta.thread_source) || subagent(meta.source)) {
@@ -284,6 +289,7 @@ export class CodexSource {
         }
       }
     }
+    signal?.throwIfAborted();
     return {
       workspaces: [...workspaces.values()].sort((a, b) => a.title.localeCompare(b.title)),
       sessions: sessions.sort((a, b) => b.updatedAt - a.updatedAt),
@@ -291,7 +297,8 @@ export class CodexSource {
     };
   }
 
-  async snapshot(session) {
+  async snapshot(session, { signal } = {}) {
+    signal?.throwIfAborted();
     const root = await realpath(join(this.home, 'sessions'));
     const path = await realpath(session.sourcePath);
     if (!beneath(root, path)) {
@@ -299,13 +306,14 @@ export class CodexSource {
     }
     const before = await stat(path);
     const parser = createCodexTranscript(session.id);
-    const stream = createReadStream(path, { encoding: 'utf8' });
+    const stream = createReadStream(path, { encoding: 'utf8', signal });
     const lines = createInterface({ input: stream, crlfDelay: Infinity });
     let metaId;
     let archived = false;
     let malformed = 0;
     try {
       for await (const line of lines) {
+        signal?.throwIfAborted();
         if (!line.trim()) {
           continue;
         }
@@ -326,6 +334,7 @@ export class CodexSource {
       lines.close();
       stream.destroy();
     }
+    signal?.throwIfAborted();
     const after = await stat(path);
     if (before.size !== after.size || before.mtimeMs !== after.mtimeMs) {
       throw codexError('CODEX_SESSION_CHANGING: 会话正在写入，请稍后刷新', 409);

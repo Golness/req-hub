@@ -50,6 +50,81 @@ it('uses selected commits own parent diffs and never includes a skipped commit o
  expect(result.sourceSnapshots.find(s=>s.file==='last.js').commitChanges[0]).toMatchObject({parent:middle,commitHash:last,base:null,target:'LAST_SELECTED'});
  expect(result.uncommittedChanges.hasChanges).toBe(false);expect(await readFile(join(repo,'dirty.js'),'utf8')).toBe('DIRTY_NOT_SELECTED');
 });
+
+async function createCrissCrossHistory() {
+  const tree = git('rev-parse', `${base}^{tree}`);
+  const left = git('commit-tree', tree, '-p', base, '-m', 'left ancestor');
+  const right = git('commit-tree', tree, '-p', base, '-m', 'right ancestor');
+  const baseMerge = git('commit-tree', tree, '-p', left, '-p', right, '-m', 'base merge');
+  const targetMerge = git('commit-tree', tree, '-p', right, '-p', left, '-m', 'target merge');
+  const selected = [];
+  let parent = targetMerge;
+  for (const hash of [first, middle, last]) {
+    parent = git('commit-tree', git('rev-parse', `${hash}^{tree}`), '-p', parent, '-m', hash);
+    selected.push(parent);
+  }
+  git('update-ref', 'refs/heads/main', baseMerge);
+  git('update-ref', `refs/heads/${branch}`, parent);
+  expect(git('merge-base', '--all', 'main', branch).split('\n').sort())
+    .toEqual([left, right].sort());
+  return { selected, baseMerge };
+}
+
+it('executes explicit selections from the listed range despite multiple best common ancestors', async () => {
+  const { selected, baseMerge } = await createCrissCrossHistory();
+  await writeFile(join(repo, 'dirty.js'), 'DIRTY_NOT_SELECTED');
+  const before = {
+    branch: git('branch', '--show-current'),
+    head: git('rev-parse', 'HEAD'),
+    index: git('ls-files', '--stage'),
+    status: git('status', '--porcelain=v1'),
+  };
+  const list = await listSyncCommits(repo, branch, 'main');
+  const result = await prepareCommitSync(repo, requirementId, 'requirement', [], {
+    baseBranch: 'main',
+    commitHashes: [selected[2], selected[0]],
+    branchTip: list.branchTip,
+    baseCommit: list.baseline,
+    includeWorkingChanges: false,
+  });
+  expect(result.baselineCommit).toBe(baseMerge);
+  expect(result.commits.map((commit) => commit.hash)).toEqual([selected[0], selected[2]]);
+  expect(result.codeDiff).toContain('FIRST_SELECTED');
+  expect(result.codeDiff).toContain('LAST_SELECTED');
+  expect(result.codeDiff).not.toMatch(/MIDDLE_NOT_SELECTED|DIRTY_NOT_SELECTED/);
+  expect(result.sourceSnapshots.find((source) => source.file === 'last.js').commitChanges[0])
+    .toMatchObject({ parent: selected[1], commitHash: selected[2], target: 'LAST_SELECTED' });
+  expect({
+    branch: git('branch', '--show-current'),
+    head: git('rev-parse', 'HEAD'),
+    index: git('ls-files', '--stage'),
+    status: git('status', '--porcelain=v1'),
+  }).toEqual(before);
+  await expect(prepareCommitSync(repo, requirementId, 'requirement', [], {
+    baseBranch: 'main', commitHashes: [baseMerge], includeWorkingChanges: false,
+  })).rejects.toThrow('COMMIT_OUT_OF_RANGE');
+  await expect(prepareCommitSync(repo, requirementId, 'requirement', [], {
+    baseBranch: 'main', commitHashes: [selected[0]], baseCommit: base,
+    includeWorkingChanges: false,
+  })).rejects.toThrow('COMMIT_LIST_CHANGED');
+});
+
+it('keeps explicit empty selections empty when common ancestors are ambiguous', async () => {
+  await createCrissCrossHistory();
+  const result = await prepareCommitSync(repo, requirementId, 'requirement', [], {
+    baseBranch: 'main', commitHashes: [], includeWorkingChanges: false,
+  });
+  expect(result.commits).toEqual([]);
+  expect(result.codeDiff).toBe('');
+  expect(result.sourceSnapshots).toEqual([]);
+});
+
+it('still rejects ambiguous common ancestors for automatic branch range sync', async () => {
+  await createCrissCrossHistory();
+  await expect(prepareCommitSync(repo, requirementId, 'requirement', [], {
+    baseBranch: 'main', includeWorkingChanges: false,
+  })).rejects.toThrow('BASE_ANCESTOR_AMBIGUOUS');
+});
 it('does not interpret an explicitly empty selection as all commits',async()=>{
  const result=await prepareCommitSync(repo,requirementId,'requirement',[],{baseBranch:'main',commitHashes:[],includeWorkingChanges:false});
  expect(result.commits).toEqual([]);expect(result.codeDiff).toBe('');expect(result.sourceSnapshots).toEqual([]);

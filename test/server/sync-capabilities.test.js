@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { assertSyncCapabilities, installSyncTools, SYNC_TOOLS } from '../../src/server/sync-controlled-tools.js';
+import { assertSyncCapabilities, installSyncTools } from '../../src/server/sync-controlled-tools.js';
 import { PhasedSyncEngine } from '../../src/server/phased-sync-engine.js';
 import { createSyncHarness } from './sync-v2-harness.js';
 
@@ -49,7 +49,10 @@ describe('host native editor capability compatibility', () => {
       expect(result.mergedDoc).toContain('新规则');
       expect(mode === 'empty' ? h.write : h.edit).toHaveBeenCalledTimes(1);
       expect(h.nativeCalls.map(call => call.name)).toEqual(['read', mode === 'empty' ? 'write' : 'edit']);
-      for (const request of h.requests) expect(request.toolFilter.allow).toEqual(SYNC_TOOLS);
+      expect(h.requests.map((request) => request.toolFilter.allow)).toEqual([
+        ['req_hub_sync_read', 'req_hub_sync_write'],
+        ['req_hub_sync_read', 'req_hub_sync_edit'],
+      ]);
       for (const call of h.nativeCalls) expect(call.args.file_path).toContain(root);
     } finally { installSyncTools(h.ctx).dispose(); await rm(root, { recursive: true, force: true }); }
   });

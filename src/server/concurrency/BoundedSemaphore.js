@@ -90,8 +90,24 @@ export class BoundedSemaphore {
       return;
     }
     this.running--;
+    this.drain();
+  }
 
-    if (this.queue.length > 0 && this.running < this.maxConcurrency) {
+  /**
+   * Change capacity without interrupting existing owners; reductions drain naturally.
+   * @param {number} limit - Positive integer capacity.
+   * @returns {void}
+   */
+  setConcurrency(limit) {
+    if (!Number.isSafeInteger(limit) || limit < 1) {
+      throw new RangeError('SUBAGENT_CONCURRENCY_INVALID');
+    }
+    this.maxConcurrency = limit;
+    this.drain();
+  }
+
+  drain() {
+    while (this.queue.length > 0 && this.running < this.maxConcurrency) {
       this.running++;
       const next = this.queue.shift();
       next.resolve(this._createSlot());

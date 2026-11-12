@@ -1,4 +1,8 @@
 import Schema from './vendor/schema.js';
+import { validateLarkSettings } from './lark-settings.js';
+import time from '../shared/time.cjs';
+import general from '../shared/general.cjs';
+import { DEFAULT_SYNC_SETTINGS } from './knowledge-v2/sync-settings.js';
 /** Profile-owned validated configuration; installation sources are read-only. */
 import { readdir, readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import { join, resolve, dirname, isAbsolute, win32 } from 'node:path';
@@ -7,7 +11,14 @@ import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
 const LEGACY_FILE = resolve(import.meta.dirname, '../../config.json');
-const DEFAULTS = { docsDir: 'docs', workspaceId: null, developerName: null, requirementId: null };
+const DEFAULTS = {
+  docsDir: 'docs',
+  workspaceId: null,
+  developerName: null,
+  requirementId: null,
+  general: { timeZone: 'Asia/Shanghai', ...general.GENERAL_DEFAULTS },
+  knowledgeV2: { ...DEFAULT_SYNC_SETTINGS },
+};
 let declared = {};
 let storageOverride;
 /**
@@ -29,6 +40,18 @@ function validate(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return { issues: [{ message: 'configuration must be an object' }] };
   }
+  try {
+    time.configTimeZone(value);
+  } catch {
+    issues.push({ message: 'TIME_ZONE_INVALID', path: ['general', 'timeZone'] });
+  }
+  if (value.lark !== undefined) {
+    try {
+      validateLarkSettings(value.lark);
+    } catch {
+      issues.push({ message: 'LARK_CONFIG_INVALID', path: ['lark'] });
+    }
+  }
   const string = (object, key, nullable = false) => {
     if (
       object[key] !== undefined &&
@@ -42,6 +65,7 @@ function validate(value) {
     string(value, key, true);
   }
   string(value, 'docsDir');
+  string(value, 'defaultUsername');
   if (
     typeof value.docsDir === 'string' &&
     (!value.docsDir.trim() ||
@@ -51,7 +75,15 @@ function validate(value) {
   ) {
     issues.push({ message: 'docsDir must stay inside the workspace', path: ['docsDir'] });
   }
-  for (const key of ['ai', 'sync', 'conversations', 'enhancements']) {
+  for (const key of [
+    'ai',
+    'sync',
+    'conversations',
+    'enhancements',
+    'knowledgeV2',
+    'lark',
+    'larkTargets',
+  ]) {
     if (
       value[key] !== undefined &&
       (!value[key] || typeof value[key] !== 'object' || Array.isArray(value[key]))
@@ -84,27 +116,54 @@ function validate(value) {
       issues.push({ message: 'ai.delegation must be an object', path: ['ai', 'delegation'] });
     }
   }
-  if (value.wiki?.dailyUpdateTimeZone !== undefined) {
-    try {
-      new Intl.DateTimeFormat('en', { timeZone: value.wiki.dailyUpdateTimeZone }).format();
-    } catch {
-      issues.push({
-        message: 'wiki.dailyUpdateTimeZone must be a valid IANA time zone',
-        path: ['wiki', 'dailyUpdateTimeZone'],
-      });
-    }
-  }
   return issues.length ? { issues } : { value: structuredClone(value) };
 }
 // Native graph metadata supports Cordis validation and host schema inspection.
 const nullableString = () => Schema.union([String, Schema.const(null)]);
 export const Config = Schema.object({
+  general: Schema.object({
+    timeZone: Schema.string().default('Asia/Shanghai'),
+    taskTimeoutMs: Schema.natural().min(30000).max(3600000).default(1200000),
+    knowledgeMaxInputBytes: Schema.natural().min(1000).max(20000000).default(2000000),
+    knowledgeMaxResultBytes: Schema.natural().min(1000).max(1000000).default(250000),
+  }).default(undefined),
   docsDir: Schema.string()
     .min(1)
     .pattern(/^(?![\\/])(?!.*(?:^|[\\/])\.\.(?:[\\/]|$))[^:]+$/),
   workspaceId: nullableString(),
   developerName: nullableString(),
   requirementId: nullableString(),
+  defaultUsername: Schema.string()
+    .max(64)
+    .pattern(/^(?!\.)(?!.*\.\.)[^\s\\/~^:?*\[\]\x00-\x20\x7f]*$/)
+    .default(undefined),
+  lark: Schema.object({
+    executable: Schema.string().min(1).max(1024).default('lark-cli'),
+    profile: Schema.string()
+      .max(64)
+      .pattern(/^[A-Za-z0-9_-]*$/)
+      .default(''),
+    identity: Schema.union(['user', 'bot']).default('user'),
+    timeoutMs: Schema.natural().min(1000).max(120000).default(30000),
+  }).default(undefined),
+  larkTargets: Schema.dict(
+    Schema.object({
+      workspaceRoot: Schema.string().min(1),
+      useDefault: Schema.boolean().default(undefined),
+      kind: Schema.union(['folder', 'wiki']),
+      token: Schema.string().min(1).max(256),
+      url: Schema.string().min(1).max(2048),
+      title: Schema.string().min(1).max(1024),
+      spaceId: Schema.string(),
+      objToken: Schema.string(),
+      objType: Schema.string(),
+      appId: Schema.string().min(1),
+      accountId: Schema.string().min(1),
+      profile: Schema.string().max(64),
+      identity: Schema.union(['user', 'bot']),
+      checkedAt: Schema.string().min(1),
+    }),
+  ).default(undefined),
   ai: Schema.object({
     enabled: Schema.boolean(),
     selectedModel: nullableString(),
@@ -116,43 +175,33 @@ export const Config = Schema.object({
       contractVersion: Schema.const(2).default(undefined),
     }).default(undefined),
     delegation: Schema.object({
+      maxConcurrency: Schema.natural().min(1).max(16).default(3),
       provider: Schema.string(),
-      timeout: Schema.natural().min(1),
       agentOptions: Schema.dict(Schema.any()).default(undefined),
       liveness: Schema.dict(Schema.any()).default(undefined),
     }).default(undefined),
   }).default(undefined),
-  wiki: Schema.object({
-    autoManage: Schema.boolean().default(false),
-    autoManageDelayMs: Schema.natural().max(3600000).default(30000),
-    dailyUpdateEnabled: Schema.boolean().default(false),
+  knowledgeV2: Schema.object({
+    autoManage: Schema.boolean().default(DEFAULT_SYNC_SETTINGS.autoManage),
+    autoManageDelayMs: Schema.natural()
+      .max(3600000)
+      .default(DEFAULT_SYNC_SETTINGS.autoManageDelayMs),
+    dailyUpdateEnabled: Schema.boolean().default(DEFAULT_SYNC_SETTINGS.dailyUpdateEnabled),
+    dailyImportConversations: Schema.boolean().default(
+      DEFAULT_SYNC_SETTINGS.dailyImportConversations,
+    ),
     dailyUpdateTime: Schema.string()
       .pattern(/^(?:[01]\d|2[0-3]):[0-5]\d$/)
-      .default('02:00'),
-    dailyUpdateTimeZone: Schema.string().default('Asia/Shanghai'),
-    maxConcurrentJobs: Schema.natural().min(1).max(8).default(2),
-    maxWikiPagesPerScope: Schema.natural().min(1).max(10000).default(500),
-    maxInputBytes: Schema.natural().min(1000).max(20000000).default(2000000),
-    maxResultBytes: Schema.natural().min(1000).max(1000000).default(250000),
-    maxSourceDocuments: Schema.natural().min(1).max(200).default(30),
-    maxAffectedPages: Schema.natural().min(1).max(200).default(30),
-    timeoutMs: Schema.natural().min(1000).max(3600000).default(300000),
-    autoCrossRef: Schema.boolean().default(true),
-    useGitNexusForCrossRef: Schema.boolean().default(true),
-    lintOnIngest: Schema.boolean().default(false),
-    smallFileThresholdBytes: Schema.natural().default(512),
+      .default(DEFAULT_SYNC_SETTINGS.dailyUpdateTime),
   }).default(undefined),
   enhancements: Schema.object({
     enabled: Schema.boolean().default(false),
     maxInvalidOutputWrites: Schema.natural().min(1).max(10).default(3),
     maxConcurrentJobs: Schema.natural().min(1).max(8).default(2),
     maxDocuments: Schema.natural().min(1).max(200).default(30),
-    maxInputBytes: Schema.natural().min(1000).max(20_000_000).default(2_000_000),
-    maxResultBytes: Schema.natural().min(1000).max(1_000_000).default(250_000),
     maxNodes: Schema.natural().min(1).max(1000).default(200),
     maxEdges: Schema.natural().min(1).max(10000).default(1000),
     maxDepth: Schema.natural().min(1).max(10).default(5),
-    timeoutMs: Schema.natural().min(1000).max(3_600_000).default(300_000),
     retainedJobs: Schema.natural().min(1).max(500).default(50),
     retainedRevisions: Schema.natural().min(1).max(10).default(3),
     gitnexusServer: Schema.string()
@@ -172,8 +221,13 @@ export const Config = Schema.object({
     graceHours: Schema.natural().default(1),
   }).default(undefined),
   sync: Schema.object({
+    dailyUpdateEnabled: Schema.boolean().default(false),
+    dailyUpdateTime: Schema.string()
+      .pattern(/^(?:[01]\d|2[0-3]):[0-5]\d$/)
+      .default('03:00'),
+    dailyOffsetDays: Schema.natural().max(365).default(1),
     baseBranch: Schema.string(),
-    maxAnalysisReadPages: Schema.natural().min(8).max(128).default(undefined),
+    maxAnalysisReadPages: Schema.natural().min(8).max(1024).default(undefined),
     maxCompletionReminders: Schema.natural().max(5).default(3),
     maxInvalidOutputWrites: Schema.natural().min(1).max(20).default(6),
     retentionDays: Schema.natural().default(0),
@@ -182,6 +236,17 @@ export const Config = Schema.object({
   }).default(undefined),
 });
 function checked(value) {
+  value = general.withoutIndependentSettings(value);
+  // Legacy wiki automation is fully superseded by Knowledge V2; drop the
+  // section instead of migrating its values or keeping it as an unknown key.
+  if (value?.wiki !== undefined) {
+    delete value.wiki;
+  }
+  for (const section of ['knowledgeV2', 'sync']) {
+    if (value?.[section] && typeof value[section] === 'object') {
+      delete value[section].dailyUpdateTimeZone;
+    }
+  }
   const initial = validate(value);
   if (initial.issues) {
     throw Object.assign(

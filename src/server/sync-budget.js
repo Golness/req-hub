@@ -13,11 +13,11 @@ export const DEFAULT_RESULT_CHARS = 8192;
 export function analysisReadPageLimit(inputLimit, configured) {
   if (
     configured !== undefined &&
-    (!Number.isSafeInteger(configured) || configured < 8 || configured > 128)
+    (!Number.isSafeInteger(configured) || configured < 8 || configured > 1024)
   ) {
     throw new Error('SYNC_READ_PAGE_LIMIT_INVALID');
   }
-  return configured ?? Math.min(128, Math.max(24, Math.ceil(inputLimit / 2048)));
+  return configured ?? Math.min(1024, Math.max(24, Math.ceil(inputLimit / 2048)));
 }
 
 /**

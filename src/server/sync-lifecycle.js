@@ -92,6 +92,12 @@ export class SyncLifecycle {
   }
   async progress(progress) {
     const { phase, status } = progress;
+    if (status === 'node_reused') {
+      if (Number.isInteger(progress.chunkIndex)) {
+        return this.chunk(phase, progress.chunkIndex, { reused: true });
+      }
+      return this.step(phase, { reused: true });
+    }
     if (status === 'output_file') {
       return;
     }

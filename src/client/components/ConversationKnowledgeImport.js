@@ -1,29 +1,21 @@
 'use strict';
+const { formatDateTime, useTimeZone } = require('../time.js');
+const { PagedList } = require('./shared/PagedList.js');
 const { Disclosure } = require('./shared/Disclosure.js');
 const React = require('react');
 const { t } = require('../locale.js');
-const { ROUTE } = require('../constants.js');
+const { knowledgeV2Request, knowledgeV2ErrorText } = require('../hooks/useKnowledgeV2.js');
 const { ModalFrame } = require('./shared/ModalFrame.js');
 const { Button } = require('./shared/Button.js');
 const { Input } = require('./shared/Input.js');
 const { Select } = require('./shared/Select.js');
-const { Checkbox } = require('./shared/controls.js');
+const { Checkbox, Modal } = require('./shared/controls.js');
 const { ConversationSources } = require('./ConversationSources.js');
 const css = require('./ConversationKnowledgeImport.module.css').default;
 const h = React.createElement;
-const errorText = (code) =>
-  ({
-    KNOWLEDGE_TARGET_REQUIRED: t('conversationImport.targetRequired'),
-    KNOWLEDGE_SELECTION_INVALID: t('conversationImport.selectionInvalid'),
-    KNOWLEDGE_IMPORT_TOO_LARGE: t('conversationImport.tooLarge'),
-    KNOWLEDGE_TURN_IDENTITY_CONFLICT: t('conversationImport.identityConflict'),
-    SESSION_MISSING: t('conversationImport.missing'),
-    SESSION_SNAPSHOT_MISSING: t('conversationImport.missing'),
-    WORKSPACE_RESPONSE_MISMATCH: t('conversationImport.workspaceMismatch'),
-  })[code] || t('common.loadFailed');
 
 /**
- * Select exact conversation turns and review import conflicts.
+ * Select exact conversation turns and import them as knowledge sources.
  * @param props - Data, state and callbacks supplied by the owning surface.
  * @returns The rendered component content.
  */
@@ -33,13 +25,16 @@ function ConversationKnowledgeImport({
   onImported,
   embedded = false,
 }) {
+  useTimeZone();
   const target = initialTarget;
   const [options, setOptions] = React.useState(null);
   const [query, setQuery] = React.useState('');
   const [selection, setSelection] = React.useState({});
   const [detail, setDetail] = React.useState(null);
+  const [mode, setMode] = React.useState('merge');
+  const [ingest, setIngest] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
-  const [error, setError] = React.useState('');
+  const [error, setError] = React.useState(null);
   const [result, setResult] = React.useState(null);
   const [sourceBusy, setSourceBusy] = React.useState(false);
   const alive = React.useRef(true);
@@ -47,26 +42,11 @@ function ConversationKnowledgeImport({
   const optionsController = React.useRef(null);
   const requests = React.useRef(new Set());
   const turnsId = React.useId();
-  const request = async (action, body, params = {}, signal) => {
+  const request = async (path, body, signal) => {
     const controller = new AbortController();
     requests.current.add(controller);
     try {
-      const response = await fetch(
-        `${ROUTE}/conversations-knowledge-${action}${body ? '' : '?' + new URLSearchParams({ ...params, workspaceId: target })}`,
-        body
-          ? {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ ...body, workspaceId: target }),
-              signal: signal || controller.signal,
-            }
-          : { signal: signal || controller.signal },
-      );
-      const data = await response.json();
-      if (!response.ok || data.error) {
-        throw Error(errorText(data.error));
-      }
-      return data;
+      return await knowledgeV2Request(path, target, body, signal || controller.signal);
     } finally {
       requests.current.delete(controller);
     }
@@ -75,17 +55,19 @@ function ConversationKnowledgeImport({
     optionsController.current?.abort();
     const controller = (optionsController.current = new AbortController());
     try {
-      const data = await request('options', null, {}, controller.signal);
+      const data = await request('/sources/sessions', null, controller.signal);
       if (alive.current && !controller.signal.aborted) {
         if (data.workspace?.id !== target) {
-          throw Error(errorText('WORKSPACE_RESPONSE_MISMATCH'));
+          const mismatch = new Error('KB_WORKSPACE_INVALID');
+          mismatch.code = 'KB_WORKSPACE_INVALID';
+          throw mismatch;
         }
         setOptions(data);
       }
-    } catch (error) {
+    } catch (failure) {
       if (alive.current && !controller.signal.aborted) {
         setOptions(null);
-        setError(error.message);
+        setError(failure);
       }
     }
   }, []);
@@ -110,7 +92,7 @@ function ConversationKnowledgeImport({
     setSelection({});
     setDetail(null);
     setResult(null);
-    setError('');
+    setError(null);
     setQuery('');
   };
   const load = async (entry, version, selectAll = false) => {
@@ -119,14 +101,14 @@ function ConversationKnowledgeImport({
     }
     const id = ++generation.current;
     setBusy(true);
-    setError('');
+    setError(null);
     setResult(null);
     try {
-      const data = await request('detail', null, {
-        targetWorkspaceId: target,
+      const params = new URLSearchParams({
         id: entry.conversationId,
         version: version || entry.snapshotVersion,
       });
+      const data = await request(`/sources/sessions/detail?${params}`, null);
       if (!alive.current || id !== generation.current) {
         return;
       }
@@ -135,7 +117,7 @@ function ConversationKnowledgeImport({
         setSelection((previous) => {
           const next = { ...previous };
           const keys = data.turns
-            .filter((item) => item.importable !== false && item.turn.messages.length)
+            .filter((item) => item.importable !== false)
             .map((item) => item.key);
           if (keys.length) {
             next[entry.conversationId] = {
@@ -149,9 +131,9 @@ function ConversationKnowledgeImport({
           return next;
         });
       }
-    } catch (error) {
+    } catch (failure) {
       if (alive.current && id === generation.current) {
-        setError(error.message);
+        setError(failure);
       }
     } finally {
       if (alive.current && id === generation.current) {
@@ -186,12 +168,13 @@ function ConversationKnowledgeImport({
   const imported = async () => {
     const id = ++generation.current;
     setBusy(true);
-    setError('');
+    setError(null);
     setResult(null);
     try {
-      const response = await request('import', {
-        targetWorkspaceId: target,
+      const response = await request('/sources/sessions', {
         selections: Object.values(selection).filter((item) => item.turnKeys.length),
+        mode,
+        ingest,
       });
       if (alive.current && id === generation.current) {
         onImported?.(response);
@@ -199,9 +182,9 @@ function ConversationKnowledgeImport({
         setSelection({});
         setDetail(null);
       }
-    } catch (error) {
+    } catch (failure) {
       if (alive.current && id === generation.current) {
-        setError(error.message);
+        setError(failure);
       }
     } finally {
       if (alive.current && id === generation.current) {
@@ -228,50 +211,38 @@ function ConversationKnowledgeImport({
         'aria-label': t('conversations.version'),
         options: detail.versions.map((version) => ({
           id: version.version,
-          label: `${new Date(version.created_at).toLocaleString()} · ${version.version.slice(0, 8)}`,
+          label: `${formatDateTime(version.created_at)} · ${version.version.slice(0, 8)}`,
         })),
         onChange: (event) => chooseVersion(event.target.value),
       }),
-      detail.turns.map((item) => {
-        let knowledgeStateLabel;
-        if (item.knowledgeState === 'conflict') {
-          knowledgeStateLabel = t('conversationImport.conflict');
-        } else if (item.knowledgeState === 'same') {
-          knowledgeStateLabel = t('conversationImport.same');
-        } else if (item.knowledgeState === 'changed') {
-          knowledgeStateLabel = t('conversationImport.changed');
-        } else {
-          knowledgeStateLabel = t('conversationImport.new');
-        }
-        return h(
-          'div',
-          { key: item.key, className: css.turn },
-          h(Checkbox, {
-            disabled: blocked || item.importable === false || !item.turn.messages.length,
-            checked:
-              selection[detail.entry.conversationId]?.version === detail.version &&
-              !!selection[detail.entry.conversationId]?.turnKeys.includes(item.key),
-            onChange: () => toggleTurn(item.key),
-            label: `${t('conversationImport.turn', { number: item.number })} · ${knowledgeStateLabel}${!item.turn.syncable ? ' · ' + t('conversationImport.unfinished') : ''}`,
-          }),
-          h(
-            Disclosure,
-            { title: t('conversationImport.previewTurn') },
-            h(
-              'div',
-              { className: css.transcript },
-              item.turn.messages.map((message, index) =>
-                h(
-                  'div',
-                  { key: index },
-                  h('strong', null, message.label),
-                  h('p', null, message.text),
-                ),
-              ),
-            ),
-          ),
-        );
-      }),
+      h(
+        PagedList,
+        { className: css.turnPages, rowHeight: 48, inspect: false },
+        detail.turns.map((item) => {
+          let knowledgeStateLabel;
+          if (item.knowledgeState === 'conflict') {
+            knowledgeStateLabel = t('conversationImport.conflict');
+          } else if (item.knowledgeState === 'same') {
+            knowledgeStateLabel = t('conversationImport.same');
+          } else if (item.knowledgeState === 'changed') {
+            knowledgeStateLabel = t('conversationImport.changed');
+          } else {
+            knowledgeStateLabel = t('conversationImport.new');
+          }
+          return h(
+            'div',
+            { key: item.key, className: css.turn },
+            h(Checkbox, {
+              disabled: blocked || item.importable === false,
+              checked:
+                selection[detail.entry.conversationId]?.version === detail.version &&
+                !!selection[detail.entry.conversationId]?.turnKeys.includes(item.key),
+              onChange: () => toggleTurn(item.key),
+              label: `${t('conversationImport.turn', { number: item.number })} · ${knowledgeStateLabel}${!item.syncable ? ' · ' + t('conversationImport.unfinished') : ''}`,
+            }),
+          );
+        }),
+      ),
     );
   const content = h(
     'div',
@@ -281,7 +252,7 @@ function ConversationKnowledgeImport({
     },
     !embedded && h('h3', { className: 'rh-modal-title' }, t('conversationImport.title')),
     h('p', { className: css.hint }, t('conversationImport.description')),
-    h('p', { className: css.hint }, t('conversationImport.mergeRules')),
+    h('p', { className: css.hint }, t('conversationImport.modeHint')),
     !target &&
       h('p', { role: 'alert', className: 'rh-error' }, t('conversationImport.targetRequired')),
     h(
@@ -311,16 +282,13 @@ function ConversationKnowledgeImport({
         onChange: (event) => setQuery(event.target.value),
       }),
     ),
-    error && h('p', { role: 'alert', className: 'rh-error' }, error),
+    error && h('p', { role: 'alert', className: 'rh-error' }, knowledgeV2ErrorText(error)),
     result &&
       h(
         'p',
         { role: 'status' },
-        t('conversationImport.result', {
-          added: result.added,
-          updated: result.updated,
-          skipped: result.skipped,
-        }),
+        t('conversationImport.resultV2', { saved: result.saved, skipped: result.skipped }) +
+          (result.job ? ` ${t('conversationImport.jobQueued')}` : ''),
       ),
     h(
       'div',
@@ -343,50 +311,55 @@ function ConversationKnowledgeImport({
               h('h4', { className: css.sourceTitle }, source.label),
               !entries.length &&
                 h('p', { className: css.hint }, t('conversationImport.sourceEmpty')),
-              entries.map((entry) =>
-                h(
-                  'div',
-                  { key: entry.conversationId, className: css.session },
-                  h(Checkbox, {
-                    label: entry.title,
-                    checked: !!selection[entry.conversationId],
-                    disabled: !target || blocked,
-                    indeterminate:
-                      !!selection[entry.conversationId] &&
-                      selection[entry.conversationId].turnKeys.length < entry.turnCount,
-                    'aria-label': t('conversationImport.selectSession', { title: entry.title }),
-                    onChange: (checked) => {
-                      if (checked) {
-                        load(entry, null, true);
-                      } else {
-                        setSelection((previous) => {
-                          const next = { ...previous };
-                          delete next[entry.conversationId];
-                          return next;
-                        });
-                      }
-                    },
-                  }),
+              h(
+                PagedList,
+                { resetKey: query, inspect: false },
+                entries.map((entry) =>
                   h(
-                    Button,
-                    {
-                      className: 'rh-btn rh-btn-ghost rh-btn-sm',
+                    'div',
+                    { key: entry.conversationId, className: css.session },
+                    h(Checkbox, {
+                      label: entry.title,
+                      checked: !!selection[entry.conversationId],
                       disabled: !target || blocked,
-                      'aria-expanded': detail?.entry.conversationId === entry.conversationId,
-                      'aria-controls':
-                        detail?.entry.conversationId === entry.conversationId ? turnsId : undefined,
-                      onClick: () =>
+                      indeterminate:
+                        !!selection[entry.conversationId] &&
+                        selection[entry.conversationId].turnKeys.length < entry.turnCount,
+                      'aria-label': t('conversationImport.selectSession', { title: entry.title }),
+                      onChange: (checked) => {
+                        if (checked) {
+                          load(entry, null, true);
+                        } else {
+                          setSelection((previous) => {
+                            const next = { ...previous };
+                            delete next[entry.conversationId];
+                            return next;
+                          });
+                        }
+                      },
+                    }),
+                    h(
+                      Button,
+                      {
+                        className: 'rh-btn rh-btn-ghost rh-btn-sm',
+                        disabled: !target || blocked,
+                        'aria-expanded': detail?.entry.conversationId === entry.conversationId,
+                        'aria-controls':
+                          detail?.entry.conversationId === entry.conversationId
+                            ? turnsId
+                            : undefined,
+                        onClick: () =>
+                          detail?.entry.conversationId === entry.conversationId
+                            ? setDetail(null)
+                            : load(entry, selection[entry.conversationId]?.version),
+                      },
+                      t(
                         detail?.entry.conversationId === entry.conversationId
-                          ? setDetail(null)
-                          : load(entry, selection[entry.conversationId]?.version),
-                    },
-                    t(
-                      detail?.entry.conversationId === entry.conversationId
-                        ? 'conversationImport.collapseTurns'
-                        : 'conversationImport.chooseTurns',
+                          ? 'conversationImport.collapseTurns'
+                          : 'conversationImport.chooseTurns',
+                      ),
                     ),
                   ),
-                  renderTurns(entry),
                 ),
               ),
             );
@@ -413,6 +386,26 @@ function ConversationKnowledgeImport({
     ),
     h(
       'div',
+      { className: css.toolbar },
+      h(Select, {
+        value: mode,
+        disabled: blocked,
+        'aria-label': t('conversationImport.mode'),
+        options: [
+          { id: 'merge', label: t('conversationImport.mode.merge') },
+          { id: 'replace', label: t('conversationImport.mode.replace') },
+        ],
+        onChange: (event) => setMode(event.target.value),
+      }),
+      h(Checkbox, {
+        checked: ingest,
+        disabled: blocked,
+        onChange: (checked) => setIngest(checked),
+        label: t('conversationImport.ingest'),
+      }),
+    ),
+    h(
+      'div',
       { className: 'rh-modal-actions' },
       !embedded && h(Button, { onClick: onClose }, t('common.close')),
       h(
@@ -425,6 +418,12 @@ function ConversationKnowledgeImport({
         busy ? t('common.loading') : t('conversationImport.import'),
       ),
     ),
+    detail &&
+      h(
+        Modal,
+        { open: true, title: t('conversationImport.turns'), onClose: () => setDetail(null) },
+        renderTurns(detail.entry),
+      ),
   );
   return embedded
     ? h(

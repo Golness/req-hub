@@ -22,6 +22,47 @@ it('maps action roles and compact sizing to the host Button', async () => {
   expect(container.querySelector('button').dataset).toMatchObject({ rhButton: 'ghost', rhSize: 'sm' });
   expect(container.querySelector('button').disabled).toBe(true);
 });
+
+it('keeps semantic action tones in shared controls for both explicit and legacy callers', async () => {
+  await render(React.createElement(React.Fragment, null,
+    React.createElement(Button, { tone: 'danger' }, 'Delete'),
+    React.createElement(Button, { tone: 'warning' }, 'Stop'),
+    React.createElement(Button, { tone: 'business' }, 'Retry'),
+    React.createElement(Button, { className: 'rh-btn-danger' }, 'Legacy delete'),
+  ));
+  expect([...container.querySelectorAll('button')].map((button) => button.dataset.rhTone))
+    .toEqual(['danger', 'warning', 'business', 'danger']);
+  const style = readFileSync(resolve(import.meta.dirname,
+    '../../src/client/components/shared/controls.module.css'), 'utf8');
+  for (const token of ['state-error-primary', 'state-warn-label', 'state-business-primary']) {
+    expect(style).toContain(`var(--dsw-alias-${token})`);
+  }
+  expect(style).not.toMatch(/\.dark\b|data-theme|#[\da-f]{3,8}\b/);
+});
+
+it('keeps sync action alignment and compact lists on the shared layout contract', () => {
+  for (const [file, selector] of [
+    ['SyncProgress.module.css', 'footer'],
+    ['SyncSetup.module.css', 'footer'],
+    ['SyncSetup.module.css', 'start'],
+    ['SyncHistory.module.css', 'recordActions'],
+  ]) {
+    const style = readFileSync(resolve(import.meta.dirname,
+      `../../src/client/components/${file}`), 'utf8');
+    const body = new RegExp(`\\.${selector}\\s*\\{([^}]+)\\}`).exec(style)?.[1] || '';
+    expect(body, `${file}: use the shared ActionBar for control layout`)
+      .not.toMatch(/(?:padding|gap|justify-content|height|min-height)\s*:/);
+  }
+  const steps = readFileSync(resolve(import.meta.dirname,
+    '../../src/client/components/SyncSteps.js'), 'utf8');
+  expect(steps).not.toContain('PagedList');
+  const details = readFileSync(resolve(import.meta.dirname,
+    '../../src/client/components/SyncChunkDetails.js'), 'utf8');
+  expect(details).not.toContain('.slice(');
+  for (const path of files(client).filter((path) => /\.(js|css)$/.test(path))) {
+    expect(readFileSync(path, 'utf8'), path).not.toContain('--dsw-alias-state-warning-primary');
+  }
+});
 it('delegates modal dismissal and selection to the host dialog without nesting custom masks', async () => {
   const onClose = vi.fn(), onSelect = vi.fn();
   await render(React.createElement(WorkspaceModal, { workspaces: [{ id: 'one', title: 'Fixture' }], selectedId: 'one', onClose, onSelect }));
@@ -71,6 +112,69 @@ it('owns notifications in the shell overlay rather than a workspace panel', () =
     expect(entry.inject).toContain('locale');
     expect(slots.find(slot => slot.options.name === 'shell.overlay')?.component).toBe(ToastContainer);
   } finally { stop(); }
+});
+
+it('prompts for a mounted session and opens the panel after a session becomes available', async () => {
+  const entry = require('../../src/client/index.js');
+  const slots = [];
+  let sessionId;
+  const openTab = vi.fn();
+  const ctx = {
+    effect: (factory) => factory(),
+    locale: { register: () => () => {}, bind: () => (key) => key },
+    slots: {
+      inject: (_name, setup) => setup(),
+      register: (options, component) => {
+        slots.push({ options, component });
+        return () => {};
+      },
+    },
+    sidebarRightTabs: { register: () => () => {} },
+    sidebarRight: { mounted: { getSnapshot: () => sessionId }, openTab },
+  };
+  const stop = entry.apply(ctx);
+  try {
+    const Trigger = slots.find((slot) => slot.options.id === 'req-hub-trigger').component;
+    await render(React.createElement(
+      React.Fragment,
+      null,
+      React.createElement(ToastContainer),
+      React.createElement(Trigger, { wide: false }),
+    ));
+    const button = container.querySelector('button');
+    await act(async () => button.click());
+    expect(openTab).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-rh-toast]').textContent)
+      .toContain(t('trigger.sessionRequired'));
+    sessionId = 'mounted-session';
+    await act(async () => button.click());
+    expect(openTab).toHaveBeenCalledOnce();
+    expect(openTab).toHaveBeenCalledWith(require('../../src/client/constants.js').TAB_KIND);
+    sessionId = undefined;
+    await act(async () => button.click());
+    expect(openTab).toHaveBeenCalledOnce();
+  } finally {
+    stop();
+  }
+});
+
+it('renders incompatible retry diagnostics without crashing the sync status surface', async () => {
+  const { SyncStatusBar } = require('../../src/client/components/SyncStatusBar.js');
+  await render(React.createElement(SyncStatusBar, {
+    monitor: {
+      notification: {
+        id: 'failed-retry',
+        requirementId: 'fixture',
+        status: 'failed',
+        error: 'SYNC_RETRY_INPUT_CHANGED: code-0；SYNC_RETRY_INPUT_CHANGED: discussion-0',
+      },
+      dismiss: vi.fn(),
+    },
+    onOpen: vi.fn(),
+  }));
+  expect(container.querySelector('[role="status"]').textContent).toContain('请重新发起同步');
+  expect(container.textContent).toContain('code-0');
+  expect(container.textContent).toContain('discussion-0');
 });
 
 const client = resolve(import.meta.dirname, '../../src/client');

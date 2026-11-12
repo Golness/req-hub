@@ -54,3 +54,10 @@
 .embedded .search {
   min-height: 36px;
 }
+
+.list {
+  height: min(32vh, 300px);
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+}

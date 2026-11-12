@@ -1,14 +1,22 @@
 'use strict';
 const { t } = require('../locale.js');
+const { setTimeZone } = require('../time.js');
+const { GENERAL_DEFAULTS } = require('../../shared/general.cjs');
 const { Button } = require('./shared/Button.js');
-const { EnhancementSettings } = require('./ContextAssist.js');
-const { WikiSettings } = require('./WikiSettings.js');
+const { Input } = require('./shared/Input.js');
+const { SettingsActionBar, SettingsActionScope } = require('./shared/SettingsActionBar.js');
+const { Disclosure } = require('./shared/Disclosure.js');
+const { HoverCard } = require('./shared/controls.js');
+const { DependencySettings } = require('./DependencySettings.js');
 const css = require('./SettingsPanel.module.css').default;
-const SETTINGS_TABS = ['model', 'associations', 'wiki', 'prompts'];
+const SETTINGS_TABS = ['general', 'dependencies', 'sync', 'prompts'];
+const { SyncScheduleSettings } = require('./SyncScheduleSettings.js');
 
 const React = require('react');
 const { Select } = require('./shared/Select.js');
 const h = React.createElement;
+const { IconInfo } = require('../icons.js').createIconComponents(h);
+const form = require('./shared/SettingsForm.module.css').default;
 const { useState, useEffect } = React;
 const { ROUTE } = require('../constants.js');
 const { SessionSelectionContext } = require('../context.js');
@@ -25,19 +33,26 @@ const { PromptManager } = require('./PromptManager.js');
  * @param {Object} props - Component props
  * @param {string} props.workspaceId - The workspace ID for fetching skills and configuration
  * @param {Function} props.onClose - Callback invoked when the panel is closed or cancelled
+ * @param {string} [props.initialTab] - Destination selected by a settings shortcut.
  * @returns {JSX.Element}
  */
-function SettingsPanel({ workspaceId, onClose }) {
-  const [tab, setTab] = useState('model');
-  const [visited, setVisited] = useState(['model']);
+function SettingsPanel({ workspaceId, onClose, initialTab = 'general' }) {
+  const destination = ['associations', 'lark'].includes(initialTab) ? 'dependencies' : initialTab;
+  const firstTab = SETTINGS_TABS.includes(destination) ? destination : 'general';
+  const [tab, setTab] = useState(firstTab);
+  const [actionTarget, setActionTarget] = useState(null);
+  const [visited, setVisited] = useState([firstTab]);
   const selectTab = (id) => {
     setTab(id);
     setVisited((previous) => (previous.includes(id) ? previous : [...previous, id]));
   };
   const selectedSession = React.useContext(SessionSelectionContext);
   const [settings, setSettings] = useState({
+    general: { timeZone: 'Asia/Shanghai', ...GENERAL_DEFAULTS },
+    defaultUsername: '',
     ai: {
       selectedModel: '',
+      delegation: { maxConcurrency: 3 },
       prompts: {},
       skillBindings: {},
     },
@@ -79,8 +94,11 @@ function SettingsPanel({ workspaceId, onClose }) {
         if (configRes.ok) {
           const data = await configRes.json();
           const nextSettings = {
+            general: { timeZone: 'Asia/Shanghai', ...GENERAL_DEFAULTS, ...data.general },
+            defaultUsername: data.defaultUsername || '',
             ai: {
               selectedModel: data.ai?.selectedModel || '',
+              delegation: { maxConcurrency: data.ai?.delegation?.maxConcurrency ?? 3 },
               prompts: {
                 ...Object.fromEntries(
                   Object.entries(data.ai?.prompts || {}).filter(
@@ -100,6 +118,7 @@ function SettingsPanel({ workspaceId, onClose }) {
             },
           };
           setSettings(nextSettings);
+          setTimeZone(nextSettings.general.timeZone);
           setSavedSettings(JSON.stringify(nextSettings));
         } else {
           setMessage({ type: 'error', text: t('SettingsPanel.message002') });
@@ -164,7 +183,7 @@ function SettingsPanel({ workspaceId, onClose }) {
   }, [llmConfig, settings.ai.selectedModel]);
 
   const handleSave = async () => {
-    if (saving || savedSettings === null) {
+    if (saving || savedSettings === null || !generalValid) {
       return;
     }
     const snapshot = JSON.stringify(settings);
@@ -175,8 +194,11 @@ function SettingsPanel({ workspaceId, onClose }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          general: settings.general,
+          defaultUsername: settings.defaultUsername,
           ai: {
             selectedModel: settings.ai.selectedModel,
+            delegation: { maxConcurrency: settings.ai.delegation.maxConcurrency },
             prompts: Object.fromEntries(
               Object.entries(settings.ai.prompts).filter(([key]) => !key.startsWith('phased-')),
             ),
@@ -200,6 +222,7 @@ function SettingsPanel({ workspaceId, onClose }) {
         }),
       });
       if (res.ok) {
+        setTimeZone(settings.general.timeZone);
         setSavedSettings(snapshot);
         setMessage({ type: 'success', text: t('SettingsPanel.message003') });
       } else {
@@ -262,6 +285,18 @@ function SettingsPanel({ workspaceId, onClose }) {
   };
 
   const dirty = savedSettings !== null && JSON.stringify(settings) !== savedSettings;
+  const generalValid =
+    /^(?!\.)(?!.*\.\.)[^\s\\/~^:?*\[\]\x00-\x20\x7f]{0,64}$/.test(settings.defaultUsername) &&
+    [
+      ['taskTimeoutMs', 30000, 3600000],
+      ['knowledgeMaxInputBytes', 1000, 20000000],
+      ['knowledgeMaxResultBytes', 1000, 1000000],
+    ].every(
+      ([key, min, max]) =>
+        Number.isInteger(settings.general[key]) &&
+        settings.general[key] >= min &&
+        settings.general[key] <= max,
+    );
 
   const renderModelStatus = () => {
     if (llmConfig?.error) {
@@ -276,7 +311,8 @@ function SettingsPanel({ workspaceId, onClose }) {
           Select,
           {
             id: 'rh-settings-model',
-            className: 'rh-form-select',
+            className: `rh-form-select ${css.modelSelect}`,
+            'aria-labelledby': 'rh-settings-model-title',
             value: settings.ai.selectedModel,
             disabled: savedSettings === null,
             onChange: (event) =>
@@ -309,26 +345,167 @@ function SettingsPanel({ workspaceId, onClose }) {
   } else {
     saveStatusMessage = message?.text || '';
   }
-  const renderModelSettings = () =>
+  const settingTitle = (id, title, help) =>
     h(
       'div',
-      { className: 'rh-settings-model' },
+      { className: css.settingTitle },
+      h('span', { id }, title),
+      help &&
+        h(HoverCard, {
+          surfaceClassName: form.helpBubble,
+          anchor: h(
+            Button,
+            {
+              variant: 'ghost',
+              size: 'sm',
+              className: form.helpButton,
+              'aria-label': title,
+            },
+            h(IconInfo, { size: 14 }),
+          ),
+          content: help,
+        }),
+    );
+  const renderGeneralSettings = () =>
+    h(
+      'div',
+      { className: css.modelSettings },
       h(
-        'label',
-        { htmlFor: 'rh-settings-model', className: 'rh-form-label' },
-        t('SettingsPanel.message005'),
+        'div',
+        { className: css.settingField },
+        settingTitle('rh-time-zone-title', t('general.timeZone'), t('general.timeZoneHelp')),
+        h(Select, {
+          className: css.timeZoneSelect,
+          'aria-labelledby': 'rh-time-zone-title',
+          value: settings.general.timeZone,
+          disabled: saving || savedSettings === null,
+          searchable: true,
+          options: [
+            ...new Set([
+              'Asia/Shanghai',
+              'UTC',
+              settings.general.timeZone,
+              ...(Intl.supportedValuesOf?.('timeZone') || []),
+            ]),
+          ].map((zone) => ({
+            id: zone,
+            label: zone === 'Asia/Shanghai' ? t('schedule.zoneShanghai') : zone,
+          })),
+          onChange: (event) =>
+            setSettings((previous) => ({
+              ...previous,
+              general: { ...previous.general, timeZone: event.target.value },
+            })),
+        }),
       ),
-      renderModelStatus(),
+      h(
+        'div',
+        { className: css.settingField },
+        settingTitle(
+          'rh-default-username-title',
+          t('schedule.username'),
+          t('general.usernameHelp'),
+        ),
+        h(Input, {
+          'aria-labelledby': 'rh-default-username-title',
+          value: settings.defaultUsername,
+          maxLength: 64,
+          disabled: saving || savedSettings === null,
+          onChange: (event) =>
+            setSettings((previous) => ({
+              ...previous,
+              defaultUsername: event.target.value,
+            })),
+        }),
+      ),
+      h(
+        'div',
+        { className: css.settingField },
+        settingTitle('rh-settings-model-title', t('SettingsPanel.message005')),
+        h('div', { className: css.modelControls }, renderModelStatus()),
+      ),
+      h(
+        Disclosure,
+        { title: t('general.advanced'), compact: true },
+        h(
+          'div',
+          { className: css.advancedFields },
+          h(
+            'div',
+            { className: css.settingField },
+            settingTitle(
+              'rh-subagent-concurrency-title',
+              t('settings.subagentConcurrency'),
+              t('settings.subagentConcurrencyHint'),
+            ),
+            h(Input, {
+              id: 'rh-subagent-concurrency',
+              className: css.concurrencyInput,
+              'aria-labelledby': 'rh-subagent-concurrency-title',
+              type: 'number',
+              min: 1,
+              max: 16,
+              step: 1,
+              disabled: saving || savedSettings === null,
+              value: settings.ai.delegation.maxConcurrency,
+              onChange: (event) =>
+                setSettings((previous) => ({
+                  ...previous,
+                  ai: {
+                    ...previous.ai,
+                    delegation: { maxConcurrency: Number(event.target.value) },
+                  },
+                })),
+            }),
+          ),
+          ...[
+            ['taskTimeoutMs', 30, 3600, 1000],
+            ['knowledgeMaxInputBytes', 1, 20000, 1000],
+            ['knowledgeMaxResultBytes', 1, 1000, 1000],
+          ].map(([key, min, max, factor]) =>
+            h(
+              'div',
+              { key, className: css.settingField },
+              settingTitle(`rh-general-${key}-title`, t(`general.${key}`), t(`general.${key}Help`)),
+              h(Input, {
+                className: css.policyInput,
+                'aria-labelledby': `rh-general-${key}-title`,
+                type: 'number',
+                min,
+                max,
+                step: key === 'taskTimeoutMs' ? 1 : 0.001,
+                value: settings.general[key] / factor,
+                disabled: saving || savedSettings === null,
+                onChange: (event) =>
+                  setSettings((previous) => ({
+                    ...previous,
+                    general: {
+                      ...previous.general,
+                      [key]: Math.round(Number(event.target.value) * factor),
+                    },
+                  })),
+              }),
+            ),
+          ),
+        ),
+      ),
     );
   const renderFeatureSettings = (id) => {
-    if (id === 'associations') {
-      return h(EnhancementSettings, { key: 'enhancement-' + workspaceId, workspaceId });
+    if (id === 'dependencies') {
+      return h(DependencySettings, {
+        workspaceId,
+        initialTab: initialTab === 'lark' ? 'lark' : 'gitnexus',
+      });
     }
-    if (id === 'wiki') {
-      return h(WikiSettings, { key: 'wiki-' + workspaceId, workspaceId, inline: true });
+    if (id === 'sync') {
+      return h(SyncScheduleSettings, {
+        key: 'sync-' + workspaceId,
+        defaultUsername: savedSettings ? JSON.parse(savedSettings).defaultUsername : undefined,
+      });
     }
     return h(PromptManager, {
       key: workspaceId,
+      workspaceId,
       registry: promptRegistry,
       error: promptError,
       onRetry: loadPromptRegistry,
@@ -416,33 +593,42 @@ function SettingsPanel({ workspaceId, onClose }) {
               tabIndex: 0,
             },
             visited.includes(id) &&
-              (id === 'model' ? renderModelSettings() : renderFeatureSettings(id)),
+              h(
+                SettingsActionScope.Provider,
+                { value: { active: tab === id, target: actionTarget } },
+                id === 'general' ? renderGeneralSettings() : renderFeatureSettings(id),
+              ),
           ),
         ),
       ),
-      (tab === 'model' || tab === 'prompts' || dirty || message) &&
-        h(
-          'div',
-          { className: `rh-op-actions rh-settings-actions ${css.actions}` },
+      h(
+        'div',
+        { ref: setActionTarget, className: css.actionDock },
+        (tab === 'general' || tab === 'prompts') &&
           h(
-            'span',
-            {
-              className: message?.type === 'error' ? 'rh-error' : 'rh-prompt-description',
-              role: 'status',
-            },
-            saveStatusMessage,
+            SettingsActionBar,
+            { placement: 'page', className: `rh-op-actions rh-settings-actions ${css.actions}` },
+            h(
+              'span',
+              {
+                className: message?.type === 'error' ? 'rh-error' : 'rh-prompt-description',
+                role: 'status',
+              },
+              saveStatusMessage,
+            ),
+            h(
+              Button,
+              {
+                type: 'button',
+                variant: 'primary',
+                className: 'rh-btn rh-btn-primary',
+                onClick: handleSave,
+                disabled: saving || !dirty || !generalValid,
+              },
+              saving ? t('SettingsPanel.message008') : t('common.save'),
+            ),
           ),
-          h(
-            Button,
-            {
-              type: 'button',
-              className: 'rh-btn rh-btn-primary',
-              onClick: handleSave,
-              disabled: saving || !dirty,
-            },
-            saving ? t('SettingsPanel.message008') : t('common.save'),
-          ),
-        ),
+      ),
     ),
   );
 }

@@ -18,6 +18,7 @@ import {
   removeSyncTask,
 } from './sync-state.js';
 import { defaultSyncBaseBranch, listSyncCommits, listSyncBranches } from './sync-branches.js';
+import { syncSignal } from './sync-cancellation.js';
 
 const execFileAsync = promisify(execFile);
 const reservations = new Map();
@@ -27,6 +28,7 @@ const git = async (cwd, ...args) =>
       cwd,
       encoding: 'utf8',
       maxBuffer: 32 * 1024 * 1024,
+      signal: syncSignal(),
     })
   ).stdout.trimEnd();
 
@@ -135,6 +137,8 @@ export async function findBranchByRequirement(cwd, requirementId, currentBranch,
 
 /**
  * Freeze a local requirement branch tip. Git ancestry, never timestamps, orders versions.
+ * Explicit selections use the selector's base tip and each selected commit's parent diff;
+ * only automatic branch ranges require a unique merge base.
  * @param cwd - Working directory for the operation.
  * @param requirementId - Requirement identity within the workspace.
  * @param docType - The requirement or design document kind.
@@ -193,16 +197,22 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
     const sha = await git(cwd, 'rev-parse', '--verify', ref + '^{commit}').catch(() => {
       throw new Error('BASE_BRANCH_NOT_FOUND: ' + ref);
     });
-    const bases = (await git(cwd, 'merge-base', '--all', sha, commitHash).catch(() => ''))
-      .split('\n')
-      .filter(Boolean);
-    if (bases.length !== 1) {
-      throw new Error('BASE_ANCESTOR_AMBIGUOUS: 必须具有唯一最近共同祖先');
+    if (selectionMode) {
+      baseline = sha;
+    } else {
+      const bases = (await git(cwd, 'merge-base', '--all', sha, commitHash).catch(() => ''))
+        .split('\n')
+        .filter(Boolean);
+      if (bases.length !== 1) {
+        throw new Error('BASE_ANCESTOR_AMBIGUOUS: 必须具有唯一最近共同祖先');
+      }
+      baseline = bases[0];
     }
-    baseline = bases[0];
   }
   const range = baseline ? `${baseline}..${commitHash}` : commitHash;
-  const hashes = (await git(cwd, 'rev-list', '--reverse', range)).split('\n').filter(Boolean);
+  const hashes = selectionMode
+    ? []
+    : (await git(cwd, 'rev-list', '--reverse', range)).split('\n').filter(Boolean);
   let commits = await Promise.all(
     hashes.map(async (hash) => {
       const fields = (await git(cwd, 'show', '-s', '--format=%H%n%s%n%an%n%aI', hash)).split('\n');
@@ -227,6 +237,7 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
     comparison = await listSyncCommits(cwd, branchName, ref);
     if (
       comparison.branchTip !== commitHash ||
+      comparison.baseline !== baseline ||
       (options.branchTip && options.branchTip !== commitHash) ||
       (options.baseCommit && options.baseCommit !== comparison.baseline)
     ) {
@@ -344,6 +355,7 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
           await execFileAsync('git', ['show', sha + ':' + file], {
             cwd,
             encoding: 'buffer',
+            signal: syncSignal(),
             maxBuffer: 32 * 1024 * 1024,
           })
         ).stdout,
@@ -489,7 +501,7 @@ function abortable(promise, signal) {
  * @param [options] - Cancellation and progress delivery.
  * @returns The started attempt and frozen evidence.
  */
-export async function beginCommitSync(cwd, reqDir, fields, { signal, onProgress } = {}) {
+export async function beginCommitSync(cwd, reqDir, fields, { signal, onProgress, frozen } = {}) {
   const key = `${fields.workspaceId}:${fields.requirementId}`;
   const previous = reservations.get(key) || Promise.resolve();
   let release;
@@ -516,8 +528,9 @@ export async function beginCommitSync(cwd, reqDir, fields, { signal, onProgress 
     if (active) {
       await completeSync(active.id, fields.workspaceId, fields.requirementId);
     }
-    const prepared = await abortable(
-      prepareCommitSync(
+    const prepared =
+      frozen ||
+      (await prepareCommitSync(
         cwd,
         fields.requirementId,
         fields.docType,
@@ -533,9 +546,8 @@ export async function beginCommitSync(cwd, reqDir, fields, { signal, onProgress 
           designReference: fields.designReference,
           onProgress,
         },
-      ),
-      signal,
-    );
+      ));
+    signal?.throwIfAborted();
     if (prepared.skipped) {
       return prepared;
     }

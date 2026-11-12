@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, writeFile, symlink, rm } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apply } from '../../src/server/index.js';
-import { KnowledgeService } from '../../src/server/knowledge/build-service.js';
+import { KnowledgeApplication } from '../../src/server/knowledge-v2/application.js';
 import { createOperations } from '../../src/server/operations.js';
 import { setActiveSync, getSyncScope, removeSyncTask, loadState } from '../../src/server/sync-state.js';
 import { saveConfig } from '../../src/server/config.js';
@@ -17,6 +17,8 @@ async function fixture() {
     workspaceRegistry: { list: () => [] }, connection: { admit: () => ({ peer: {} }) },
     webServer: { register(route) { routes.set(route.path, route); return () => routes.delete(route.path); } },
     skills: { async list() { return []; }, async get() { return { name: 'one', content: 'fixture' }; } },
+    subagents: {},
+    agentDefaultModel: {},
     agents: { get: () => undefined }, agentPresets: { async acquireScope() { const dispose = vi.fn(async () => {}); scopeDisposers.push(dispose); return { key: {}, [Symbol.asyncDispose]: dispose }; } },
     sessionQuery: { observeSession: async () => ({ header: { cwd: root }, projections: { values: { agentPreset: 'one' } } }) },
     tools: { register(definition) { definitions.set(definition.name, definition); return () => definitions.delete(definition.name); }, guard: () => () => {} },
@@ -34,8 +36,8 @@ it('releases both skill-route leases on successful reads and failures', async ()
   expect(scopeDisposers.at(-1)).toHaveBeenCalledOnce();
 });
 it('awaits the actual plugin knowledge owner and unregisters every route and tool', async () => {
-  let release; const original = KnowledgeService.prototype.close;
-  vi.spyOn(KnowledgeService.prototype, 'close').mockImplementation(async function () { await new Promise(resolve => { release = resolve; }); await original.call(this); });
+  let release; const original = KnowledgeApplication.prototype.close;
+  vi.spyOn(KnowledgeApplication.prototype, 'close').mockImplementation(async function () { await new Promise(resolve => { release = resolve; }); await original.call(this); });
   const { routes, definitions } = await fixture(); let done = false;
   expect(definitions.has('req_hub_action')).toBe(true);
   const closing = close().then(() => { done = true; }); close = null;

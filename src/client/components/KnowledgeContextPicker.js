@@ -1,4 +1,5 @@
 'use strict';
+const { PagedList } = require('./shared/PagedList.js');
 const { Disclosure } = require('./shared/Disclosure.js');
 const React = require('react');
 const { t } = require('../locale.js');
@@ -93,18 +94,22 @@ function KnowledgeContextPicker({ workspaceId, scopeIds, onChange, disabled, emb
         h(
           'div',
           { className: css.list },
-          visibleScopes.map((scope) =>
-            h(Checkbox, {
-              key: scope.id,
-              className: css.row,
-              disabled: disabled || loading,
-              checked: scopeIds.includes(scope.id),
-              label: scope.title,
-              onChange: (checked) =>
-                onChange(
-                  checked ? [...scopeIds, scope.id] : scopeIds.filter((id) => id !== scope.id),
-                ),
-            }),
+          h(
+            PagedList,
+            { resetKey: search, rowHeight: 40, inspect: false },
+            visibleScopes.map((scope) =>
+              h(Checkbox, {
+                key: scope.id,
+                className: css.row,
+                disabled: disabled || loading,
+                checked: scopeIds.includes(scope.id),
+                label: scope.title,
+                onChange: (checked) =>
+                  onChange(
+                    checked ? [...scopeIds, scope.id] : scopeIds.filter((id) => id !== scope.id),
+                  ),
+              }),
+            ),
           ),
         ),
         !loading &&

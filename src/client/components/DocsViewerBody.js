@@ -14,7 +14,9 @@ const { ROUTE } = require('../constants.js');
 const { DocsViewerContext } = require('../context.js');
 const { createIconComponents } = require('../icons.js');
 
-const { IconPlus, IconSync, IconBooks, IconEdit, IconLog, IconSettings } = createIconComponents(h);
+const { IconPlus, IconSync, IconBooks, IconEdit, IconLog, IconSettings, IconReports, IconFile } =
+  createIconComponents(h);
+const { TaskReportsPanel } = require('./TaskReportsPanel.js');
 
 const { parseBranchName } = require('../utils/parseBranchName.js');
 const { findBranchRequirement } = require('../utils/findBranchRequirement.js');
@@ -33,16 +35,12 @@ const { WorkspaceModal } = require('./WorkspaceModal.js');
 const { RequirementDirModal } = require('./RequirementDirModal.js');
 const { FileTreeSidebar } = require('./FileTreeSidebar.js');
 const { ConfirmModal } = require('./ConfirmModal.js'); // Retained for the legacy confirmation path; new actions use showConfirm().
-const { KnowledgePanel } = require('./KnowledgePanel.js');
-const { KnowledgeTabs, KnowledgeSecondaryTabs } = require('./KnowledgeTabs.js');
-const { useKnowledge } = require('../hooks/useKnowledge.js');
-const { SearchPanel } = require('./SearchPanel.js');
+const { KnowledgeWorkspace } = require('./knowledge/KnowledgeWorkspace.js');
 const { EmptyState } = require('./shared/EmptyState.js');
 const { Breadcrumb } = require('./shared/Breadcrumb.js');
 const { HeaderBack } = require('./shared/HeaderBack.js');
 const { showToast } = require('./shared/ToastContainer.js');
 const { ConfirmDialogContainer, showConfirm } = require('./shared/ConfirmDialog.js');
-const { Skeleton } = require('./shared/Skeleton.js');
 const { setupKeyboardShortcuts } = require('../utils/keyboardShortcuts.js');
 
 /**
@@ -55,8 +53,9 @@ const { setupKeyboardShortcuts } = require('../utils/keyboardShortcuts.js');
  * @param {string} props.docsDir - The path to the documents directory
  * @param {Function} props.onConfigChange - Callback invoked when configuration changes
  * @param {Array<Object>} props.workspaces - Array of available workspace objects
- * @param {Function} props.onSelectWorkspace - Callback invoked when a workspace is selected
+ * @param {Function} props.onSelectWorkspace - Select a workspace with an optional resolved location.
  * @param {string} [props.initialReqId] - Initial requirement ID to restore selection from config
+ * @param {Object} [props.initialLocation] - Resolved navigation transferred across workspace remounts.
  * @returns {JSX.Element} The complete document viewer interface with rail toolbar, panels, and modals
  */
 function DocsViewerBody({
@@ -66,24 +65,25 @@ function DocsViewerBody({
   workspaces,
   onSelectWorkspace,
   initialReqId,
+  initialLocation,
 }) {
-  const [activePanel, setActivePanel] = useState(null);
+  const [activePanel, setActivePanel] = useState(initialLocation?.createBranch ? 'create' : null);
   const [knowledgeTab, setKnowledgeTab] = useState('wiki');
+  const [settingsTab, setSettingsTab] = useState('model');
   const [fileRevision, setFileRevision] = useState(0);
   const [fileDirty, setFileDirty] = useState(false);
-  const isKnowledgeSearch = activePanel === 'knowledge' && knowledgeTab === 'search';
-  const hasKnowledgeTree = ['documents', 'files'].includes(knowledgeTab);
-  const changeKnowledgeTab = (tab) => {
-    setKnowledgeTab(tab);
-    setShowFileTree(['documents', 'files'].includes(tab));
-  };
   const writingMounted = useRef(false);
   if (activePanel === 'writing') {
     writingMounted.current = true;
   }
-  const knowledge = useKnowledge(workspace.id);
+  const knowledgeMounted = useRef(false);
+  if (activePanel === 'knowledge') {
+    knowledgeMounted.current = true;
+  }
   const syncMonitor = useSyncMonitor();
   const [focusedSync, setFocusedSync] = useState(null);
+  const [reportTarget, setReportTarget] = useState(initialLocation?.reportTarget || null);
+  const [focusedKnowledge, setFocusedKnowledge] = useState(null);
   const pendingSyncNavigation = useRef(null);
   const selectionRevision = useRef(0);
   const focusedSyncRef = useRef(null);
@@ -130,12 +130,55 @@ function DocsViewerBody({
   useEffect(() => {
     setSelectedFile(null);
     setFileDirty(false);
-    setShowFileTree(activePanel === 'knowledge' && hasKnowledgeTree);
+    setShowFileTree(activePanel === 'files');
   }, [workspace.id]);
+  useEffect(() => {
+    if (!reportTarget) {
+      return;
+    }
+    if (reportTarget.workspaceId !== workspace.id) {
+      const target = workspaces.find((item) => item.id === reportTarget.workspaceId);
+      if (target) {
+        onSelectWorkspace(target, { reportTarget });
+      } else {
+        setReportTarget(null);
+        showToast({ tone: 'warning', text: t('DocsViewerBody.message001') });
+      }
+      return;
+    }
+    selectionRevision.current++;
+    if (reportTarget.kind === 'sync') {
+      pendingSyncNavigation.current = reportTarget.task;
+      setFocusedSync(reportTarget.task);
+    } else if (reportTarget.kind === 'knowledge') {
+      setFocusedKnowledge(reportTarget);
+      setKnowledgeTab('sources');
+      setShowFileTree(false);
+      setActivePanel('knowledge');
+    } else {
+      const task = reportTarget.task;
+      focusedSyncRef.current = task;
+      setFocusedSync(task);
+      setSelectedReq({
+        id: task.requirementId,
+        path: task.requirementPath,
+        title: task.requirementId,
+      });
+      setSelectedFile({
+        workspaceId: workspace.id,
+        path: `${task.requirementPath}/${task.docType === 'design' ? 'design.md' : 'requirement.md'}`,
+        name: task.docType === 'design' ? 'design.md' : 'requirement.md',
+        type: task.docType,
+      });
+      setShowFileTree(true);
+      setActivePanel('files');
+    }
+    setReportTarget(null);
+  }, [reportTarget, workspace.id]);
   const [writingToolbarTarget, setWritingToolbarTarget] = useState(null);
   const [previewToolbarTarget, setPreviewToolbarTarget] = useState(null);
   const [headerBackTarget, setHeaderBackTarget] = useState(null);
-  const [selectedReq, setSelectedReq] = useState(null);
+  const [selectedReq, setSelectedReq] = useState(initialLocation?.requirement || null);
   const [creationStatus, setCreationStatus] = useState(null);
   const [creationNotice, setCreationNotice] = useState(null);
   const createRequest = useRef(null);
@@ -202,7 +245,7 @@ function DocsViewerBody({
   const [showFileTree, setShowFileTree] = useState(false);
   const [showToc, setShowToc] = useState(false);
   const [expandedGroup, setExpandedGroup] = useState(null); // expanded rail group
-  const [initialCreateBranch, setInitialCreateBranch] = useState(false);
+  const [initialCreateBranch, setInitialCreateBranch] = useState(!!initialLocation?.createBranch);
   const threeZoneRef = useRef(null);
 
   // Refs for cross-component communication
@@ -241,6 +284,10 @@ function DocsViewerBody({
   // Auto-select requirement from config (initialReqId) or first available
   const isInitialMount = useRef(true);
   useEffect(() => {
+    if (initialLocation) {
+      isInitialMount.current = false;
+      return;
+    }
     let cancelled = false;
     const revision = selectionRevision.current;
     (async () => {
@@ -299,7 +346,7 @@ function DocsViewerBody({
     return () => {
       cancelled = true;
     };
-  }, [workspace.id, initialReqId]);
+  }, [workspace.id, initialReqId, initialLocation]);
 
   // Fetch total requirements count
   useEffect(() => {
@@ -329,23 +376,21 @@ function DocsViewerBody({
     const cleanup = setupKeyboardShortcuts({
       focusSearch: () => {
         setActivePanel('knowledge');
-        setKnowledgeTab('search');
+        setKnowledgeTab('query');
         setShowFileTree(false);
         setExpandedGroup(null);
       },
       createDir: openCreation,
       sync:
-        selectedFile &&
-        (!activePanel || (activePanel === 'knowledge' && knowledgeTab === 'documents'))
+        selectedFile && (!activePanel || activePanel === 'files')
           ? undefined
           : () => {
               setActivePanel('sync');
               setShowFileTree(false);
             },
       toggleFileTree: () => {
-        if (activePanel !== 'knowledge' || !hasKnowledgeTree) {
-          setActivePanel('knowledge');
-          setKnowledgeTab('documents');
+        if (activePanel !== 'files') {
+          setActivePanel('files');
           setShowFileTree(true);
         } else {
           setShowFileTree((prev) => !prev);
@@ -361,7 +406,7 @@ function DocsViewerBody({
       },
     });
     return cleanup;
-  }, [activePanel, showFileTree, knowledgeTab, selectedFile?.path, workspace.id]);
+  }, [activePanel, showFileTree, selectedFile?.path, workspace.id]);
 
   const handleSelectReq = async (req) => {
     selectionRevision.current++;
@@ -428,27 +473,35 @@ function DocsViewerBody({
   }, [refreshSelectedReq]);
 
   const handleSelectFile = (file) => {
-    setKnowledgeTab('documents');
-    setActivePanel('knowledge');
+    setActivePanel('files');
     setSelectedFile(file);
   };
 
+  const closeSelectedFile = () => {
+    const file = selectedFile;
+    setSelectedFile(null);
+    setFileDirty(false);
+    if (file?.returnPanel === 'knowledge') {
+      setKnowledgeTab(file.returnKnowledgeTab || 'wiki');
+      setActivePanel('knowledge');
+      setShowFileTree(false);
+    }
+  };
+
   const handlePanelClose = () => {
-    // If viewing a file, just close the file preview
-    if (
-      selectedFile &&
-      (!activePanel || (activePanel === 'knowledge' && knowledgeTab === 'documents'))
-    ) {
-      setSelectedFile(null);
+    // A file opened from the knowledge workspace must return to its source tab.
+    if (selectedFile && (!activePanel || activePanel === 'files')) {
+      closeSelectedFile();
     } else {
-      // Otherwise close the active panel
       setSelectedFile(null);
       setActivePanel(null);
     }
   };
 
-  const [showCreateConfirm, setShowCreateConfirm] = useState(false);
-  const [pendingCreateReq, setPendingCreateReq] = useState(null);
+  const [showCreateConfirm, setShowCreateConfirm] = useState(!!initialLocation?.pendingCreateReq);
+  const [pendingCreateReq, setPendingCreateReq] = useState(
+    initialLocation?.pendingCreateReq || null,
+  );
 
   const doCreateAndSwitch = async (targetWorkspace, developer, date, title, requirementId) => {
     try {
@@ -502,6 +555,7 @@ function DocsViewerBody({
   };
 
   const handleLocateSessionReq = async () => {
+    selectionRevision.current++;
     locateRequest.current?.abort();
     const controller = new AbortController();
     locateRequest.current = controller;
@@ -591,26 +645,6 @@ function DocsViewerBody({
 
       console.log(t('DocsViewerBody.message022'), targetWorkspace);
 
-      if (targetWorkspace.id !== workspace.id) {
-        console.log(t('DocsViewerBody.message023'), targetWorkspace.id);
-
-        try {
-          await locateFetch(`${ROUTE}/config`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ workspaceId: targetWorkspace.id }),
-          });
-          console.log(t('DocsViewerBody.message024'));
-        } catch (e) {
-          console.error(t('DocsViewerBody.message025'), e);
-        }
-
-        onSelectWorkspace(targetWorkspace);
-
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        signal.throwIfAborted();
-      }
-
       console.log(t('DocsViewerBody.message026'));
       const branchRes = await locateFetch(
         `${ROUTE}/git-branch?workspaceId=${encodeURIComponent(targetWorkspace.id)}`,
@@ -664,11 +698,11 @@ function DocsViewerBody({
         } catch (e) {
           console.error(t('DocsViewerBody.message047'), e);
         }
-        if (targetWorkspace.id !== workspace.id) {
-          await new Promise((resolve) => setTimeout(resolve, 200));
-          signal.throwIfAborted();
-        }
         signal.throwIfAborted();
+        if (targetWorkspace.id !== workspace.id) {
+          onSelectWorkspace(targetWorkspace, { createBranch: true });
+          return;
+        }
         setCreationRefresh((value) => value + 1);
         setActivePanel('create');
         setInitialCreateBranch(true);
@@ -718,8 +752,6 @@ function DocsViewerBody({
 
       if (existingReq) {
         console.log(t('DocsViewerBody.message046'), existingReq);
-        setSelectedReq(existingReq);
-        setSelectedFile(null);
 
         try {
           await locateFetch(`${ROUTE}/config`, {
@@ -734,13 +766,37 @@ function DocsViewerBody({
         } catch (e) {
           console.error(t('DocsViewerBody.message047'), e);
         }
+        signal.throwIfAborted();
+        if (targetWorkspace.id !== workspace.id) {
+          onSelectWorkspace(targetWorkspace, { requirement: existingReq });
+          return;
+        }
+        pendingSyncNavigation.current = null;
+        setFocusedSync(null);
+        setSelectedReq(existingReq);
+        setSelectedFile(null);
         console.log(t('DocsViewerBody.message048'));
         return;
       }
 
       console.log(t('DocsViewerBody.message049'));
 
-      setPendingCreateReq({ workspace: targetWorkspace, developer, date, title, requirementId });
+      const pending = { workspace: targetWorkspace, developer, date, title, requirementId };
+      if (targetWorkspace.id !== workspace.id) {
+        await locateFetch(`${ROUTE}/config`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workspaceId: targetWorkspace.id,
+            developerName: null,
+            requirementId: null,
+          }),
+        });
+        signal.throwIfAborted();
+        onSelectWorkspace(targetWorkspace, { pendingCreateReq: pending });
+        return;
+      }
+      setPendingCreateReq(pending);
       setShowCreateConfirm(true);
     } catch (e) {
       if (!signal.aborted) {
@@ -761,10 +817,12 @@ function DocsViewerBody({
   const topButtons = [
     { id: 'create', icon: h(IconPlus, { size: 18 }), label: t('DocsViewerBody.message051') },
     { id: 'writing', icon: h(IconEdit, { size: 18 }), label: t('DocsViewerBody.message056') },
-    { id: 'knowledge', icon: h(IconBooks, { size: 18 }), label: t('DocsViewerBody.message054') },
+    { id: 'files', icon: h(IconFile, { size: 18 }), label: t('files.title') },
+    { id: 'knowledge', icon: h(IconBooks, { size: 18 }), label: t('kb.title') },
     { id: 'sync', icon: h(IconSync, { size: 18 }), label: t('DocsViewerBody.message052') },
   ];
   const bottomButtons = [
+    { id: 'reports', icon: h(IconReports, { size: 18 }), label: t('reports.title') },
     { id: 'log', icon: h(IconLog, { size: 18 }), label: t('DocsViewerBody.message057') },
     { id: 'settings', icon: h(IconSettings, { size: 18 }), label: t('DocsViewerBody.message058') },
   ];
@@ -782,30 +840,21 @@ function DocsViewerBody({
         (selectedReq
           ? { title: selectedReq.title, date: selectedReq.date, type: selectedFile.type }
           : null),
-      onBack: () => setSelectedFile(null),
+      onBack: closeSelectedFile,
       showToc,
       onToggleToc: () => setShowToc(!showToc),
       toolbarTarget: previewToolbarTarget,
       onSaved: () => {
         setFileRevision((value) => value + 1);
-        knowledge.refresh();
       },
       onDirtyChange: setFileDirty,
-      onOpenWikiEvents: () => {
-        setKnowledgeTab('events');
-        setActivePanel('knowledge');
-      },
-      onOpenWikiUpdate: () => {
-        setKnowledgeTab('wiki');
-        setActivePanel('knowledge');
-      },
-      active: !activePanel || (activePanel === 'knowledge' && knowledgeTab === 'documents'),
+      active: !activePanel || activePanel === 'files',
       assist: h(DocumentAssist, {
         assistant: true,
         key: `${selectedFile.workspaceId || workspace.id}:${selectedFile.path}`,
         workspaceId: selectedFile.workspaceId || workspace.id,
         path: selectedFile.path,
-        revision: `${fileRevision}:${knowledge.job?.updatedAt || ''}`,
+        revision: fileRevision,
         dirty: fileDirty,
         onOpenSource: (source) =>
           setSelectedFile({
@@ -859,17 +908,6 @@ function DocsViewerBody({
         },
       });
     }
-    if (activePanel === 'knowledge') {
-      return h(KnowledgePanel, {
-        key: workspace.id,
-        workspaceId: workspace.id,
-        knowledge,
-        tab: knowledgeTab,
-        onTabChange: changeKnowledgeTab,
-        selectedFile,
-        documentView: renderDocumentPreview(),
-      });
-    }
     if (activePanel === 'sync') {
       return h(SyncPanel, {
         key: `${workspace.id}:${selectedReq?.id}:${focusedSync?.snapshotDir || ''}`,
@@ -880,16 +918,33 @@ function DocsViewerBody({
       });
     }
     if (activePanel === 'log') {
-      return h(LogPanel, { workspaceId: workspace.id, onClose: handlePanelClose });
+      return h(LogPanel, {
+        onClose: handlePanelClose,
+      });
+    }
+    if (activePanel === 'reports') {
+      return h(TaskReportsPanel, { onClose: handlePanelClose, onNavigate: setReportTarget });
     }
     if (activePanel === 'settings') {
-      return h(SettingsPanel, { workspaceId: workspace.id, onClose: handlePanelClose });
+      return h(SettingsPanel, {
+        workspaceId: workspace.id,
+        onClose: handlePanelClose,
+        initialTab: settingsTab,
+      });
     }
     return null;
   };
 
   // Right panel content
   const renderRightContent = () => {
+    if (activePanel === 'files') {
+      return selectedFile
+        ? renderDocumentPreview()
+        : h(EmptyState, {
+            title: t('files.empty'),
+            description: t('files.emptyHint'),
+          });
+    }
     if (activePanel) {
       return renderPanel();
     }
@@ -916,7 +971,7 @@ function DocsViewerBody({
           {
             label: t('DocsViewerBody.message063'),
             onClick: () => {
-              setActivePanel('knowledge');
+              setActivePanel('files');
               setShowFileTree(true);
             },
           },
@@ -960,7 +1015,9 @@ function DocsViewerBody({
     if (activePanel === 'create') {
       rightHeaderTitle = t('DocsViewerBody.message069');
     } else if (activePanel === 'knowledge') {
-      rightHeaderTitle = t('DocsViewerBody.message054');
+      rightHeaderTitle = t('kb.title');
+    } else if (activePanel === 'files') {
+      rightHeaderTitle = t('files.title');
     } else if (activePanel === 'writing') {
       rightHeaderTitle = t('DocsViewerBody.message056');
     } else if (activePanel === 'log') {
@@ -975,9 +1032,7 @@ function DocsViewerBody({
   }
 
   // Build breadcrumb items for file preview (shown in header instead of FilePreview)
-  const showingDocument =
-    !!selectedFile &&
-    (!activePanel || (activePanel === 'knowledge' && knowledgeTab === 'documents'));
+  const showingDocument = !!selectedFile && (!activePanel || activePanel === 'files');
   const filePreviewBreadcrumb = showingDocument
     ? [
         {
@@ -1001,17 +1056,7 @@ function DocsViewerBody({
     { value: contextValue },
     showingDocument &&
       h(HeaderBack, {
-        onBack: () => {
-          const returnPanel = selectedFile.returnPanel;
-          const returnKnowledgeTab = selectedFile.returnKnowledgeTab;
-          setSelectedFile(null);
-          if (returnPanel) {
-            setActivePanel(returnPanel);
-          }
-          if (returnKnowledgeTab) {
-            changeKnowledgeTab(returnKnowledgeTab);
-          }
-        },
+        onBack: closeSelectedFile,
       }),
     h(
       'div',
@@ -1102,7 +1147,7 @@ function DocsViewerBody({
                     setActivePanel(null);
                     setShowFileTree(false);
                   } else {
-                    setShowFileTree(btn.id === 'knowledge' && hasKnowledgeTree);
+                    setShowFileTree(btn.id === 'files');
                     setActivePanel(btn.id);
                   }
                 },
@@ -1127,7 +1172,7 @@ function DocsViewerBody({
                       setActivePanel(null);
                       setShowFileTree(false);
                     } else {
-                      setShowFileTree(btn.id === 'knowledge');
+                      setShowFileTree(false);
                       setActivePanel(btn.id);
                     }
                   },
@@ -1142,44 +1187,18 @@ function DocsViewerBody({
         h(
           'div',
           { className: css.workspace },
-          activePanel === 'knowledge' &&
-            h(KnowledgeTabs, {
-              tab: knowledgeTab,
-              onTabChange: changeKnowledgeTab,
-              onClose: handlePanelClose,
-              backTargetRef: setHeaderBackTarget,
-            }),
-          activePanel === 'knowledge' &&
-            h(KnowledgeSecondaryTabs, { tab: knowledgeTab, onTabChange: changeKnowledgeTab }),
           h(
             'div',
             { className: css.workspaceBody },
-            // ── File Tree Sidebar (only when view is active) ──
-            activePanel === 'knowledge' &&
-              hasKnowledgeTree &&
+            // ── File Tree Sidebar (only when the files view is active) ──
+            activePanel === 'files' &&
               h(FileTreeSidebar, {
                 expanded: showFileTree,
                 onExpandedChange: setShowFileTree,
-                id: 'knowledge-file-tree',
+                id: 'files-tree',
                 workspaceId: workspace.id,
                 selectedReq,
-                key: `${workspace.id}:${knowledgeTab}`,
-                multiSelect: knowledgeTab === 'files',
-                selectionActions:
-                  knowledgeTab === 'files' &&
-                  h(
-                    Button,
-                    {
-                      className: 'rh-btn rh-btn-primary rh-btn-sm',
-                      disabled: !knowledge.selected.length || knowledge.running,
-                      onClick: () => knowledge.start(),
-                    },
-                    knowledge.running
-                      ? t('knowledgeLayout.importing')
-                      : t('knowledgeLayout.importMany', { count: knowledge.selected.length }),
-                  ),
-                selectedPaths: knowledge.selected,
-                onSelectionChange: knowledge.setSelected,
+                key: workspace.id,
                 onSelectFile: handleSelectFile,
               }),
 
@@ -1192,17 +1211,13 @@ function DocsViewerBody({
               activePanel !== 'sync' &&
                 activePanel !== 'log' &&
                 activePanel !== 'settings' &&
-                (activePanel !== 'knowledge' || filePreviewBreadcrumb) &&
+                activePanel !== 'knowledge' &&
                 h(
                   'div',
                   {
-                    className:
-                      activePanel === 'knowledge'
-                        ? css.documentToolbar
-                        : `rh-right-header${activePanel === 'writing' ? ` ${css.writingHeader}` : ''}`,
+                    className: `rh-right-header${activePanel === 'writing' ? ` ${css.writingHeader}` : ''}`,
                   },
-                  activePanel !== 'knowledge' &&
-                    h('div', { className: 'rh-header-back-slot', ref: setHeaderBackTarget }),
+                  h('div', { className: 'rh-header-back-slot', ref: setHeaderBackTarget }),
                   h(
                     'div',
                     { className: 'rh-right-header-main' },
@@ -1215,22 +1230,20 @@ function DocsViewerBody({
                             rightHeaderTitle || t('DocsViewerBody.message073'),
                           ),
                     filePreviewBreadcrumb &&
-                      /\.(md|txt|text|html?|json|pdf|docx|xlsx)$/i.test(selectedFile.name) &&
+                      /\.(md|markdown|txt|text|html?)$/i.test(selectedFile.name) &&
                       h(FileKnowledgeAction, {
                         key: `${selectedFile.workspaceId || workspace.id}:${selectedFile.path}`,
                         workspaceId: selectedFile.workspaceId || workspace.id,
                         path: selectedFile.path,
                         revision: fileRevision,
                         dirty: fileDirty,
-                        onChanged: knowledge.refresh,
                       }),
                     activePanel === 'writing' &&
                       h('div', { className: css.writingToolbarSlot, ref: setWritingToolbarTarget }),
                     filePreviewBreadcrumb &&
                       h('div', { className: 'rh-preview-actions', ref: setPreviewToolbarTarget }),
                   ),
-                  activePanel !== 'knowledge' &&
-                    (activePanel || selectedFile) &&
+                  (activePanel || selectedFile) &&
                     h(
                       Button,
                       {
@@ -1242,52 +1255,39 @@ function DocsViewerBody({
                       t('common.close'),
                     ),
                 ),
-              // Skip rh-right-body wrapper for file preview to avoid extra layer
-              h(
-                'div',
-                {
-                  key: 'knowledge-search',
-                  className: css.size,
-                  style: { '--rh-display-0': cssValue(isKnowledgeSearch ? 'flex' : 'none') },
-                  id: isKnowledgeSearch ? 'knowledge-content' : undefined,
-                  role: isKnowledgeSearch ? 'tabpanel' : undefined,
-                  'aria-labelledby': isKnowledgeSearch ? 'knowledge-tab-files' : undefined,
-                },
-                h(SearchPanel, {
-                  active: isKnowledgeSearch,
-                  onOpenKnowledge: () => {
-                    setKnowledgeTab('files');
-                    setActivePanel('knowledge');
-                    setShowFileTree(true);
+              knowledgeMounted.current &&
+                h(
+                  'div',
+                  {
+                    key: `knowledge:${workspace.id}`,
+                    className: css.size,
+                    style: {
+                      '--rh-display-0': cssValue(activePanel === 'knowledge' ? 'flex' : 'none'),
+                    },
                   },
-                  onOpenSource: (source) => {
-                    const parts = source.relativePath.split('/');
-                    const requirement = {
-                      id: parts[1],
-                      path: parts.slice(0, 2).join('/'),
-                      developer: parts[0],
-                      title: parts[1].slice(11),
-                      date: parts[1].slice(0, 10),
-                    };
-                    const local = !source.workspaceId || source.workspaceId === workspace.id;
-                    if (local) {
-                      setSelectedReq(requirement);
-                    }
-                    setSelectedFile({
-                      path: source.relativePath,
-                      name: parts.at(-1),
-                      workspaceId: source.workspaceId,
-                      workspaceTitle: source.workspaceTitle,
-                      requirement,
-                      returnPanel: 'knowledge',
-                      returnKnowledgeTab: 'search',
-                    });
-                    setKnowledgeTab('documents');
-                    setActivePanel('knowledge');
-                    setShowFileTree(local);
-                  },
-                }),
-              ),
+                  h(KnowledgeWorkspace, {
+                    workspaceId: workspace.id,
+                    tab: knowledgeTab,
+                    onTabChange: setKnowledgeTab,
+                    active: activePanel === 'knowledge',
+                    docsDir,
+                    initialSourceId:
+                      focusedKnowledge?.workspaceId === workspace.id
+                        ? focusedKnowledge.documentId
+                        : null,
+                    onOpenFile: (relativePath) => {
+                      setSelectedFile({
+                        path: relativePath,
+                        name: relativePath.split('/').at(-1),
+                        workspaceId: workspace.id,
+                        returnPanel: 'knowledge',
+                        returnKnowledgeTab: knowledgeTab,
+                      });
+                      setActivePanel('files');
+                      setShowFileTree(true);
+                    },
+                  }),
+                ),
               writingMounted.current &&
                 h(
                   'div',
@@ -1305,23 +1305,16 @@ function DocsViewerBody({
                     workspaceId: workspace.id,
                     requirement: selectedReq,
                     onSaved: () => refreshSelectedReqRef.current(),
-                    onOpenWikiEvents: () => {
-                      setKnowledgeTab('events');
-                      setActivePanel('knowledge');
-                    },
-                    onOpenWikiUpdate: () => {
-                      setKnowledgeTab('wiki');
-                      setActivePanel('knowledge');
-                    },
                   }),
                 ),
               activePanel !== 'writing' &&
-                (selectedFile && !activePanel
+                activePanel !== 'knowledge' &&
+                (selectedFile && (!activePanel || activePanel === 'files')
                   ? renderRightContent()
                   : h(
                       'div',
                       {
-                        className: `rh-right-body${activePanel === 'knowledge' ? ` ${css.knowledgeBody}` : ''}${isKnowledgeSearch ? ' ' + css.inactive : ''}`,
+                        className: `rh-right-body${['reports', 'log', 'sync'].includes(activePanel) ? ` ${css.knowledgeBody}` : ''}`,
                       },
                       renderRightContent(),
                     )),

@@ -1,10 +1,11 @@
 'use strict';
+const { formatTime, useTimeZone } = require('../time.js');
+const { PagedList } = require('./shared/PagedList.js');
 const { Checkbox } = require('./shared/controls.js');
 const { t } = require('../locale.js');
 const css = require('./LogPanel.module.css').default;
 const { cssValue } = require('./shared/presentation.js');
 const { Button } = require('./shared/Button.js');
-const { WikiEvents } = require('./WikiEvents.js');
 
 const React = require('react');
 const h = React.createElement;
@@ -22,6 +23,7 @@ const { ROUTE } = require('../constants.js');
  * @returns {JSX.Element} A log viewer panel with level/tag filters and a scrollable log list
  */
 function ApplicationLogs({ onClose }) {
+  useTimeZone();
   const [logs, setLogs] = useState([]);
   const [logMeta, setLogMeta] = useState({ levels: {}, tags: {} });
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -72,7 +74,7 @@ function ApplicationLogs({ onClose }) {
       case 'info':
         return 'var(--dsw-alias-state-info-primary)';
       case 'warn':
-        return 'var(--dsw-alias-state-warning-primary)';
+        return 'var(--dsw-alias-state-warn-primary)';
       case 'error':
         return 'var(--dsw-alias-state-error-primary)';
       default:
@@ -189,6 +191,7 @@ function ApplicationLogs({ onClose }) {
           Button,
           {
             className: 'rh-btn rh-btn-secondary',
+            tone: 'danger',
             onClick: async () => {
               try {
                 await fetch(`${ROUTE}/logs/clear`, { method: 'POST' });
@@ -331,46 +334,52 @@ function ApplicationLogs({ onClose }) {
       { className: 'rh-log-list' },
       filteredLogs.length === 0
         ? h('div', { className: 'rh-empty' }, emptyMessage)
-        : filteredLogs.map((log, idx) =>
-            h(
-              'div',
-              {
-                key: idx,
-                className: 'rh-log-item' + ' ' + css.content,
-                style: { '--rh-border-left-0': cssValue(`3px solid ${getLevelColor(log.level)}`) },
-              },
+        : h(
+            PagedList,
+            { resetKey: selectedLevels.join(',') + selectedTags.join(',') },
+            filteredLogs.map((log, idx) =>
               h(
                 'div',
-                { className: 'rh-log-item-header' },
-
-                h(
-                  'span',
-                  {
-                    className: 'rh-log-time' + ' ' + css.content2,
-                    style: { '--rh-color-0': cssValue(getLevelColor(log.level)) },
+                {
+                  key: idx,
+                  className: 'rh-log-item' + ' ' + css.content,
+                  style: {
+                    '--rh-border-left-0': cssValue(`3px solid ${getLevelColor(log.level)}`),
                   },
-                  new Date(log.timestamp).toLocaleTimeString(),
-                ),
-                h(
-                  'span',
-                  {
-                    className: 'rh-log-type' + ' ' + css.mutedText2,
-                  },
-                  logMeta.tags[log.tag] || log.tag,
-                ),
-              ),
-              h('div', { className: 'rh-log-message' }, log.message),
-
-              log.data &&
+                },
                 h(
                   'div',
-                  {
-                    className: css.mutedText3,
-                  },
-                  typeof log.data === 'object'
-                    ? JSON.stringify(log.data, null, 2)
-                    : String(log.data),
+                  { className: 'rh-log-item-header' },
+
+                  h(
+                    'span',
+                    {
+                      className: 'rh-log-time' + ' ' + css.content2,
+                      style: { '--rh-color-0': cssValue(getLevelColor(log.level)) },
+                    },
+                    formatTime(log.timestamp),
+                  ),
+                  h(
+                    'span',
+                    {
+                      className: 'rh-log-type' + ' ' + css.mutedText2,
+                    },
+                    logMeta.tags[log.tag] || log.tag,
+                  ),
                 ),
+                h('div', { className: 'rh-log-message' }, log.message),
+
+                log.data &&
+                  h(
+                    'div',
+                    {
+                      className: css.mutedText3,
+                    },
+                    typeof log.data === 'object'
+                      ? JSON.stringify(log.data, null, 2)
+                      : String(log.data),
+                  ),
+              ),
             ),
           ),
     ),
@@ -378,70 +387,21 @@ function ApplicationLogs({ onClose }) {
 }
 
 /**
- * Keep persistent Wiki execution history separate from the application log buffer.
- * @param props - Current workspace and existing panel callbacks.
- * @returns The selected log view.
+ * Application log viewer; knowledge job history lives in the knowledge tasks drawer.
+ * @param props - {onClose} supplied by the owning surface.
+ * @returns The log panel with its close action.
  */
-function LogPanel({ workspaceId, onClose }) {
-  const [tab, setTab] = useState('application');
+function LogPanel({ onClose }) {
   return h(
     'div',
     { className: css.panel },
     h(
       'div',
       { className: css.tabs },
-      h(
-        'div',
-        { className: 'rh-workbench-tabs', role: 'tablist', 'aria-label': t('wiki.events.logTabs') },
-        ['application', 'wiki'].map((id, index, tabs) =>
-          h(
-            'button',
-            {
-              key: id,
-              id: `log-tab-${id}`,
-              type: 'button',
-              role: 'tab',
-              className: 'rh-workbench-tab',
-              'aria-selected': tab === id,
-              'aria-controls': 'log-content',
-              tabIndex: tab === id ? 0 : -1,
-              onClick: () => setTab(id),
-              onKeyDown: (event) => {
-                let next;
-                if (event.key === 'ArrowRight') {
-                  next = (index + 1) % tabs.length;
-                } else if (event.key === 'ArrowLeft') {
-                  next = (index + tabs.length - 1) % tabs.length;
-                } else if (event.key === 'Home') {
-                  next = 0;
-                } else if (event.key === 'End') {
-                  next = tabs.length - 1;
-                }
-                if (next !== undefined) {
-                  event.preventDefault();
-                  setTab(tabs[next]);
-                  event.currentTarget.parentElement.querySelectorAll('[role="tab"]')[next].focus();
-                }
-              },
-            },
-            t(id === 'wiki' ? 'wiki.events.title' : 'wiki.events.application'),
-          ),
-        ),
-      ),
+      h('span', { className: css.title }, t('log.application')),
       h(Button, { size: 'sm', variant: 'ghost', onClick: onClose }, t('common.close')),
     ),
-    h(
-      'div',
-      {
-        className: css.body,
-        id: 'log-content',
-        role: 'tabpanel',
-        'aria-labelledby': `log-tab-${tab}`,
-      },
-      tab === 'wiki'
-        ? h(WikiEvents, { key: workspaceId, workspaceId })
-        : h(ApplicationLogs, { onClose }),
-    ),
+    h('div', { className: css.body }, h(ApplicationLogs, { onClose })),
   );
 }
 module.exports = { LogPanel };

@@ -7,7 +7,7 @@ import {
 import { TaskExecutor } from '../../src/server/task-executor.js';
 
 it('uses English instructions in every built-in template without changing protocol variables', () => {
-  expect(Object.keys(PROMPT_REGISTRY)).toHaveLength(13);
+  expect(Object.keys(PROMPT_REGISTRY)).toHaveLength(16);
   for (const meta of Object.values(PROMPT_REGISTRY)) {
     expect(meta.default).not.toMatch(/\p{Script=Han}/u);
     for (const variable of meta.variables.filter((item) => item.required)) {
@@ -82,6 +82,5 @@ it('distinguishes intermediate sync output from final document text and final re
   }
   expect(PROMPT_REGISTRY.writing.default).toContain('Describe reasons and scope in English');
   expect(PROMPT_REGISTRY.writing.default).toContain('preserve the input document language');
-  expect(PROMPT_REGISTRY['wiki-generate'].default).toContain('Write maintenance rules in English');
   expect(PROMPT_REGISTRY['knowledge-enhancement'].default).toContain('final review deliverables');
 });

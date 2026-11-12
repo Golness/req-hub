@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { safeDocumentPath } from './safe-path.js';
-import { normalizeSourcePath, knowledgeError } from './knowledge/source-reader.js';
+import { normalizeSourcePath, knowledgeError } from './source-reader.js';
 import { withDocumentLock } from './sync-document-validator.js';
 
 export const WRITING_IMAGE_INPUT_LIMIT = 16_000_000;

@@ -19,8 +19,8 @@ export class CodexSessionService {
     this.adapter = {
       source: 'codex',
       instance: resolve(codexHome),
-      inventory: () => this.source.inventory(),
-      snapshot: (session) => this.source.snapshot(session),
+      inventory: (_projectId, options) => this.source.inventory(options),
+      snapshot: (session, options) => this.source.snapshot(session, options),
     };
   }
   database() {
@@ -53,8 +53,8 @@ export class CodexSessionService {
   snapshot(id, workspaceId = this.workspaceId) {
     return this.library.snapshot(workspaceId, id, this.adapter);
   }
-  snapshots(ids, workspaceId = this.workspaceId) {
-    return this.library.snapshots(workspaceId, ids, this.adapter);
+  snapshots(ids, workspaceId = this.workspaceId, options) {
+    return this.library.snapshots(workspaceId, ids, this.adapter, options);
   }
   async close() {
     if (this.ownsLibrary) {

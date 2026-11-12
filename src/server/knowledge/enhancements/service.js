@@ -7,7 +7,7 @@ import { buildGraph, impact } from './graph.js';
 import { CodeProvider, codeSnapshot } from './code-provider.js';
 import { indexWorkspace } from './index-runner.js';
 import { documentContext, contextPath } from './document-context.js';
-import { resolveKnowledgeReferences } from './knowledge-context.js';
+import { resolveKnowledgeReferences } from '../../knowledge-v2/reference-context.js';
 import { checkStructure } from './quality.js';
 import { EnhancementRuntime, ENHANCEMENT_TOOLS, installEnhancementTools } from './runtime.js';
 import { executeTask } from '../../task-executor.js';
@@ -64,11 +64,9 @@ export class EnhancementService {
       fail('ENHANCEMENT_INVALID_INPUT');
     }
     const authorized = new Map();
+    const origins = await this.knowledge.catalog();
     for (const identity of [...new Set(scopes)]) {
-      const origin = this.knowledge
-        .database()
-        .scopes()
-        .find((item) => item.id === identity);
+      const origin = origins.find((item) => item.id === identity);
       if (!origin) {
         fail('ENHANCEMENT_SCOPE_DENIED', 403);
       }
@@ -120,11 +118,9 @@ export class EnhancementService {
       fail('ENHANCEMENT_INVALID_INPUT');
     }
     const hits = [];
+    const origins = await this.knowledge.catalog();
     for (const id of [...new Set(ids)]) {
-      const origin = this.knowledge
-        .database()
-        .scopes()
-        .find((item) => item.id === id);
+      const origin = origins.find((item) => item.id === id);
       if (!origin) {
         fail('ENHANCEMENT_SCOPE_DENIED', 403);
       }
@@ -152,7 +148,7 @@ export class EnhancementService {
     const database = this.database();
     database.scope(scope.identity);
     const scopes = [];
-    for (const origin of this.knowledge.database().scopes()) {
+    for (const origin of await this.knowledge.catalog()) {
       const current = await this.knowledge.scope(origin.workspace_id).catch(() => null);
       if (!current || current.identity !== origin.id) {
         continue;
@@ -407,11 +403,28 @@ export class EnhancementService {
         this.database().saveJob(job);
       });
       this.active.set(scope.workspaceId, { controller, job });
-      const timeout = setTimeout(
-        () => controller.abort(new Error('ENHANCEMENT_TIMEOUT')),
-        input.kind === 'code-index' ? settings.indexTimeoutMs : settings.timeoutMs,
-      );
-      timeout.unref?.();
+      let timeout;
+      const armTimeout = () => {
+        clearTimeout(timeout);
+        timeout = setTimeout(
+          () => controller.abort(new Error('ENHANCEMENT_TIMEOUT')),
+          input.kind === 'code-index' ? settings.indexTimeoutMs : settings.timeoutMs,
+        );
+        timeout.unref?.();
+      };
+      armTimeout();
+      this.active.get(scope.workspaceId).onExecutorProgress = ({ stage }) => {
+        controller.signal.throwIfAborted();
+        if (stage === 'waiting_for_slot') {
+          clearTimeout(timeout);
+          job.status = 'queued';
+          this.database().saveJob(job);
+        } else if (stage === 'subagent_starting') {
+          armTimeout();
+          job.status = 'running';
+          this.database().saveJob(job);
+        }
+      };
       const monitor = setInterval(() => {
         if (this.store.job(scope.identity, job.id)?.status === 'cancelling') {
           controller.abort();
@@ -562,6 +575,14 @@ export class EnhancementService {
         signal,
         toolFilter: { allow: ENHANCEMENT_TOOLS },
         description: `ReqHub ${job.kind}`,
+        callbacks: {
+          onProgress: (progress) => {
+            const owner = this.active.get(scope.workspaceId);
+            if (owner?.job?.id === job.id) {
+              owner.onExecutorProgress(progress);
+            }
+          },
+        },
       });
       signal.throwIfAborted();
       if (result.isError || !runtime.result) {

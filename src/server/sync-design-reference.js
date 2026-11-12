@@ -2,7 +2,7 @@ import { open, readdir, realpath } from 'node:fs/promises';
 import { extname, relative } from 'node:path';
 import { safeDocumentPath } from './safe-path.js';
 import { hashBytes } from './sync-artifacts.js';
-import { BINARY_EXTENSIONS, MAX_BINARY_BYTES, parseBinary } from './knowledge/binary-parser.js';
+import { BINARY_EXTENSIONS, MAX_BINARY_BYTES, parseBinary } from './binary-parser.js';
 
 const MAX_TEXT_BYTES = 2 * 1024 * 1024;
 

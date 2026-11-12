@@ -20,6 +20,15 @@
 .tabs :global(.rh-workbench-tabs) {
   flex: 1;
 }
+.title {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 0 9px;
+  font-size: 13px;
+  line-height: 16px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
 .body {
   flex: 1;
   min-height: 0;
@@ -98,4 +107,24 @@
   word-break: break-all;
   max-height: 200px;
   overflow-y: auto;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.body > :global(.rh-op-panel) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.body :global(.rh-log-list) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }

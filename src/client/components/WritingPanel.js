@@ -2,7 +2,6 @@
 const { Disclosure } = require('./shared/Disclosure.js');
 const { WritingKnowledge } = require('./WritingKnowledge.js');
 const { useKnowledgeAssistant } = require('../hooks/useKnowledgeAssistant.js');
-const { WikiSaveStatus } = require('./WikiSaveStatus.js');
 const { t } = require('../locale.js');
 const css = require('./WritingPanel.module.css').default;
 const { Button } = require('./shared/Button.js');
@@ -131,8 +130,6 @@ function WritingPanelBody({
   workspaceId,
   requirement,
   onSaved,
-  onOpenWikiEvents,
-  onOpenWikiUpdate,
   active = true,
   toolbarTarget,
   docsDir = 'docs',
@@ -180,7 +177,6 @@ function WritingPanelBody({
   const [imageRetry, retryImages] = React.useReducer((value) => value + 1, 0);
   const [saving, setSaving] = React.useState(false);
   const [savedSnapshots, setSavedSnapshots] = React.useState({});
-  const [wikiReceipts, setWikiReceipts] = React.useState({});
   const [pendingSave, setPendingSave] = React.useState(null);
   const saveRef = React.useRef(null);
   const jobRef = React.useRef(null);
@@ -465,13 +461,9 @@ function WritingPanelBody({
         return;
       }
       setPendingSave(null);
-      setWikiReceipts((previous) => ({ ...previous, [payload.docType]: result.wiki || null }));
       setSavedSnapshots((previous) => ({ ...previous, [payload.docType]: payload.content }));
       showToast({ tone: 'success', text: t('writing.saved', { path: result.path }) });
       onSaved?.();
-      if (result.wiki?.state === 'failed') {
-        showToast({ tone: 'warning', text: t('wiki.sourceSavedProcessingFailed') });
-      }
     } catch (e) {
       if (controller.signal.aborted) {
         return;
@@ -658,13 +650,6 @@ function WritingPanelBody({
       recovering &&
         h('small', { className: css.runningHint, role: 'status' }, t('writing.restoring')),
       error && h('div', { className: 'rh-knowledge-error', role: 'alert' }, error),
-      h(WikiSaveStatus, {
-        receipt: wikiReceipts[docType],
-        workspaceId,
-        active,
-        onOpenEvents: onOpenWikiEvents,
-        onOpenUpdate: onOpenWikiUpdate,
-      }),
       !running &&
         task?.excludedSourceCount > 0 &&
         h(

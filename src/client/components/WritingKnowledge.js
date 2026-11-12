@@ -1,4 +1,5 @@
 'use strict';
+const { PagedList } = require('./shared/PagedList.js');
 const React = require('react');
 const { t } = require('../locale.js');
 const { ROUTE } = require('../constants.js');
@@ -7,6 +8,7 @@ const { Checkbox } = require('./shared/controls.js');
 const { DocumentAssist } = require('./ContextAssist.js');
 const { Disclosure } = require('./shared/Disclosure.js');
 const { KnowledgeAssistant } = require('./shared/KnowledgeAssistant.js');
+const { knowledgeV2Request } = require('../hooks/useKnowledgeV2.js');
 const css = require('./WritingKnowledge.module.css').default;
 const h = React.createElement;
 const ERROR_KEYS = {
@@ -82,17 +84,16 @@ function WritingKnowledge({
     }
     const signal = owner.current?.signal;
     try {
-      const path = snapshotId ? '/evidence/' + snapshotId : '/pages/' + page.pageId;
-      const response = await fetch(
-        `${ROUTE}/knowledge/wiki${path}?workspaceId=${encodeURIComponent(scope.workspaceId)}`,
-        { signal },
-      );
-      const value = await response.json();
-      if (!response.ok) {
-        throw new Error(value.error || 'WIKI_FAILED');
-      }
+      const path = snapshotId
+        ? '/sources/' + encodeURIComponent(snapshotId)
+        : '/pages/' + encodeURIComponent(page.pageId);
+      const value = await knowledgeV2Request(path, scope.workspaceId, null, signal);
       if (!signal?.aborted) {
-        setDetail({ ...value, scopeId: page.scopeId });
+        setDetail({
+          title: snapshotId ? value.source.title : value.meta?.title || page.title,
+          body: value.text,
+          scopeId: page.scopeId,
+        });
       }
     } catch (failure) {
       if (!signal?.aborted) {
@@ -153,7 +154,7 @@ function WritingKnowledge({
           t('writing.removeMissingScopes'),
         ),
     ),
-    error && h('p', { role: 'alert' }, t(ERROR_KEYS[error] || 'wiki.error', { code: error })),
+    error && h('p', { role: 'alert' }, t(ERROR_KEYS[error] || 'common.error', { code: error })),
     h(
       'section',
       null,
@@ -164,7 +165,7 @@ function WritingKnowledge({
         h(
           Button,
           { size: 'sm', onClick: () => setRevision((value) => value + 1) },
-          t('wiki.refresh'),
+          t('common.refresh'),
         ),
       ),
       !data && !error && h('p', { role: 'status' }, t('common.loading')),
@@ -175,13 +176,17 @@ function WritingKnowledge({
           { className: css.hint },
           t(data.hasWiki ? 'writing.noRelatedWiki' : 'writing.noWikiYet'),
         ),
-      data?.items?.map((page) =>
-        h(
-          'article',
-          { className: css.item, key: page.id },
-          h(Button, { onClick: () => inspect(page) }, page.title),
-          h('small', null, `v${page.version}`),
-          h('p', null, page.summary),
+      h(
+        PagedList,
+        { className: css.pagedSection },
+        (data?.items || []).map((page) =>
+          h(
+            'article',
+            { className: css.item, key: page.id },
+            h(Button, { onClick: () => inspect(page) }, page.title),
+            h('small', null, `v${page.version}`),
+            h('p', null, page.summary),
+          ),
         ),
       ),
       data?.hasMore && h('p', { className: css.hint }, t('writing.moreInWiki')),
@@ -191,16 +196,20 @@ function WritingKnowledge({
       null,
       h('h4', null, t('writing.usedKnowledge', { count: evidence.length })),
       !evidence.length && h('p', { className: css.hint }, t('writing.noCitationsYet')),
-      evidence.map((item) =>
-        h(
-          Disclosure,
-          { key: item.id, title: `${item.title || item.id} · v${item.version}` },
-          h('p', null, item.sources?.map((source) => source.relativePath).join('、')),
-          item.evidence?.map((ref, index) =>
-            h(
-              Button,
-              { key: index, size: 'sm', onClick: () => inspect(item, ref.snapshotId) },
-              `${ref.title || ref.documentId} · v${ref.version} · ${ref.startLine}–${ref.endLine}`,
+      h(
+        PagedList,
+        { className: css.pagedSection },
+        evidence.map((item) =>
+          h(
+            Disclosure,
+            { key: item.id, title: `${item.title || item.id} · v${item.version}` },
+            h('p', null, item.sources?.map((source) => source.relativePath).join('、')),
+            item.evidence?.map((ref, index) =>
+              h(
+                Button,
+                { key: index, size: 'sm', onClick: () => inspect(item, ref.snapshotId) },
+                `${ref.title || ref.documentId} · v${ref.version} · ${ref.startLine}–${ref.endLine}`,
+              ),
             ),
           ),
         ),
@@ -228,7 +237,7 @@ function WritingKnowledge({
           'div',
           { className: css.heading },
           h('h4', null, detail.title),
-          h(Button, { size: 'sm', onClick: () => setDetail(null) }, t('wiki.close')),
+          h(Button, { size: 'sm', onClick: () => setDetail(null) }, t('kb.backToList')),
         ),
         h('pre', { className: css.text }, detail.body),
       ),

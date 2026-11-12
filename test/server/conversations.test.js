@@ -1,4 +1,4 @@
-import { it, expect, beforeEach, afterEach } from 'vitest';
+import { it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, mkdir, readFile, writeFile, rm, access, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -18,6 +18,31 @@ const snap = (sessionId, text = 'final') => {
 const provider = (source = 'dsh', instance = 'profile-a', id = 'one') => ({ source, instance,
   inventory: async () => ({ workspaces: [{ id: 'project', title: 'Project' }], sessions: [{ id, title: 'Title', workspaceId: 'project' }], warnings: [] }),
   snapshot: async row => snap(row.id),
+});
+
+it('propagates caller cancellation to source reads and never commits a late snapshot', async () => {
+  const adapter = provider();
+  let started;
+  let release;
+  const reading = new Promise((resolve) => { started = resolve; });
+  const pending = new Promise((resolve) => { release = resolve; });
+  let sourceSignal;
+  adapter.snapshot = async (row, { signal }) => {
+    sourceSignal = signal;
+    started();
+    await pending;
+    return snap(row.id);
+  };
+  const controller = new AbortController();
+  const refreshing = library.refresh('ws', 'project', adapter, undefined, { signal: controller.signal });
+  const rejected = expect(refreshing).rejects.toThrow('stop preparation');
+  await reading;
+  controller.abort(new Error('stop preparation'));
+  expect(sourceSignal.aborted).toBe(true);
+  release();
+  await rejected;
+  expect((await library.list('ws', adapter)).sessions).toEqual([]);
+  expect((await store.database()).prepare('SELECT count(*) AS n FROM snapshots').get().n).toBe(0);
 });
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'rh-conversations-')); store = new ConversationStore(join(root, 'library/conversations.sqlite')); library = new ConversationService({ store, owner: 'profile-a' }); });
 afterEach(async () => { await library.close(); await store.close(); await rm(root, { recursive: true, force: true }); });
@@ -143,6 +168,39 @@ it('deletes the retired Codex store without importing it or touching source and 
   expect(await readFile(join(root, '.codex/source'), 'utf8')).toBe('source');
   await symlink(join(root, '.codex'), join(root, 'req-hub/codex'), process.platform === 'win32' ? 'junction' : 'dir');
   await expect(removeRetiredCodexStore(root)).rejects.toThrow('RETIRED_STORE_SYMLINK');
+});
+
+it('isolates an unreadable workspace session list during cross-workspace inventory', async () => {
+  const workspaces = [
+    { id: 'A', title: 'A', path: join(root, 'workspace-aaaa-long') },
+    { id: 'B', title: 'B', path: join(root, 'b') },
+  ];
+  await mkdir(workspaces[0].path, { recursive: true });
+  await mkdir(workspaces[1].path, { recursive: true });
+  const record = {
+    header: { id: 'b-1', cwd: workspaces[1].path, createdAt: 1 },
+    live: false,
+    persisted: true,
+  };
+  const listSessions = vi
+    .fn()
+    .mockRejectedValueOnce(new Error('A_SESSIONS_UNREADABLE'))
+    .mockResolvedValue([record]);
+  const adapter = dshSource({
+    registry: { list: () => workspaces, archivedSessionIds: [] },
+    sessionQuery: {
+      listSessions,
+      readTitle: async () => ({ title: 'B session' }),
+    },
+    sessions: null,
+    instance: 'profile-a',
+  });
+
+  const inventory = await adapter.inventory(undefined, { signal: new AbortController().signal });
+  expect(inventory.warnings).toHaveLength(1);
+  expect(inventory.warnings[0]).toContain('A');
+  expect(inventory.sessions.map((session) => session.id)).toEqual(['b-1']);
+  expect(inventory.sessions[0].workspaceId).toBe('B');
 });
 
 it('unpins only retired workspace sync identities, retaining conversation bodies and other owners', async () => {

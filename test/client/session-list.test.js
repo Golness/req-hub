@@ -60,7 +60,7 @@ it.each(['', ' Codex '])(
       'unknown',
     ]);
     expect(sessions.map((item) => item.id)).toEqual(original);
-    expect(rows()[0].textContent).toContain(new Date('2026-11-02T10:00:00Z').toLocaleDateString());
+    expect(rows()[0].textContent).toContain('2026-11-02');
   },
 );
 

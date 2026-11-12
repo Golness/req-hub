@@ -169,33 +169,22 @@ it('saves to the selected directory and sends overwrite consent only after confi
   expect(document.querySelector('[role=dialog]')).toBeNull();
 });
 
-it('tracks Wiki processing after saving and supplies the selected parent session', async () => {
+it('supplies the selected parent session when saving the requirement draft', async () => {
   const original = fetchMock.getMockImplementation();
   fetchMock.mockImplementation(async (url, options) => {
     if (url.endsWith('/save')) {
       return { ok: true, json: async () => ({
         path: 'alice/2026-10-23-orders/requirement.md',
-        wiki: { state: 'saved', documentId: 'doc', processingStatus: 'running' },
-      }) };
-    }
-    if (url.includes('/source-state?')) {
-      return { ok: true, json: async () => ({
-        documentId: 'doc', processingStatus: 'failed', error: { code: 'WIKI_EXECUTION_FAILED' },
       }) };
     }
     return original(url, options);
   });
   localStorage.setItem(writingDraftKey('ws', 'alice/2026-10-23-orders'),
     JSON.stringify({ requirement: before }));
-  const open = vi.fn();
-  await render({ requirement: { id: '2026-10-23-orders', path: 'alice/2026-10-23-orders' },
-    onOpenWikiEvents: open });
+  await render({ requirement: { id: '2026-10-23-orders', path: 'alice/2026-10-23-orders' } });
   await click(button('保存'));
   expect(fetchMock.mock.calls.find(([url]) => url.endsWith('/save'))[1].headers['x-session-id'])
     .toBe('parent');
-  expect(container.textContent).toContain('文档已保存 · Wiki：失败');
-  await click(button('查看 Wiki 运行事件'));
-  expect(open).toHaveBeenCalledOnce();
   expect(container.querySelector('.ProseMirror').textContent).toContain('原始规则');
 });
 it('keeps the draft editable with visible status while cancellation waits for the child', async () => {

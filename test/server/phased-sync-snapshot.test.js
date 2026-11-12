@@ -264,7 +264,11 @@ describe('v2 frozen evidence and isolated candidates', () => {
     for (const request of harness.requests) {
       expect(JSON.stringify(request.prompt)).not.toContain('DIFF_SENTINEL');
       expect(JSON.stringify(request.prompt)).not.toContain('保留  双空格');
-      expect(request.toolFilter.allow).toEqual(['req_hub_sync_read', 'req_hub_sync_write', 'req_hub_sync_edit']);
+      const editing = JSON.stringify(request.prompt).includes('Edit manifest artifact:');
+      expect(request.toolFilter.allow).toEqual([
+        'req_hub_sync_read',
+        editing ? 'req_hub_sync_edit' : 'req_hub_sync_write',
+      ]);
     }
     expect(events.some(event => event.phase === 'validate' && event.status === 'completed')).toBe(true);
     expect(events.find(event => event.phase === 'code_analysis' && event.status === 'started').concurrency).toBe(3);

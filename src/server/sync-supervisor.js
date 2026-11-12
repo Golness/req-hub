@@ -2,8 +2,8 @@ import model from '../shared/sync-task.cjs';
 import { randomUUID } from 'node:crypto';
 
 export const SYNC_LIMITS = {
-  preparing: 5 * 60_000,
-  idle: 25 * 60_000,
+  preparing: 20 * 60_000,
+  idle: 65 * 60_000,
   total: 6 * 60 * 60_000,
   cancelling: 30_000,
 };
@@ -15,15 +15,22 @@ export class SyncSupervisor {
     this.limits = limits;
     this.owner = null;
     this.latest = null;
+    this.waiters = new Set();
   }
-  acquire(fields) {
+  /**
+   * Reserve preparation and execution under the same cancellation owner.
+   * @param fields - Scoped task metadata and optional Client request identity.
+   * @param controller - Request controller retained through preparation and child disposal.
+   * @returns The exclusive lease, or null when another sync owns execution.
+   */
+  acquire(fields, controller = new AbortController()) {
     if (this.owner) {
       return null;
     }
     const owner = {
       fields,
-      notificationId: randomUUID(),
-      controller: new AbortController(),
+      notificationId: fields.requestId || randomUUID(),
+      controller,
       startedAt: this.now(),
       lastProgressAt: this.now(),
       task: null,
@@ -190,7 +197,33 @@ export class SyncSupervisor {
     this.remember(task);
     if (this.owner === owner) {
       this.owner = null;
+      for (const notify of [...this.waiters]) {
+        notify();
+      }
     }
+  }
+  /** Wait for exclusive sync ownership without polling task completion. */
+  waitAvailable(signal) {
+    signal?.throwIfAborted();
+    if (!this.owner) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+      const clean = () => {
+        this.waiters.delete(available);
+        signal?.removeEventListener('abort', aborted);
+      };
+      const available = () => {
+        clean();
+        resolve();
+      };
+      const aborted = () => {
+        clean();
+        reject(signal.reason);
+      };
+      this.waiters.add(available);
+      signal?.addEventListener('abort', aborted, { once: true });
+    });
   }
   remember(task) {
     if (
@@ -268,8 +301,9 @@ export class SyncSupervisor {
         ? model.snapshotSyncTask(
             owner.task || {
               ...owner.fields,
+              id: owner.notificationId,
               notificationId: owner.notificationId,
-              status: 'preparing',
+              status: owner.controller.signal.aborted ? 'cancelling' : 'preparing',
               startedAt: owner.startedAt,
               steps,
             },

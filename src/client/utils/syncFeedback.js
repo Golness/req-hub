@@ -1,5 +1,11 @@
 'use strict';
-const { t } = require('../locale.js');
+const { t, hasLocaleKey } = require('../locale.js');
+
+/** Keep Host diagnostics readable when a newer error code has no Client translation. */
+function errorLabel(code, namespace = 'sync.error') {
+  const key = `${namespace}.${code}`;
+  return hasLocaleKey(key) ? t(key) : code;
+}
 
 /**
  * Localize stable sync activity fields for display.
@@ -33,6 +39,13 @@ function syncErrorText(value) {
   const text = typeof value === 'string' ? value : '';
   return [...new Set(text.split('；'))]
     .map((part) => {
+      const retryError =
+        /^(SYNC_RETRY_INVALID|SYNC_RETRY_NODE_INVALID|SYNC_RETRY_INPUT_CHANGED|SYNC_USER_CANCELLED)(?=:|$)/.exec(
+          part,
+        );
+      if (retryError) {
+        return part.replace(retryError[1], errorLabel(retryError[1]));
+      }
       const unread =
         /^EVIDENCE_NOT_FULLY_READ: ([^;]+); nextOffset=(\d+); totalChars=(\d+); remaining=(\d+)\./.exec(
           part,
@@ -48,13 +61,22 @@ function syncErrorText(value) {
       const knowledgeError =
         /^ENHANCEMENT_(?:BUDGET_EXCEEDED|INPUT_CHANGED|SCOPE_DENIED|INVALID_INPUT)$/.test(part);
       if (knowledgeError) {
-        return t(`enhancement.error.${part}`);
+        return errorLabel(part, 'enhancement.error');
       }
       return part.replace(
         /\b(CHANGE_BLOCK_ID|CHANGE_ACTION|CHANGE_TEXT|SYNC_OUTPUT_REPAIR_LIMIT|ANALYSIS_JSON_INVALID|ANALYSIS_SCHEMA|CHANGE_ID|CHANGE_EVIDENCE_OR_SCOPE|PENDING_SCHEMA|EVIDENCE_REFERENCE_NOT_READ|MERGE_CHANGE_DROPPED|SYNC_STORAGE_BUSY|SYNC_EXECUTION_REVOKED|SYNC_EXECUTION_INTERRUPTED|SYNC_SEQUENCE_INTERRUPTED|SYNC_SEQUENCE_INCOMPLETE|SYNC_SEQUENCE_CONFLICT|SYNC_SEQUENCE_NOT_FOUND|SYNC_DOCUMENT_NOT_COMPLETED|SYNC_LLM_UNAVAILABLE|SYNC_REQUIREMENT_NOT_FOUND|SYNC_REFERENCE_INVALID|SYNC_REFERENCE_MISSING|SYNC_REFERENCE_TOO_LARGE|SYNC_REFERENCE_LIST_TOO_LARGE|SYNC_REFERENCE_CHANGED|SYNC_REFERENCE_UNSUPPORTED|CODEX_SESSION_WORKSPACE_MISMATCH|SYNC_RETIRE_LINK|SYNC_STORAGE_LINK|SYNC_SUBAGENT_FAILED|EXECUTION_ERROR|MAX_TOKENS_REACHED|EXECUTION_INTERRUPTED|REFUSAL|SYNC_TOOL_ISOLATION_FAILED|SYNC_REQUEST_BUDGET_EXCEEDED|SYNC_EVIDENCE_COMPACTED|EVIDENCE_NOT_FULLY_READ|OUTPUT_NOT_WRITTEN)\b/g,
-        (code) => t(`sync.error.${code}`),
+        (code) => errorLabel(code),
       );
     })
     .join('；');
 }
-module.exports = { syncActivityText, syncErrorText };
+/**
+ * Resolve a product-facing stage title while retaining unknown historical stage labels.
+ * @param step - Stored stage metadata.
+ * @returns The localized stage title.
+ */
+function syncPhaseLabel(step) {
+  const key = `sync.step.${step?.phase}.title`;
+  return hasLocaleKey(key) ? t(key) : step?.label || t('sync.activity.preparing');
+}
+module.exports = { syncActivityText, syncErrorText, syncPhaseLabel };

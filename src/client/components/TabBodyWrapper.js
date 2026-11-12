@@ -20,6 +20,13 @@ function TabBodyWrapper() {
   const [docsDir, setDocsDir] = useState('docs');
   const [selectedWs, setSelectedWs] = useState(null);
   const [initialReqId, setInitialReqId] = useState(null);
+  const [initialLocation, setInitialLocation] = useState(null);
+
+  const selectWorkspace = (workspace, location = null) => {
+    setInitialLocation(location);
+    setInitialReqId(location?.requirement?.id || null);
+    setSelectedWs(workspace);
+  };
 
   // Pass wsList explicitly to avoid stale closure over workspaces state
   const loadConfig = (wsList) => {
@@ -100,8 +107,9 @@ function TabBodyWrapper() {
       docsDir,
       onConfigChange: () => loadConfig(workspaces),
       workspaces,
-      onSelectWorkspace: setSelectedWs,
+      onSelectWorkspace: selectWorkspace,
       initialReqId,
+      initialLocation,
     }),
   );
 }

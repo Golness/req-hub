@@ -1,6 +1,7 @@
 import { delegationContext, bindOwnedSession } from '../../src/server/delegation-context.js';
 import { readFile, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
+import { OUTPUT_LIMIT } from '../../src/server/sync-controlled-tools.js';
 
 /** In-process DSH contract double: tools remain scoped and all model work is deterministic. */
 export function createSyncHarness({ noChange = false, skipCoverage = false, oversize = false, onStart } = {}) {
@@ -59,7 +60,7 @@ export function createSyncHarness({ noChange = false, skipCoverage = false, over
             }
             else if (!noChange) changes = [{ id: 'c1', action: blocks[0]?.type === 'empty' ? 'add' : 'modify', blockId: blocks.find(block => block.type === 'paragraph' || block.type === 'empty')?.id,
               reason: 'confirmed source rule', proposal: blocks[0]?.type === 'empty' ? '# 标题\n\n新规则\n' : '新规则', evidenceRefs: manifest.required.filter(id => /^(code\.|session\.)/.test(id)).slice(0, 1) }];
-            await invoke('req_hub_sync_write', { outputId: 'report', content: oversize ? 'x'.repeat(13000) : '专业分析：已确认规则的最小变更。' });
+            await invoke('req_hub_sync_write', { outputId: 'report', content: oversize ? 'x'.repeat(OUTPUT_LIMIT + 1) : '专业分析：已确认规则的最小变更。' });
             await invoke('req_hub_sync_write', { outputId: 'changes', content: JSON.stringify({ changes, pending: [] }) });
           }
           return { stopReason: 'completed', output: [{ type: 'text', text: '已完成' }] };

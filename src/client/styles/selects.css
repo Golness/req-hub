@@ -56,9 +56,10 @@
 
 /* The plugin portal follows host material and viewport boundaries. */
 .rh-select-menu[role='menu'] {
-  width: max-content;
-  min-width: min(180px, calc(100vw - 24px));
-  max-width: min(420px, calc(100vw - 24px));
+  width: min(var(--rh-overlay-anchor-width, 180px), calc(100vw - 24px));
+  min-width: 0;
+  max-width: calc(100vw - 24px);
+  border-radius: var(--dsw-radius-lg);
   max-height: min(
     320px,
     var(--rh-overlay-height, 320px),
@@ -67,9 +68,6 @@
   font-family: var(--rh-font-family);
   font-size: var(--rh-font-size);
   line-height: var(--rh-line-height);
-}
-.rh-select-menu-searchable[role='menu'] {
-  width: min(360px, calc(100vw - 24px));
 }
 .rh-select-menu > [role='presentation'] {
   overscroll-behavior: contain;

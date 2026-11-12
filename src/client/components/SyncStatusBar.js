@@ -4,8 +4,7 @@ const { Button } = require('./shared/Button.js');
 const React = require('react');
 const h = React.createElement;
 const model = require('../../shared/sync-task.cjs');
-const { DeleteSyncTaskButton } = require('./shared/DeleteSyncTaskButton.js');
-const { syncActivityText, syncErrorText } = require('../utils/syncFeedback.js');
+const { syncActivityText, syncErrorText, syncPhaseLabel } = require('../utils/syncFeedback.js');
 
 /**
  * Keep scoped sync activity visible outside the operation page.
@@ -39,14 +38,13 @@ function SyncStatusBar({ monitor, onOpen }) {
   let detail;
   if (active) {
     detail = t('SyncStatusBar.message009', {
-      value0: step?.activity
-        ? syncActivityText(step.activity)
-        : step?.label || t('SyncStatusBar.message007'),
+      value0: step?.activity ? syncActivityText(step.activity) : syncPhaseLabel(step),
       value1: done,
       value2: steps.length,
-      value3: chunks.length
-        ? t('SyncStatusBar.message008', { value0: chunkDone, value1: chunks.length })
-        : '',
+      value3:
+        chunks.length > 1
+          ? t('SyncStatusBar.message008', { value0: chunkDone, value1: chunks.length })
+          : '',
     });
   } else if (task.error) {
     detail = ` · ${syncErrorText(task.error)}`;
@@ -81,7 +79,6 @@ function SyncStatusBar({ monitor, onOpen }) {
         { type: 'button', className: 'rh-btn rh-btn-ghost rh-btn-sm', onClick: monitor.refresh },
         monitor.error + t('SyncStatusBar.message010'),
       ),
-    h(DeleteSyncTaskButton, { task }),
     !active &&
       h(
         Button,

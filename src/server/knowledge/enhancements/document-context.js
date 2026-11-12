@@ -1,4 +1,4 @@
-import { normalizeSourcePath } from '../source-reader.js';
+import { normalizeSourcePath } from '../../source-reader.js';
 import { buildGraph, impact } from './graph.js';
 import { bounded, digest, fail } from './contracts.js';
 

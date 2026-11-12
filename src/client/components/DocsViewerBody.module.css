@@ -1,7 +1,4 @@
 /* Component presentation; runtime geometry uses local CSS variables. */
-.content > .inactive {
-  display: none;
-}
 .content {
   flex: 1;
 }

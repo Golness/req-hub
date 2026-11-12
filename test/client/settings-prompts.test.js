@@ -35,6 +35,8 @@ beforeEach(() => {
         ok = !failSave;
         if (ok) {
           const incoming = JSON.parse(options.body);
+          config.general = incoming.general;
+          config.defaultUsername = incoming.defaultUsername;
           config.ai = {
             ...config.ai,
             ...incoming.ai,
@@ -43,6 +45,12 @@ beforeEach(() => {
         }
       }
       data = structuredClone(config);
+    } else if (url.endsWith('/workspaces')) {
+      data = [{ id: 'ws', title: 'Workspace', path: '/workspace' }];
+    } else if (url.endsWith('/lark/target-options')) {
+      data = { items: [], hasMore: false, pageToken: '' };
+    } else if (url.endsWith('/lark/target-get')) {
+      data = { binding: null, revision: null, workspaceTitle: 'Workspace' };
     } else if (url.endsWith('/llm-config')) data = { provider: 'Provider', models: ['model'] };
     else if (url.includes('/knowledge/enhancements/jobs'))
       data = { enabled: false, jobs: [], mcpServers: [], mcpAvailable: false };
@@ -92,10 +100,49 @@ async function renderSettings(sessionId = null, initialTab = 'prompts') {
 
 const click = async (element) => act(async () => element.click());
 const tab = (name) =>
-  [...document.querySelectorAll('[role="tab"]')].find((el) => el.textContent.startsWith(name));
+  [...document.querySelectorAll('.rh-prompt-tabs [role="tab"]')].find((el) =>
+    el.textContent.startsWith(name),
+  );
 const prompt = (name) =>
   [...document.querySelectorAll('.rh-prompt-item')].find((el) => el.textContent === name);
 const save = () => document.querySelector('.rh-settings-actions .rh-btn-primary');
+it('loads, edits and saves the shared subagent limit from model settings', async () => {
+  config.ai.delegation = { maxConcurrency: 5 };
+  await renderSettings(null, 'general');
+  const advanced = [...document.querySelectorAll('[data-rh-disclosure-trigger]')].find(
+    (node) => node.textContent === '高级设置',
+  );
+  expect(advanced.getAttribute('aria-expanded')).toBe('false');
+  await click(advanced);
+  const input = document.querySelector('#rh-subagent-concurrency');
+  expect(input.value).toBe('5');
+  expect(input.min).toBe('1');
+  expect(input.max).toBe('16');
+  const title = document.getElementById(input.getAttribute('aria-labelledby'));
+  const help = title.parentElement.querySelector('button');
+  expect(title.textContent).toBe('子代理并发数');
+  expect(title.tagName).toBe('SPAN');
+  expect(input.closest('label')).toBeNull();
+  expect(document.querySelector('label[for="rh-subagent-concurrency"]')).toBeNull();
+  const activated = vi.fn();
+  input.addEventListener('click', activated);
+  await click(title);
+  await click(help);
+  expect(activated).not.toHaveBeenCalled();
+  expect(input.value).toBe('5');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(
+      input,
+      '4',
+    );
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await click(save());
+  expect(config.ai.delegation.maxConcurrency).toBe(4);
+  expect(fetchMock.mock.calls.find(([, options]) => options?.method === 'POST')[1].body).toContain(
+    '"maxConcurrency":4',
+  );
+});
 async function edit(value) {
   const textarea = document.querySelector('.rh-prompt-textarea');
   await act(async () => {
@@ -107,11 +154,59 @@ async function edit(value) {
   });
 }
 
+it('saves the general clock and applies it only after persistence succeeds', async () => {
+  const clock = require('../../src/client/time.js');
+  await renderSettings(null, 'general');
+  expect(document.querySelector('#settings-tab-general').textContent).toBe('通用');
+  const zone = document.querySelector('[aria-labelledby="rh-time-zone-title"]');
+  await click(zone);
+  await click(document.querySelector('[role="menuitem"][data-value="UTC"]'));
+  expect(clock.formatTime('2026-11-06T03:41:54Z')).toBe('11:41:54');
+  failSave = true;
+  await click(save());
+  expect(clock.formatTime('2026-11-06T03:41:54Z')).toBe('11:41:54');
+  failSave = false;
+  await click(save());
+  expect(config.general).toMatchObject({ timeZone: 'UTC' });
+  expect(clock.formatTime('2026-11-06T03:41:54Z')).toBe('03:41:54');
+});
+
+it('saves the shared username, execution deadline and knowledge budgets from General', async () => {
+  await renderSettings(null, 'general');
+  await click(
+    [...document.querySelectorAll('[data-rh-disclosure-trigger]')].find(
+      (node) => node.textContent === '高级设置',
+    ),
+  );
+  const editInput = async (labelId, value) =>
+    act(async () => {
+      const input = document.querySelector(`input[aria-labelledby="${labelId}"]`);
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(
+        input,
+        value,
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  await editInput('rh-default-username-title', 'alice');
+  await editInput('rh-general-taskTimeoutMs-title', '29');
+  expect(save().disabled).toBe(true);
+  await editInput('rh-general-taskTimeoutMs-title', '90');
+  await editInput('rh-general-knowledgeMaxInputBytes-title', '8.001');
+  await editInput('rh-general-knowledgeMaxResultBytes-title', '3');
+  await click(save());
+  expect(config.defaultUsername).toBe('alice');
+  expect(config.general).toMatchObject({
+    taskTimeoutMs: 90000,
+    knowledgeMaxInputBytes: 8001,
+    knowledgeMaxResultBytes: 3000,
+  });
+});
+
 it('groups every registered prompt by rail feature and supports keyboard tabs', async () => {
   await renderSettings();
   expect(
     [...document.querySelectorAll('.rh-prompt-tabs [role="tab"]')].map((el) => el.textContent),
-  ).toEqual(['同步10', '知识库2', '写作1']);
+  ).toEqual(['同步10', '知识库5', '写作1']);
   expect(document.querySelectorAll('.rh-prompt-item')).toHaveLength(10);
   expect(document.querySelectorAll('textarea')).toHaveLength(1);
   expect(document.body.textContent).not.toContain('Prompt 结构说明');
@@ -257,15 +352,17 @@ it('shows the effective native binding and uses one session scope for config and
 });
 
 it('separates settings features and retains prompt drafts across top-level tabs', async () => {
-  await renderSettings(null, 'model');
+  await renderSettings(null, 'general');
   const tabs = [...document.querySelectorAll('[aria-label="设置功能"] [role="tab"]')];
   expect(tabs.map((item) => item.textContent)).toEqual([
-    '模型',
-    '知识关联与代码索引',
-    'Wiki 管理',
+    '通用',
+    '依赖',
+    '同步',
     'Prompt 管理',
   ]);
-  expect(document.querySelector('#settings-tab-model').getAttribute('aria-selected')).toBe('true');
+  expect(document.querySelector('#settings-tab-general').getAttribute('aria-selected')).toBe(
+    'true',
+  );
   expect(document.querySelector('#settings-content-prompts').hidden).toBe(true);
   expect(document.querySelector('textarea')).toBeNull();
   expect(document.querySelectorAll('.rh-settings-panel button').length).toBeGreaterThan(0);
@@ -275,42 +372,46 @@ it('separates settings features and retains prompt drafts across top-level tabs'
   expect(document.activeElement).toBe(document.querySelector('#settings-tab-prompts'));
   await click(tab('写作'));
   await edit('保留未保存的正文模板');
-  await click(document.querySelector('#settings-tab-model'));
+  await click(document.querySelector('#settings-tab-general'));
   expect(document.querySelector('#settings-content-prompts').hidden).toBe(true);
   expect(save().disabled).toBe(false);
   await click(document.querySelector('#settings-tab-prompts'));
   expect(document.querySelector('textarea').value).toBe('保留未保存的正文模板');
   expect(tab('写作').getAttribute('aria-selected')).toBe('true');
-});
-
-it('opens Wiki configuration directly and keeps edits when another tab is selected', async () => {
-  const fallback = fetchMock.getMockImplementation();
-  fetchMock.mockImplementation(async (url, options) => {
-    if (String(url).includes('/knowledge/wiki/settings')) {
-      return {
-        ok: true,
-        json: async () => ({
-          version: 1,
-          values: { dailyUpdateEnabled: true, dailyUpdateTime: '02:00' },
-        }),
-      };
-    }
-    return fallback(url, options);
-  });
-  await renderSettings(null, 'model');
-  await click(document.querySelector('#settings-tab-wiki'));
-  const panel = document.querySelector('#settings-content-wiki');
-  expect(panel.querySelector('[data-rh-disclosure-trigger]')).toBeNull();
-  const time = panel.querySelector('input[type="time"]');
-  expect(time.value).toBe('02:00');
+  await click(document.querySelector('#settings-tab-dependencies'));
+  const dependencies = document.querySelector('#settings-content-dependencies');
+  const dependencyTabs = [...dependencies.querySelectorAll('[role="tablist"] [role="tab"]')];
+  expect(dependencyTabs.map((node) => node.textContent)).toEqual(['GitNexus', '飞书 CLI']);
+  const gitnexusPanel = document.getElementById(dependencyTabs[0].getAttribute('aria-controls'));
+  const larkPanel = document.getElementById(dependencyTabs[1].getAttribute('aria-controls'));
+  expect(gitnexusPanel.hidden).toBe(false);
+  expect(larkPanel.hidden).toBe(true);
+  expect(larkPanel.querySelector('input')).toBeNull();
+  await act(async () =>
+    dependencyTabs[0].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
+    ),
+  );
+  expect(document.activeElement).toBe(dependencyTabs[1]);
+  expect(gitnexusPanel.hidden).toBe(true);
+  expect(larkPanel.hidden).toBe(false);
+  expect(larkPanel.textContent).toContain('发布到飞书');
+  const advanced = dependencies.querySelector('[data-rh-disclosure-trigger]');
+  await click(advanced);
+  const profile = dependencies.querySelector('input[id$="-profile"]');
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(time, '03:30');
-    time.dispatchEvent(new Event('input', { bubbles: true }));
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(
+      profile,
+      'draft',
+    );
+    profile.dispatchEvent(new Event('input', { bubbles: true }));
   });
-  await click(document.querySelector('#settings-tab-model'));
-  await click(document.querySelector('#settings-tab-wiki'));
-  expect(panel.querySelector('input[type="time"]').value).toBe('03:30');
-  expect(
-    fetchMock.mock.calls.filter(([url]) => String(url).includes('/knowledge/wiki/settings')),
-  ).toHaveLength(1);
+  await click(dependencyTabs[0]);
+  expect(larkPanel.hidden).toBe(true);
+  await click(dependencyTabs[1]);
+  expect(larkPanel.querySelector('input[id$="-profile"]').value).toBe('draft');
+  await click(document.querySelector('#settings-tab-general'));
+  await click(document.querySelector('#settings-tab-dependencies'));
+  expect(dependencyTabs[1].getAttribute('aria-selected')).toBe('true');
+  expect(dependencies.querySelector('input[id$="-profile"]').value).toBe('draft');
 });

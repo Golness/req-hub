@@ -31,10 +31,42 @@ it('closes only after successful creation and keeps the chosen letter case', asy
 it.each(['main', 'master'])('offers explicit %s update and sends the expected branch and version', async branch => {
   const sent = [];
   await render({ branch, canUpdateMain: true, head: 'a'.repeat(40) }, async (_url, options) => { sent.push(JSON.parse(options.body)); return { ok: true, json: async () => ({ updated: true }) }; });
-  await click(button(`拉取并合并远端 ${branch}`));
+  await click(button(`更新 ${branch}`));
   expect(sent).toEqual([{ workspaceId: 'w', expectedHead: 'a'.repeat(40), branch }]); expect(document.body.textContent).toContain(`本地 ${branch} 已更新`);
 });
-it('does not offer main update for dirty workspaces or other branches', async () => {
+it('keeps the main update visible and explains why dirty workspaces cannot update', async () => {
   await render({ branch: 'main', canUpdateMain: false, dirty: true });
-  expect(button('拉取并合并远端 main')).toBeUndefined();
+  expect(button('更新 main').disabled).toBe(true);
+  expect(container.textContent).toContain('有未提交改动，处理后刷新。');
+  await click(button('更新 main'));
+  expect(fetch.mock.calls.some(([url]) => url.includes('/update-main'))).toBe(false);
+});
+
+it.each([
+  ['CREATE_MAIN_IN_PROGRESS', 'Git 操作未完成，处理后刷新。'],
+  ['CREATE_MAIN_NOT_ROOT', '当前工作区不是仓库根目录，无法更新。'],
+])('shows the Host blocking reason %s beside the disabled action', async (reason, hint) => {
+  await render({ branch: 'master', canUpdateMain: false, mainUpdateBlockedReason: reason });
+  const update = button('更新 master');
+  expect(update.disabled).toBe(true);
+  expect(document.getElementById(update.getAttribute('aria-describedby')).textContent).toBe(hint);
+});
+
+it('rechecks eligibility explicitly before allowing main update', async () => {
+  const status = { branch: 'main', canUpdateMain: false, dirty: true };
+  await render(status);
+  expect(button('更新 main').disabled).toBe(true);
+  status.dirty = false;
+  status.canUpdateMain = true;
+  await click(button('刷新状态'));
+  expect(button('更新 main').disabled).toBe(false);
+  expect(fetch.mock.calls.filter(([url]) => url.includes('/create-status'))).toHaveLength(2);
+  expect(fetch.mock.calls.some(([url]) => url.includes('/update-main'))).toBe(false);
+});
+
+it('prefills the configured default username when opening a new requirement', async () => {
+  await render({ branch: 'main' }, async (url) => ({
+    ok: true, json: async () => url.endsWith('/config') ? { defaultUsername: 'alice-smith' } : {},
+  }));
+  expect(container.querySelector('input[id$="-developer"]').value).toBe('alice-smith');
 });

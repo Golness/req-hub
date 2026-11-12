@@ -7,7 +7,7 @@ import { resolveSyncBudget, syncReadPage } from './sync-budget.js';
 import { validateCandidate, assertEditInBlock } from './sync-document-validator.js';
 
 export const SYNC_TOOLS = ['req_hub_sync_read', 'req_hub_sync_write', 'req_hub_sync_edit'];
-export const OUTPUT_LIMIT = 12000;
+export const OUTPUT_LIMIT = 256 * 1000;
 export const REQUEST_RESERVE = 8192;
 const installations = new WeakMap();
 
@@ -110,7 +110,10 @@ export function installSyncTools(ctx) {
   disposers.push(
     ctx.tools.guard((exec) => {
       const runtime = sessions.get(exec.agent?.session?.id);
-      if (runtime && !SYNC_TOOLS.includes(exec.name) && exec.name !== 'run_code') {
+      if (runtime && !runtime.allowedTools?.includes(exec.name) && exec.name !== 'run_code') {
+        if (SYNC_TOOLS.includes(exec.name) && !runtime.closed) {
+          return runtime.stageToolError(exec.name);
+        }
         return '同步 v2 禁止旁路工具';
       }
       return undefined;
@@ -221,7 +224,16 @@ export function installSyncTools(ctx) {
         const missingOutputs = Object.keys(runtime.outputs).filter(
           (id) => !runtime.outputWritten.has(id),
         );
-        if (!diagnostic.readState.remaining && !missingOutputs.length) {
+        const missingEditBlockIds = runtime.candidatePath
+          ? [...new Set(runtime.changes.map((change) => change.blockId))].filter(
+              (id) => !runtime.journal.some((edit) => edit.blockId === id),
+            )
+          : [];
+        if (
+          !diagnostic.readState.remaining &&
+          !missingOutputs.length &&
+          !missingEditBlockIds.length
+        ) {
           return;
         }
         if ((runtime.completionReminders || 0) >= (runtime.maxCompletionReminders ?? 3)) {
@@ -240,9 +252,13 @@ export function installSyncTools(ctx) {
           JSON.stringify({
             readState: diagnostic.readState,
             missingOutputs,
+            missingEditBlockIds,
             outputErrors: diagnostic.outputErrors,
           }) +
-          '. Read readState.next.artifactId at readState.next.offset, follow subsequent readState.next until remaining=0; then write every missing output with req_hub_sync_write. Only written=true acknowledges a successful write.';
+          '. Read readState.next.artifactId at readState.next.offset until remaining=0. ' +
+          (runtime.candidatePath
+            ? 'Read candidate to locate exact text as needed. Use req_hub_sync_edit for missingEditBlockIds. Edit receipts confirm completion. This stage has no analysis outputs; do not call req_hub_sync_write.'
+            : 'Write every missing output with req_hub_sync_write. Only written=true acknowledges a successful write.');
         agent.steer(
           Object.freeze({
             id: randomUUID(),
@@ -362,6 +378,9 @@ class SyncRuntime {
   constructor(ctx, options) {
     Object.assign(this, options);
     this.ctx = ctx;
+    this.allowedTools = this.candidatePath
+      ? ['req_hub_sync_read', 'req_hub_sync_edit']
+      : ['req_hub_sync_read', 'req_hub_sync_write'];
     this.id = randomUUID();
     this.coverage = new Map();
     this.contextCost = 0;
@@ -515,7 +534,16 @@ class SyncRuntime {
       await this.store.read(id);
     }
   }
+  stageToolError(name) {
+    const instruction = this.candidatePath
+      ? 'Use req_hub_sync_edit for planned candidate edits. This stage has no analysis outputIds. After all edit receipts, finish with a brief acknowledgment.'
+      : 'Use req_hub_sync_write for assigned analysis outputs. This stage cannot edit a candidate.';
+    return `SYNC_STAGE_TOOL_DENIED: ${name}. ${instruction}`;
+  }
   async write({ outputId, content }) {
+    if (!this.allowedTools.includes('req_hub_sync_write')) {
+      throw new Error(this.stageToolError('req_hub_sync_write'));
+    }
     if (this.outputFailure) {
       throw this.outputFailure;
     }
@@ -527,16 +555,22 @@ class SyncRuntime {
     ) {
       content = JSON.stringify(content);
     }
-    if (
-      !this.outputs[outputId] ||
-      typeof content !== 'string' ||
-      Buffer.byteLength(content) > OUTPUT_LIMIT ||
-      !content.trim()
-    ) {
+    if (!this.outputs[outputId] || typeof content !== 'string' || !content.trim()) {
       this.rejectOutput(
         outputId,
         new Error(
-          'OUTPUT_SCOPE_OR_SIZE: use an assigned outputId and non-empty content within the byte limit; only changes accepts a structured object.',
+          'OUTPUT_SCOPE_OR_SIZE: use an assigned outputId and non-empty content; only changes accepts a structured object.',
+        ),
+      );
+    }
+    const contentBytes = Buffer.byteLength(content);
+    if (contentBytes > OUTPUT_LIMIT) {
+      this.rejectOutput(
+        outputId,
+        new Error(
+          `OUTPUT_SIZE: ${outputId} is ${(contentBytes / 1000).toFixed(3)} KB; ` +
+            `limit is ${OUTPUT_LIMIT / 1000} KB (UTF-8). ` +
+            'Merge duplicate proposals using sourceIds and preserve all confirmed changes.',
         ),
       );
     }
@@ -589,6 +623,9 @@ class SyncRuntime {
     );
   }
   async edit({ blockId, expectedHash, oldText, newText }, exec) {
+    if (!this.allowedTools.includes('req_hub_sync_edit')) {
+      throw new Error(this.stageToolError('req_hub_sync_edit'));
+    }
     await this.assertCoverage();
     if (
       !this.candidatePath ||

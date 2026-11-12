@@ -20,7 +20,7 @@ import {
 import { walkDocs, isInside, json, readBody } from '../utils.js';
 import { log } from '../logger.js';
 import { SUPPORTED_DOC_EXTS } from '../tree.js';
-import { readSource } from '../knowledge/source-reader.js';
+import { readSource } from '../source-reader.js';
 
 /**
  * Create document tree routes.
@@ -406,15 +406,11 @@ export function createTreeRoutes(registry, options = {}) {
           const fileStat = await stat(fullPath);
 
           const result = { success: true, mtime: fileStat.mtime.toISOString() };
-          if (options.knowledgeService?.wiki) {
+          if (options.knowledgeService?.sync) {
             try {
-              result.wiki = await options.knowledgeService.wiki.capture(
-                workspaceId,
-                filePath,
-                req.operationExec?.agent?.session?.id || req.headers?.['x-session-id'],
-              );
+              result.knowledge = await options.knowledgeService.sync.capture(workspaceId, filePath);
             } catch {
-              result.wiki = { state: 'failed', code: 'WIKI_INGEST_FAILED' };
+              result.knowledge = { state: 'failed', code: 'KB_SYNC_FAILED' };
             }
           }
           json(res, result);

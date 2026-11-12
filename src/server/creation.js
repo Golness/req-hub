@@ -56,12 +56,23 @@ async function repositoryState(workspace, signal) {
       inProgress = true;
     }
   }
+  let mainUpdateBlockedReason = null;
+  if (!ownsRepository) {
+    mainUpdateBlockedReason = 'CREATE_MAIN_NOT_ROOT';
+  } else if (!['main', 'master'].includes(branch)) {
+    mainUpdateBlockedReason = 'CREATE_MAIN_NOT_BRANCH';
+  } else if (inProgress) {
+    mainUpdateBlockedReason = 'CREATE_MAIN_IN_PROGRESS';
+  } else if (dirty) {
+    mainUpdateBlockedReason = 'CREATE_MAIN_DIRTY';
+  }
   return {
     branch,
     head,
     dirty,
     inProgress,
-    canUpdateMain: ownsRepository && ['main', 'master'].includes(branch) && !dirty && !inProgress,
+    canUpdateMain: !mainUpdateBlockedReason,
+    mainUpdateBlockedReason,
   };
 }
 /**
@@ -69,7 +80,7 @@ async function repositoryState(workspace, signal) {
  * @param workspace - The authorized Host workspace.
  * @param config - Validated plugin configuration.
  * @param signal - Cancellation propagated from the owning task.
- * @returns Branch and main-update metadata for confirmation.
+ * @returns Branch, main-update eligibility and a stable blocking reason for presentation.
  */
 export async function creationStatus(workspace, config, signal) {
   let state;

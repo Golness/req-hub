@@ -16,35 +16,30 @@ export function createOperations(routes) {
   // Prefix APIs have explicit operation paths; never let a tool select an arbitrary URL.
   for (const [action, path] of [
     ...[
-      'index',
+      'rules',
+      'query',
+      'evidence',
+      'lint',
       'search',
-      'changelog',
+      'settings',
+      'sources',
+      'sources/files',
+      'source-state',
+      'sources/sessions',
+      'sources/sessions/detail',
       'pages',
       'jobs',
-      'candidates',
-      'rules',
-      'refs',
-      'backfill',
-      'export',
-      'restore',
-      'scopes',
-      'settings',
-      'projection',
-      'events',
-      'source-state',
-      'update-status',
-      'update',
-    ].map((action) => ['wiki-' + action, '/req-hub/knowledge/wiki/' + action]),
-    ['wiki-revisions', '/req-hub/knowledge/wiki/pages/:id/revisions'],
-    ['wiki-evidence', '/req-hub/knowledge/wiki/evidence/:id'],
-    ...['pages', 'jobs', 'candidates', 'summaries', 'refs'].map((action) => [
-      'wiki-' + action + '-item',
-      '/req-hub/knowledge/wiki/' + action + '/:id',
+      'reset',
+    ].map((action) => [
+      'knowledge-v2-' + action.replaceAll('/', '-'),
+      '/req-hub/knowledge-v2/' + action,
     ]),
-    ['wiki-regenerate', '/req-hub/knowledge/wiki/pages/:id/regenerate'],
-    ['wiki-cancel', '/req-hub/knowledge/wiki/jobs/:id/cancel'],
-    ['wiki-retry', '/req-hub/knowledge/wiki/jobs/:id/retry'],
-    ['wiki-save-answer', '/req-hub/knowledge/wiki/jobs/:id/save'],
+    ['knowledge-v2-source', '/req-hub/knowledge-v2/sources/:id'],
+    ['knowledge-v2-source-delete', '/req-hub/knowledge-v2/sources/:id/delete'],
+    ['knowledge-v2-page', '/req-hub/knowledge-v2/pages/:id'],
+    ['knowledge-v2-job', '/req-hub/knowledge-v2/jobs/:id'],
+    ['knowledge-v2-job-cancel', '/req-hub/knowledge-v2/jobs/:id/cancel'],
+    ['knowledge-v2-job-resume', '/req-hub/knowledge-v2/jobs/:id/resume'],
     ['knowledge-document-context', '/req-hub/knowledge/enhancements/context'],
     ['knowledge-enhancement-start', '/req-hub/knowledge/enhancements/jobs'],
     ['knowledge-enhancement-job', '/req-hub/knowledge/enhancements/jobs/:id'],
@@ -53,15 +48,6 @@ export function createOperations(routes) {
     ['knowledge-graph-entities', '/req-hub/knowledge/graph/entities'],
     ['knowledge-graph-relations', '/req-hub/knowledge/graph/relations'],
     ['knowledge-graph-impact', '/req-hub/knowledge/graph/impact'],
-    ['knowledge-search', '/req-hub/knowledge/search'],
-    ['knowledge-search-status', '/req-hub/knowledge/search/status'],
-    ['knowledge-status', '/req-hub/knowledge/status'],
-    ['knowledge-entries', '/req-hub/knowledge/entries'],
-    ['knowledge-source', '/req-hub/knowledge/source'],
-    ['knowledge-entry', '/req-hub/knowledge/entries/:id'],
-    ['knowledge-build', '/req-hub/knowledge/builds'],
-    ['knowledge-job', '/req-hub/knowledge/builds/:id'],
-    ['knowledge-cancel', '/req-hub/knowledge/builds/:id/cancel'],
     ['writing-options', '/req-hub/writing/options'],
     ['writing-knowledge', '/req-hub/writing/knowledge'],
     ['writing-optimize', '/req-hub/writing/optimize'],
@@ -93,7 +79,10 @@ export function createOperations(routes) {
         body = { ...body, sessionId };
       }
       const path = route.operationPath || route.path;
-      if (path.includes(':id') && (typeof id !== 'string' || !/^[a-zA-Z0-9-]+$/.test(id))) {
+      if (
+        path.includes(':id') &&
+        (typeof id !== 'string' || !id || id.length > 512 || /[\x00-\x1f]/.test(id))
+      ) {
         throw new Error('INVALID_OPERATION_ID');
       }
       const request = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))]);

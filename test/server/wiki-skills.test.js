@@ -12,10 +12,15 @@ const skill = (overrides) => ({
   invocation: { userInvocable: true, modelInvocable: true },
   ...overrides,
 });
-it('declares file generation for every current registered prompt', () => {
-  expect(Object.values(PROMPT_REGISTRY).every((meta) => meta.generatesFileContent === true)).toBe(
-    true,
-  );
+it('declares a file-content flag for every prompt; kb-query and kb-lint are non-file prompts', () => {
+  for (const meta of Object.values(PROMPT_REGISTRY)) {
+    expect(typeof meta.generatesFileContent).toBe('boolean');
+  }
+  expect(PROMPT_REGISTRY['kb-query'].generatesFileContent).toBe(false);
+  expect(PROMPT_REGISTRY['kb-lint'].generatesFileContent).toBe(false);
+  for (const key of ['kb-analyze', 'kb-generate', 'knowledge-enhancement', 'writing']) {
+    expect(PROMPT_REGISTRY[key].generatesFileContent).toBe(true);
+  }
 });
 it('fills defaults only for usable skills and preserves explicit choices', async () => {
   const skills = { get: async () => skill() };
@@ -55,13 +60,21 @@ it('requests native loading without embedding skill instructions and reserves th
       PROMPT_REGISTRY[key].variables.map((item) => [item.name, 'fixture']),
     );
     const prepared = await executor.loadPrompt({ promptKey: key, variables });
-    expect(prepared.fullPrompt).toMatch(/^\/asd-ste100\n/);
+    // Non-file prompts (kb-query, kb-lint) receive no skill binding by design.
+    if (PROMPT_REGISTRY[key].generatesFileContent) {
+      expect(prepared.fullPrompt).toMatch(/^\/asd-ste100\n/);
+      expect(prepared.skillStatus).toBe('requested');
+      expect(prepared.skillTokenReserve).toBeGreaterThan(0);
+    } else {
+      expect(prepared.fullPrompt).not.toMatch(/^\/asd-ste100\n/);
+      expect(prepared.skillStatus).toBe('not_bound');
+      expect(prepared.skillUsed).toBeNull();
+      expect(prepared.skillTokenReserve).toBe(0);
+    }
     expect(prepared.fullPrompt).not.toContain(skillBody);
     expect(prepared.fullPrompt).not.toContain('<skill_content');
-    expect(prepared.skillUsed).toBeNull();
-    expect(prepared.skillStatus).toBe('requested');
-    expect(prepared.skillTokenReserve).toBeGreaterThan(0);
-    expect(estimatePreparedPromptTokens(prepared)).toBeGreaterThan(
+    // Bound prompts reserve skill tokens; unbound prompts have an empty reserve.
+    expect(estimatePreparedPromptTokens(prepared)).toBeGreaterThanOrEqual(
       estimatePreparedPromptTokens({ fullPrompt: prepared.fullPrompt }),
     );
   }
@@ -88,10 +101,10 @@ it.each([
     },
   };
   expect(await defaultSkillBindings({}, skills)).toEqual({});
-  const prepared = await getPromptAsync({}, 'wiki-generate', '/project', skills);
+  const prepared = await getPromptAsync({}, 'knowledge-enhancement', '/project', skills);
   expect(prepared.skillStatus).toBe('unavailable');
   expect(prepared.skillUsed).toBeNull();
-  expect(prepared.promptTemplate).toContain('req_hub_wiki_submit');
+  expect(prepared.promptTemplate).toContain('req_hub_enhancement_submit');
 });
 it('honors explicit unbinding and does not reuse another scope body', async () => {
   const bound = { ai: { skillBindings: { writing: 'custom' } } };

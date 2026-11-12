@@ -59,8 +59,11 @@ it('awaits one-shot disposal before returning an execution timeout to the sync e
   vi.useFakeTimers(); const h = createSyncHarness(); let releaseDispose, settled = false;
   const run = { id: 'child', result: new Promise(() => {}), dispose: vi.fn(() => new Promise(resolve => { releaseDispose = resolve; })) };
   h.ctx.subagents.start = async () => run;
-  const executor = new TaskExecutor({ ...h, config: {} });
-  const pending = executor.executeViaSubagent({ promptKey: 'phased-test', syncV2: true, timeout: TaskExecutorConfig.minTimeout, liveness: { enabled: false }, preparedPromptData: { fullPrompt: 'bounded prompt' } }, Date.now()).then(result => { settled = true; return result; });
+  const executor = new TaskExecutor({
+    ...h,
+    config: { general: { taskTimeoutMs: TaskExecutorConfig.minTimeout } },
+  });
+  const pending = executor.executeViaSubagent({ promptKey: 'phased-test', syncV2: true, liveness: { enabled: false }, preparedPromptData: { fullPrompt: 'bounded prompt' } }, Date.now()).then(result => { settled = true; return result; });
   await vi.advanceTimersByTimeAsync(TaskExecutorConfig.minTimeout + 1);
   expect(run.dispose).toHaveBeenCalledTimes(1); expect(settled).toBe(false);
   releaseDispose(); const result = await pending; expect(result.isError).toBe(true); expect(result.diagnostic).toContain('执行超时');

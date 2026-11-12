@@ -44,6 +44,7 @@ async function syncDetails(sessionQuery, sessionId, sessions) {
  * @param {string} [options.query] - Search keyword filter
  * @param {Object} [options.sessionQuery] - DSH sessionQuery service (for persisted sessions)
  * @param {Object} [options.registry] - Workspace registry (for archived session IDs)
+ * @param {AbortSignal} [options.signal] - Cancellation propagated to durable metadata queries.
  * @returns {Promise<SessionInfo[]>} Filtered session list sorted by creation time (desc)
  */
 export async function listRelatedSessions(sessions, workspacePath, options = {}) {
@@ -53,7 +54,8 @@ export async function listRelatedSessions(sessions, workspacePath, options = {})
 
   if (sessionQuery) {
     try {
-      const allRecords = await sessionQuery.listSessions();
+      const allRecords = await sessionQuery.listSessions(options.signal);
+      options.signal?.throwIfAborted();
 
       const wsPath = workspacePath.replace(/\\/g, '/').toLowerCase().replace(/\/$/, '');
 
@@ -66,7 +68,7 @@ export async function listRelatedSessions(sessions, workspacePath, options = {})
         const sessionPath = cwd.replace(/\\/g, '/').toLowerCase().replace(/\/$/, '');
 
         const pathMatch = sessionPath === wsPath || sessionPath.startsWith(wsPath + '/');
-        const isParentSession = !record.header.parentSession;
+        const isParentSession = !record.header.parentSession && record.header.origin !== 'subagent';
         return pathMatch && isParentSession;
       });
 
@@ -75,9 +77,10 @@ export async function listRelatedSessions(sessions, workspacePath, options = {})
         .map(async (record) => {
           let title = '(无标题)';
           try {
-            const titleSnapshot = await sessionQuery.readTitle(record.header.id);
+            const titleSnapshot = await sessionQuery.readTitle(record.header.id, options.signal);
             title = titleSnapshot?.title || '(无标题)';
           } catch (e) {
+            options.signal?.throwIfAborted();
             // Use the fallback title when its snapshot cannot be read.
           }
 
@@ -107,6 +110,7 @@ export async function listRelatedSessions(sessions, workspacePath, options = {})
           })),
       );
     } catch (e) {
+      options.signal?.throwIfAborted();
       if (options.strict) {
         throw e;
       }
@@ -133,7 +137,7 @@ export async function listRelatedSessions(sessions, workspacePath, options = {})
       const sessionPath = cwd.replace(/\\/g, '/').toLowerCase().replace(/\/$/, '');
 
       const pathMatch = sessionPath === wsPath || sessionPath.startsWith(wsPath + '/');
-      const isParentSession = !s.header.parentSession;
+      const isParentSession = !s.header.parentSession && s.header.origin !== 'subagent';
       return pathMatch && isParentSession;
     });
 

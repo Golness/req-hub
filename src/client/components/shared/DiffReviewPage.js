@@ -1,6 +1,7 @@
 'use strict';
 const { Disclosure } = require('./Disclosure.js');
 const React = require('react');
+const { useTimeZone, formatDateTime } = require('../../time.js');
 const { diffLines } = require('diff');
 const { Button } = require('./Button.js');
 const { t } = require('../../locale.js');
@@ -52,6 +53,8 @@ function DiffReviewPage({
   fileName,
   oldLabel,
   newLabel,
+  oldVersion,
+  newVersion,
   overview,
   evidence,
   onComplete,
@@ -59,6 +62,9 @@ function DiffReviewPage({
   initialParts,
   onPartsChange,
 }) {
+  useTimeZone();
+  const versionLabel = (version, label) =>
+    version ? `${version.label} · ${formatDateTime(version.startedAt)}` : label;
   const [parts, setParts] = React.useState(
     () => initialParts || reviewParts(oldContent || '', newContent || ''),
   );
@@ -162,13 +168,13 @@ function DiffReviewPage({
           'div',
           null,
           h('span', null, t('review.baseVersion')),
-          h('strong', null, oldLabel || t('DiffViewer.message003')),
+          h('strong', null, versionLabel(oldVersion, oldLabel) || t('DiffViewer.message003')),
         ),
         h(
           'div',
           null,
           h('span', null, t('review.targetVersion')),
-          h('strong', null, newLabel || t('DiffViewer.message004')),
+          h('strong', null, versionLabel(newVersion, newLabel) || t('DiffViewer.message004')),
         ),
       ),
       !changes.length

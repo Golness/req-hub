@@ -70,7 +70,7 @@
   gap: 8px;
 }
 .spacing {
-  color: var(--dsw-alias-state-warning-primary);
+  color: var(--dsw-alias-state-warn-primary);
   font-size: var(--rh-font-size);
   margin-bottom: 12px;
 }
@@ -367,7 +367,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: var(--dsw-alias-state-warning-primary);
+  color: var(--dsw-alias-state-warn-primary);
 }
 .row15 {
   font-size: var(--rh-font-size-sm);
@@ -536,4 +536,23 @@
 }
 .referenceHint {
   color: var(--dsw-alias-label-secondary);
+}
+
+.body:has(> :global([data-sync-history-list])) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.commitPages,
+.turnPages {
+  height: min(38vh, 340px);
+  flex: none;
+}
+.pane:has(> [data-paged-list]) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }

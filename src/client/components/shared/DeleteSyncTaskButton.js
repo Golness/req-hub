@@ -51,7 +51,8 @@ function DeleteSyncTaskButton({ task, onDeleted, scope = 'attempt' }) {
     Button,
     {
       type: 'button',
-      className: 'rh-btn rh-btn-ghost rh-btn-sm',
+      className: 'rh-btn rh-btn-sm',
+      tone: 'danger',
       disabled: busy,
       onClick: remove,
       title: t(scope === 'task' ? 'sync.storage.deleteTaskHint' : 'sync.storage.deleteAttemptHint'),

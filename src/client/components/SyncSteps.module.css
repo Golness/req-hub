@@ -7,7 +7,6 @@
 }
 .step:global(.rh-sync-step) {
   min-width: 0;
-  margin: 0;
   border: 0.5px solid var(--dsw-alias-border-l1);
   border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-layer-1);
@@ -19,13 +18,21 @@
 .step[data-status='failed'] {
   border-color: var(--dsw-alias-state-error-primary);
 }
+.header,
+.chunkHeading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
 .heading {
   display: flex;
-  width: 100%;
-  height: auto;
-  min-height: 52px;
   align-items: center;
+  flex: 1;
   gap: 10px;
+  min-width: 0;
+  min-height: 48px;
+  height: auto;
   padding: 12px 16px;
   text-align: left;
   white-space: normal;
@@ -47,7 +54,6 @@
 }
 .status,
 .toggle,
-.metric,
 .hint,
 .summary,
 .subheading {
@@ -72,78 +78,115 @@
 }
 .status[data-status='aborted'],
 .status[data-status='cancelling'] {
-  color: var(--dsw-alias-state-warning-primary);
+  color: var(--dsw-alias-state-warn-label);
 }
 .summary {
-  padding: 0 16px 12px 50px;
   margin: 0;
+  padding: 0 16px 12px 50px;
   overflow-wrap: anywhere;
 }
 .detail {
   display: grid;
-  gap: 12px;
-  padding: 0 16px 16px 50px;
+  gap: 16px;
   min-width: 0;
+  padding: 0 16px 16px 50px;
 }
 .detail[hidden] {
   display: none;
 }
-.detail p {
-  margin: 4px 0;
-}
-.chunks,
-.files,
-.paths,
-.messages {
+.chunk {
   display: grid;
   gap: 6px;
-  min-width: 0;
-}
-.chunk {
-  min-width: 0;
+  padding-block: 10px;
   border-top: 0.5px solid var(--dsw-alias-border-l1);
+  min-width: 0;
 }
 .chunkHeading {
-  display: flex;
-  align-items: center;
   flex-wrap: wrap;
-  gap: 4px 12px;
-  min-width: 0;
 }
-.metric {
+.detailsAction {
   margin-inline-start: auto;
 }
-.budget > button,
-.chunkDetails > button,
-.log > button {
-  padding-inline: 0;
+.retry {
+  margin-inline-end: 12px;
 }
-.budget > :global([data-rh-disclosure-content]),
-.chunkDetails > :global([data-rh-disclosure-content]),
-.log > :global([data-rh-disclosure-content]) {
-  padding-inline: 0;
+.files,
+.evidenceSections {
+  display: grid;
+  min-width: 0;
+  gap: 16px;
 }
-.session,
-.paths code,
-.messages,
-.files a {
+.subheading,
+.evidenceSection h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+}
+.artifact {
+  max-width: 100%;
+  height: auto;
+  text-align: left;
+  white-space: normal;
   overflow-wrap: anywhere;
+  justify-content: flex-start;
+}
+.chunkDialog.chunkDialog {
+  width: min(760px, 100%);
+  max-height: 85dvh;
+}
+.evidenceSection {
+  min-width: 0;
+}
+.evidenceItem {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  padding: 12px;
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+}
+.fileName {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.path,
+.excerpt {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.excerpt {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.facts {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.4fr) minmax(0, 1fr);
+  gap: 8px 16px;
+  margin: 0;
   font-size: 13px;
   line-height: 20px;
 }
-.session,
-.paths,
-.messages {
+.facts dt {
   color: var(--dsw-alias-label-secondary);
 }
-.files a {
-  color: var(--dsw-alias-state-business-primary);
+.scope {
+  margin: 0 16px 12px 50px;
 }
-.log pre {
-  max-height: 200px;
+.facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.log {
+  max-height: 240px;
   overflow: auto;
   margin: 0;
-  padding: 10px;
+  padding: 12px;
   background: var(--dsw-alias-bg-base);
   border-radius: var(--dsw-radius-sm);
   font-size: 12px;
@@ -151,15 +194,25 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.chunk p {
+  margin: 0;
+}
 .error {
   font-size: 13px;
   line-height: 20px;
   overflow-wrap: anywhere;
 }
 @container (max-width: 520px) {
+  .header {
+    flex-wrap: wrap;
+  }
   .heading {
-    padding-inline: 12px;
+    flex-basis: 100%;
     gap: 6px;
+    padding-inline: 12px;
+  }
+  .retry {
+    margin: 0 12px 12px auto;
   }
   .number {
     flex-basis: 20px;
@@ -168,8 +221,7 @@
   .detail {
     padding-inline: 12px;
   }
-  .metric {
-    width: 100%;
-    margin: 0;
+  .scope {
+    margin-inline: 12px;
   }
 }

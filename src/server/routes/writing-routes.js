@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import { safeDocumentPath } from '../safe-path.js';
-import { normalizeSourcePath } from '../knowledge/source-reader.js';
+import { normalizeSourcePath } from '../source-reader.js';
 import { realpath, stat } from 'node:fs/promises';
 import {
   externalizeWritingImages,
@@ -13,12 +13,12 @@ import { randomUUID } from 'node:crypto';
 import { loadConfig } from '../config.js';
 import { executeTask } from '../task-executor.js';
 import { json, readBody } from '../utils.js';
-import { knowledgeError } from '../knowledge/source-reader.js';
+import { knowledgeError } from '../source-reader.js';
 import { installWritingTools, WritingRuntime, WRITING_TOOLS } from '../writing-runtime.js';
 import { saveWriting } from '../writing-save.js';
-import { resolveKnowledgeReferences } from '../knowledge/enhancements/knowledge-context.js';
+import { resolveKnowledgeReferences } from '../knowledge-v2/reference-context.js';
 import { freezeWritingKnowledge, verifyWritingWiki } from '../writing-knowledge.js';
-import { relevanceScore } from '../knowledge/retrieval.js';
+import { relevanceScore } from '../knowledge-v2/context.js';
 
 function writingRequirementPath(value) {
   if (value === null || value === undefined || value === '') {
@@ -66,28 +66,20 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
   let closed = false;
   const configLoader = options.configLoader || loadConfig;
   const runTask = options.executeTask || executeTask;
-  function scopeData(origin) {
-    const store = knowledge
-      .database()
-      .scoped(
-        origin.id,
-        { id: origin.workspace_id, title: origin.workspace_title },
-        origin.workspace_root,
-        origin.docs_root,
-      );
-    return { identity: origin.id, docsRoot: origin.docs_root, store };
-  }
-  const catalog = () =>
-    knowledge
-      .database()
-      .scopes()
-      .map((origin) => ({
+  const catalog = async () => {
+    const result = [];
+    for (const origin of await knowledge.catalog()) {
+      const scope = await knowledge.scope(origin.workspace_id);
+      result.push({
         id: origin.id,
         workspaceId: origin.workspace_id,
         title: origin.workspace_title,
         docsRoot: origin.docs_root,
-        ...scopeData(origin).store.status(),
-      }));
+        ...scope.store.status(),
+      });
+    }
+    return result;
+  };
   const publicJob = (job) => ({
     id: job.id,
     status: job.status,
@@ -145,7 +137,7 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
         return;
       }
       if (req.method === 'GET' && path === '/options') {
-        return json(res, { scopes: catalog(), starters: WRITING_STARTERS });
+        return json(res, { scopes: await catalog(), starters: WRITING_STARTERS });
       }
       if (req.method === 'GET' && path === '/knowledge') {
         const workspaceId = url.searchParams.get('workspaceId');
@@ -154,12 +146,10 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
         if (!Array.isArray(ids) || ids.length > 30 || ids.some((id) => typeof id !== 'string')) {
           throw knowledgeError('WRITING_SCOPE_DENIED', 403);
         }
+        const origins = await knowledge.catalog();
         const pages = [];
         for (const id of new Set(ids)) {
-          const origin = knowledge
-            .database()
-            .scopes()
-            .find((item) => item.id === id);
+          const origin = origins.find((item) => item.id === id);
           const scope = origin && (await knowledge.scope(origin.workspace_id));
           if (!scope || scope.identity !== id) {
             throw knowledgeError('WRITING_SCOPE_DENIED', 403);
@@ -240,25 +230,6 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
             }
             req.operationExec?.signal?.throwIfAborted();
           });
-          if (knowledge.wiki) {
-            try {
-              saved.wiki = await knowledge.wiki.capture(
-                input.workspaceId,
-                saved.path,
-                req.operationExec?.agent?.session?.id || req.headers?.['x-session-id'],
-                req.operationExec?.signal,
-              );
-            } catch (error) {
-              saved.wiki = {
-                state: 'failed',
-                code: 'WIKI_INGEST_FAILED',
-                error: {
-                  code: /^WIKI_[A-Z_]+$/.test(error.message) ? error.message : 'WIKI_INGEST_FAILED',
-                  details: error.details || {},
-                },
-              };
-            }
-          }
           return json(res, saved);
         } catch (error) {
           if (/^WRITING_[A-Z_]+$/.test(error.message)) {
@@ -343,7 +314,7 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
         throw knowledgeError('写作需要支持工具隔离且不继承父上下文的 spawn provider', 503);
       }
       installation ||= installWritingTools(ctx);
-      const origins = knowledge.database().scopes();
+      const origins = await knowledge.catalog();
       const selected = [...new Set(input.scopeIds)].map((id) => {
         const origin = origins.find((s) => s.id === id);
         if (!origin) {
@@ -360,7 +331,7 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
       let characters = 0;
       let excludedSourceCount = 0;
       for (const origin of selected) {
-        const scope = scopeData(origin);
+        const scope = await knowledge.scope(origin.workspace_id);
         await knowledge.refreshSources(scope);
         const excluded = scope.store.sources().filter((source) => source.status !== 'active');
         excludedSourceCount += excluded.length;
@@ -539,13 +510,17 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
     pending.add(task);
     return task;
   };
+  const beginClose = () => {
+    closed = true;
+    for (const job of jobs.values()) {
+      job.controller.abort();
+    }
+  };
   return {
     routes: [{ kind: 'prefix', path: '/req-hub/writing', handler }],
+    beginClose,
     async dispose() {
-      closed = true;
-      for (const job of jobs.values()) {
-        job.controller.abort();
-      }
+      beginClose();
       for (const req of requests) {
         if (req.method === 'POST' && !req.readableEnded) {
           req.destroy(new Error('WRITING_CLOSED'));

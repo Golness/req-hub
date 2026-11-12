@@ -17,12 +17,13 @@ import {
 import { parseSyncCodeDiff } from './sync-code-files.js';
 import { posix } from 'node:path';
 import { ConcurrentChunkProcessor } from './concurrency/ConcurrentChunkProcessor.js';
+import { getSubagentScheduler } from './concurrency/SubagentScheduler.js';
+import { readRetryArtifact, retryFingerprint } from './sync-retry.js';
 import { PROMPT_REGISTRY } from './prompts.js';
 import { SyncArtifacts } from './sync-artifacts.js';
 import {
   assertSyncCapabilities,
   installSyncTools,
-  SYNC_TOOLS,
   OUTPUT_LIMIT,
   REQUEST_RESERVE,
 } from './sync-controlled-tools.js';
@@ -426,7 +427,11 @@ export class PhasedSyncEngine {
     const promptTokens = Math.max(
       ...Object.values(templates).map((prompt) => estimatePreparedPromptTokens(prompt)),
     );
-    const fixed = promptTokens + REQUEST_RESERVE + 4096 + 2 * OUTPUT_LIMIT + optionalContextTokens;
+    // Reserve typical output history in tokens rather than charging the storage cap
+    // as tokens. The owned runtime checks complete requests before each model step.
+    const outputHistoryReserve = 3 * (budget.outputTokens ?? 8000);
+    const fixed =
+      promptTokens + REQUEST_RESERVE + 4096 + outputHistoryReserve + optionalContextTokens;
     if (fixed + commonCost * 2 >= budget.limit) {
       throw new Error('DOCUMENT_INPUT_TOO_LARGE: 文档与固定契约超出完整读取预算');
     }
@@ -563,6 +568,7 @@ export class PhasedSyncEngine {
             })),
           outputIds: ['report', 'changes'],
           limitBytes: OUTPUT_LIMIT,
+          limitKB: OUTPUT_LIMIT / 1000,
           estimatedReadPages: chunk.readPages,
           inputBudget: chunk.inputBudget,
         }),
@@ -636,12 +642,11 @@ export class PhasedSyncEngine {
       parentAgent: this.parentAgent,
       cwd: this.cwd,
       signal: options.signal ?? this.signal,
-      timeout: TaskExecutorConfig.defaultTimeout,
       maxInputTokens: options.runtime?.inputLimit ?? MAX_SYNC_INPUT_TOKENS,
       runtime: options.runtime,
       syncV2: true,
       liveness: { enabled: false },
-      toolFilter: { allow: SYNC_TOOLS },
+      toolFilter: { allow: options.runtime.allowedTools },
       description: '同步 v2: ' + key,
       callbacks: {
         onProgress: (progress) => {
@@ -700,6 +705,54 @@ export class PhasedSyncEngine {
         }
         const reportPath = this.file(syncDir, stage.id + '.md');
         const changesPath = this.file(syncDir, stage.id + '.json');
+        const fingerprint = retryFingerprint({
+          key,
+          prompt: plan.templates[key],
+          budget: plan.budget.limit,
+          inputs: await Promise.all(
+            stage.allowed.map(async (id) => {
+              const text = await store.read(id);
+              return [id, id.startsWith('manifest.') ? JSON.parse(text) : text];
+            }),
+          ),
+        });
+        const checkpointId = 'retry.node.' + stage.id;
+        const checkpoint = readRetryArtifact(this.storage, this.retrySource, checkpointId);
+        const saveCheckpoint = (data) => {
+          this.signal?.throwIfAborted();
+          this.assertActive?.();
+          this.storage?.putEvidence(this.task, checkpointId, JSON.stringify({ fingerprint, data }));
+        };
+        if (checkpoint) {
+          if (checkpoint.fingerprint !== fingerprint) {
+            throw new Error('SYNC_RETRY_INPUT_CHANGED: ' + stage.id);
+          }
+          const data = checkpoint.data;
+          this.signal?.throwIfAborted();
+          this.assertActive?.();
+          if (edit) {
+            await writeFile(edit.candidatePath, Buffer.from(data.candidate, 'base64'), {
+              signal: this.signal,
+            });
+            saveCheckpoint(data);
+            await progress({ phase: which, status: 'node_reused', nodeId: stage.id });
+            return data.journal;
+          }
+          await writeFile(reportPath, data.report, { signal: this.signal });
+          await writeFile(changesPath, JSON.stringify(data.index), { signal: this.signal });
+          await store.put(data.reportId, data.report);
+          await store.put(data.changesId, JSON.stringify(data.index));
+          await emitFile(which, stage.id + '.md');
+          await emitFile(which, stage.id + '.json');
+          saveCheckpoint(data);
+          await progress({
+            phase: which,
+            status: 'node_reused',
+            nodeId: stage.id,
+            chunkIndex: stage.index,
+          });
+          return data;
+        }
         const evidenceIds = mergeInputs
           ? [
               ...new Set(
@@ -821,6 +874,18 @@ export class PhasedSyncEngine {
           await runtime.assertCoverage();
           result.stats.totalLLMCalls++;
           if (edit) {
+            if (
+              !runtime.journal.length ||
+              edit.changes.some(
+                (change) => !runtime.journal.some((entry) => entry.blockId === change.blockId),
+              )
+            ) {
+              throw new Error('EDIT_NOT_PERFORMED');
+            }
+            saveCheckpoint({
+              journal: runtime.journal,
+              candidate: (await readFile(edit.candidatePath)).toString('base64'),
+            });
             return runtime.journal;
           }
           const missingOutputs = ['report', 'changes'].filter(
@@ -869,7 +934,9 @@ export class PhasedSyncEngine {
           const changesId = stage.id + '.changes';
           await store.put(reportId, report);
           await store.put(changesId, JSON.stringify(parsed));
-          return { report, index: parsed, reportId, changesId };
+          const data = { report, index: parsed, reportId, changesId };
+          saveCheckpoint(data);
+          return data;
         } finally {
           try {
             if (!this.signal?.aborted) {
@@ -887,7 +954,6 @@ export class PhasedSyncEngine {
           }
         }
       };
-      let mergeNumber = 0;
       const consolidate = async (
         inputs,
         source,
@@ -896,7 +962,13 @@ export class PhasedSyncEngine {
         if (inputs.length < 2) {
           return inputs[0] || null;
         }
-        const id = 'summary-' + mergeNumber++;
+        let summaryNumber = 0;
+        if (targetPhase === 'merge') {
+          summaryNumber = Number(plan.code.length > 1) + Number(plan.discussion.length > 1);
+        } else if (source === 'discussion') {
+          summaryNumber = Number(plan.code.length > 1);
+        }
+        const id = 'summary-' + summaryNumber;
         const manifestId = 'manifest.' + id;
         const required = [
           'document.blocks',
@@ -905,7 +977,14 @@ export class PhasedSyncEngine {
         const context = common.filter((artifactId) => !required.includes(artifactId));
         await store.put(
           manifestId,
-          JSON.stringify({ schemaVersion: 2, required, context, outputIds: ['report', 'changes'] }),
+          JSON.stringify({
+            schemaVersion: 2,
+            required,
+            context,
+            outputIds: ['report', 'changes'],
+            limitBytes: OUTPUT_LIMIT,
+            limitKB: OUTPUT_LIMIT / 1000,
+          }),
         );
         const stage = {
           id,
@@ -915,41 +994,66 @@ export class PhasedSyncEngine {
         };
         return run(`phased-${source}-analysis-merge-${docType}`, stage, targetPhase, inputs);
       };
-      const all = [];
-      for (const source of ['code', 'discussion']) {
-        phase = source === 'code' ? 'code_analysis' : 'discussion_analysis';
-        const chunks = plan[source];
-        result.stats[source === 'code' ? 'codeChunks' : 'discussionChunks'] = chunks.length;
-        result.chunks[source] = chunks;
-        if (!chunks.length) {
-          await progress({ phase, status: 'skipped', reason: '无相关变更' });
-          continue;
-        }
-        const processor = new ConcurrentChunkProcessor({ maxConcurrency: 3 });
-        await progress({
-          phase,
-          status: 'started',
-          concurrency: processor.maxConcurrency,
-          codeFiles: chunks.flatMap((c) => c.items).length,
-          codeTokens: chunks.reduce((n, c) => n + c.tokens, 0),
-        });
-        const processed = await processor.processAll(
-          chunks,
-          (chunk, index) => run(`phased-${source}-analysis-${docType}`, chunk, phase),
-          { signal: this.signal, onProgress: progress, phase },
+      const branches = await Promise.allSettled(
+        ['code', 'discussion'].map(async (source) => {
+          const branchPhase = source === 'code' ? 'code_analysis' : 'discussion_analysis';
+          try {
+            const chunks = plan[source];
+            result.stats[source === 'code' ? 'codeChunks' : 'discussionChunks'] = chunks.length;
+            result.chunks[source] = chunks;
+            if (!chunks.length) {
+              await progress({ phase: branchPhase, status: 'skipped', reason: '无相关变更' });
+              return null;
+            }
+            const scheduler = getSubagentScheduler(this.ctx.subagents, this.config);
+            const processor = new ConcurrentChunkProcessor({
+              maxConcurrency: scheduler.semaphore.maxConcurrency,
+            });
+            await progress({
+              phase: branchPhase,
+              status: 'started',
+              concurrency: processor.maxConcurrency,
+              codeFiles: chunks.flatMap((c) => c.items).length,
+              codeTokens: chunks.reduce((n, c) => n + c.tokens, 0),
+            });
+            const processed = await processor.processAll(
+              chunks,
+              (chunk, index) => run(`phased-${source}-analysis-${docType}`, chunk, branchPhase),
+              { signal: this.signal, onProgress: progress, phase: branchPhase },
+            );
+            this.signal?.throwIfAborted();
+            if (processed.errors.length) {
+              throw new Error(
+                [...new Set(processed.errors.map((error) => error.error))].join('；'),
+              );
+            }
+            const combined = await consolidate(processed.results, source);
+            const canonical = source === 'code' ? 'code-diffs.md' : 'discussion-diffs.md';
+            await writeFile(this.file(syncDir, canonical), combined.report, 'utf8');
+            await emitFile(branchPhase, canonical);
+            result[source === 'code' ? 'codeAnalysis' : 'discussionAnalysis'] = combined.report;
+            await progress({ phase: branchPhase, status: 'completed' });
+            return combined;
+          } catch (error) {
+            await progress({
+              phase: branchPhase,
+              status: this.signal?.aborted ? 'aborted' : 'failed',
+              error: error.message,
+            });
+            throw Object.assign(error, { phase: branchPhase });
+          }
+        }),
+      );
+      const failedBranches = branches.filter((item) => item.status === 'rejected');
+      if (failedBranches.length) {
+        throw Object.assign(
+          new Error(failedBranches.map((item) => item.reason.message).join('；')),
+          {
+            phase: failedBranches[0].reason.phase,
+          },
         );
-        this.signal?.throwIfAborted();
-        if (processed.errors.length) {
-          throw new Error([...new Set(processed.errors.map((error) => error.error))].join('；'));
-        }
-        const combined = await consolidate(processed.results, source);
-        const canonical = source === 'code' ? 'code-diffs.md' : 'discussion-diffs.md';
-        await writeFile(this.file(syncDir, canonical), combined.report, 'utf8');
-        await emitFile(phase, canonical);
-        result[source === 'code' ? 'codeAnalysis' : 'discussionAnalysis'] = combined.report;
-        all.push(combined);
-        await progress({ phase, status: 'completed' });
       }
+      const all = branches.map((item) => item.value).filter(Boolean);
       phase = 'merge';
       await progress({ phase, status: 'started' });
       const combined = await consolidate(all, 'code', phase);
@@ -976,6 +1080,7 @@ export class PhasedSyncEngine {
             required,
             context,
             candidateId: 'candidate',
+            outputIds: [],
             allowedBlockIds: [...new Set(changes.map((change) => change.blockId))],
           }),
         );
@@ -1010,13 +1115,37 @@ export class PhasedSyncEngine {
       phase = 'validate';
       this.signal?.throwIfAborted();
       await progress({ phase, status: 'started' });
-      const validation = validateCandidate(
-        originalBytes,
-        candidateBytes,
+      const validationFingerprint = retryFingerprint({
+        original: originalBytes.toString('base64'),
+        candidate: candidateBytes.toString('base64'),
         fileName,
         changes,
         blocks,
+      });
+      const previousValidation = readRetryArtifact(
+        this.storage,
+        this.retrySource,
+        'retry.validation',
       );
+      if (previousValidation && previousValidation.fingerprint !== validationFingerprint) {
+        throw new Error('SYNC_RETRY_INPUT_CHANGED: validate');
+      }
+      const validation =
+        previousValidation?.data ||
+        validateCandidate(originalBytes, candidateBytes, fileName, changes, blocks);
+      this.signal?.throwIfAborted();
+      this.assertActive?.();
+      this.storage?.putEvidence(
+        this.task,
+        'retry.validation',
+        JSON.stringify({
+          fingerprint: validationFingerprint,
+          data: validation,
+        }),
+      );
+      if (previousValidation) {
+        await progress({ phase, status: 'node_reused', nodeId: 'validate' });
+      }
       for (const name of ['document.patch', 'applied-document.diff']) {
         await writeFile(this.file(syncDir, name), validation.patch, 'utf8');
         await emitFile(phase, name);
@@ -1040,6 +1169,7 @@ export class PhasedSyncEngine {
       result.patchFile = 'document.patch';
       result.appliedDiffFile = 'applied-document.diff';
     } catch (error) {
+      phase = error.phase || phase;
       result.errors.push({ phase, error: error.message });
       await progress({
         phase,

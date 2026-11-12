@@ -1,9 +1,9 @@
 'use strict';
 const React = require('react');
-const {t} = require('../../locale.js');
+const { t } = require('../../locale.js');
 const css = require('./AiTaskStatus.module.css').default;
 const h = React.createElement;
-const {Button} = require('./Button.js');
+const { Button } = require('./Button.js');
 
 /**
  * Present task progress, cancellation and unconfirmed completion distinctly.
@@ -11,18 +11,18 @@ const {Button} = require('./Button.js');
  * @returns The rendered component content.
  */
 function AiTaskStatus({
-                        startedAt,
-                        stage = 'preparing',
-                        cancelling = false,
-                        searched,
-                        read,
-                        activity,
-                        sessionId,
-                        onCancel,
-                        cancelDisabled,
-                        actions,
-                        children,
-                      }) {
+  startedAt,
+  stage = 'preparing',
+  cancelling = false,
+  searched,
+  read,
+  activity,
+  sessionId,
+  onCancel,
+  cancelDisabled,
+  actions,
+  children,
+}) {
   const [now, setNow] = React.useState(Date.now);
   const [expanded, setExpanded] = React.useState(false);
   const detailsId = React.useId();
@@ -68,25 +68,25 @@ function AiTaskStatus({
   }
   const label = t(statusKey);
   const metric = (key, value) =>
-    h('div', {className: css.metric, key}, h('dt', null, t(key)), h('dd', null, value));
+    h('div', { className: css.metric, key }, h('dt', null, t(key)), h('dd', null, value));
   return h(
     'div',
-    {className: css.status},
+    { className: css.status },
     h(
       'div',
-      {className: css.summary},
+      { className: css.summary },
       h(
         'span',
-        {className: css.stage, title: label, role: 'status', 'aria-live': 'polite'},
+        { className: css.stage, title: label, role: 'status', 'aria-live': 'polite' },
         label,
       ),
       h(
         'div',
-        {className: css.actions},
+        { className: css.actions },
         h(
           'small',
-          {className: css.elapsed},
-          t('ai.elapsed', {minutes: Math.floor(seconds / 60), seconds: seconds % 60}),
+          { className: css.elapsed },
+          t('ai.elapsed', { minutes: Math.floor(seconds / 60), seconds: seconds % 60 }),
         ),
         h(
           Button,
@@ -101,52 +101,53 @@ function AiTaskStatus({
         ),
         actions,
         onCancel &&
-        h(
-          Button,
-          {
-            size: 'sm',
-            variant: 'ghost',
-            disabled: cancelDisabled || cancelling,
-            onClick: onCancel,
-          },
-          t(cancelling ? 'enhancement.state.cancelling' : 'common.cancel'),
-        ),
+          h(
+            Button,
+            {
+              size: 'sm',
+              variant: 'ghost',
+              disabled: cancelDisabled || cancelling,
+              onClick: onCancel,
+              tone: 'warning',
+            },
+            t(cancelling ? 'enhancement.state.cancelling' : 'common.cancel'),
+          ),
       ),
     ),
     h(
       'div',
-      {id: detailsId, className: css.details, hidden: !expanded},
+      { id: detailsId, className: css.details, hidden: !expanded },
       h(
         'dl',
-        {className: css.metrics},
+        { className: css.metrics },
         Number.isFinite(searched) &&
-        metric('ai.retrieval', t('ai.knowledge', {searched, read: read || 0})),
+          metric('ai.retrieval', t('ai.knowledge', { searched, read: read || 0 })),
         activity &&
-        metric(
-          'ai.activity',
-          lastActivityAt ? t('ai.lastActivity', {seconds: idleSeconds}) : t('ai.noActivity'),
-        ),
+          metric(
+            'ai.activity',
+            lastActivityAt ? t('ai.lastActivity', { seconds: idleSeconds }) : t('ai.noActivity'),
+          ),
         activity &&
-        metric(
-          'ai.output',
-          t('ai.outputCounts', {
-            output: activity.outputCharacters || 0,
-            reasoning: activity.reasoningCharacters || 0,
-            errors: activity.toolErrors || 0,
-            tool: activity.toolCharacters || 0,
-          }),
-        ),
+          metric(
+            'ai.output',
+            t('ai.outputCounts', {
+              output: activity.outputCharacters || 0,
+              reasoning: activity.reasoningCharacters || 0,
+              errors: activity.toolErrors || 0,
+              tool: activity.toolCharacters || 0,
+            }),
+          ),
         activity?.searches > 0 &&
-        metric(
-          'ai.search',
-          t('ai.searchCounts', {count: activity.searches, hits: activity.hits || 0}),
-        ),
+          metric(
+            'ai.search',
+            t('ai.searchCounts', { count: activity.searches, hits: activity.hits || 0 }),
+          ),
         sessionId && metric('ai.session', sessionId),
       ),
       children,
-      h('small', {className: css.hint}, t(unconfirmed ? 'ai.idleHelp' : 'ai.waitHelp')),
+      h('small', { className: css.hint }, t(unconfirmed ? 'ai.idleHelp' : 'ai.waitHelp')),
     ),
   );
 }
 
-module.exports = {AiTaskStatus};
+module.exports = { AiTaskStatus };

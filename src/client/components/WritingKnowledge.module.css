@@ -47,3 +47,8 @@
   overflow-wrap: anywhere;
   font: inherit;
 }
+
+.pagedSection {
+  height: min(32vh, 260px);
+  flex: none;
+}

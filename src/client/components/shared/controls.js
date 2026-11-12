@@ -3,6 +3,7 @@
 // Source reference: deepseek-harness/packages/client/ui-primitives/src (MIT).
 const React = require('react');
 const { createPortal } = require('react-dom');
+const { t } = require('../../locale.js');
 const css = require('./controls.module.css').default;
 const h = React.createElement;
 const join = (...names) => names.filter(Boolean).join(' ');
@@ -14,7 +15,7 @@ const join = (...names) => names.filter(Boolean).join(' ');
  * @returns The rendered component content.
  */
 const Button = React.forwardRef(function Button(
-  { variant = 'ghost', size = 'md', icon, children, className, ...props },
+  { variant = 'ghost', size = 'md', tone = 'neutral', icon, children, className, ...props },
   ref,
 ) {
   return h(
@@ -26,6 +27,7 @@ const Button = React.forwardRef(function Button(
       className: join(css.button, css[variant], css[size], className),
       'data-rh-button': variant,
       'data-rh-size': size,
+      'data-rh-tone': tone,
     },
     icon,
     children,
@@ -86,12 +88,13 @@ const focusables = (node) =>
     (el) => !el.disabled && el.tabIndex >= 0 && !el.hidden && !el.closest('[hidden],[inert]'),
   );
 /**
- * Own modal focus, dismissal and nested-dialog ordering until unmount.
+ * Own modal chrome, focus and dismissal; headless callers provide their own layout.
  * @param props - Data, state and callbacks supplied by the owning surface.
  * @returns The rendered component content.
  */
-function Modal({ open, title, onClose, className, children, role = 'dialog' }) {
+function Modal({ open, title, onClose, className, children, role = 'dialog', headless = false }) {
   const dialog = React.useRef(null);
+  const titleId = React.useId();
   const close = React.useRef(onClose);
   close.current = onClose;
   React.useLayoutEffect(() => {
@@ -155,7 +158,13 @@ function Modal({ open, title, onClose, className, children, role = 'dialog' }) {
     ? createPortal(
         h(
           'div',
-          { className: css.modalRoot, role: 'presentation', 'data-rh-modal': '' },
+          {
+            className: css.modalRoot,
+            role: 'presentation',
+            'data-rh-modal': '',
+            // Portaled clicks must not activate the record that owns this dialog.
+            onClick: (event) => event.stopPropagation(),
+          },
           h('div', { className: css.mask, 'aria-hidden': true, onClick: () => close.current?.() }),
           h(
             'div',
@@ -165,9 +174,22 @@ function Modal({ open, title, onClose, className, children, role = 'dialog' }) {
               tabIndex: -1,
               role,
               'aria-modal': true,
-              'aria-label': title,
+              'aria-label': typeof title === 'string' ? title : undefined,
+              'aria-labelledby': !headless ? titleId : undefined,
+              'data-headless': headless,
             },
-            children,
+            !headless &&
+              h(
+                'header',
+                { className: css.dialogHeader },
+                h('h2', { id: titleId, className: css.dialogTitle }, title),
+                h(
+                  Button,
+                  { size: 'sm', variant: 'ghost', onClick: () => close.current?.() },
+                  t('common.close'),
+                ),
+              ),
+            headless ? children : h('div', { className: css.dialogBody }, children),
           ),
         ),
         document.body,
@@ -490,11 +512,11 @@ function Popover({ anchor, open, onClose, label, className, children }) {
 }
 
 /**
- * Keep interactive hover content available across trigger and overlay.
- * @param props - Data, state and callbacks supplied by the owning surface.
+ * Display hover or focus content in a viewport-fitted body portal.
+ * @param props - Anchor, content and optional anchor or surface classes; the surface is non-interactive.
  * @returns The rendered component content.
  */
-function HoverCard({ anchor, content, className, side = 'bottom' }) {
+function HoverCard({ anchor, content, className, surfaceClassName, side = 'bottom' }) {
   const [open, setOpen] = React.useState(false);
   const trigger = React.useRef(null);
   const card = React.useRef(null);
@@ -510,7 +532,9 @@ function HoverCard({ anchor, content, className, side = 'bottom' }) {
       onFocus: () => setOpen(true),
       onBlur: () => setOpen(false),
       onKeyDown: (event) => {
-        if (event.key === 'Escape') {
+        if (event.key === 'Escape' && open) {
+          event.preventDefault();
+          event.stopPropagation();
           setOpen(false);
         }
       },
@@ -522,7 +546,13 @@ function HoverCard({ anchor, content, className, side = 'bottom' }) {
       createPortal(
         h(
           'div',
-          { ref: card, id, role: 'tooltip', className: css.hoverCard, style: position },
+          {
+            ref: card,
+            id,
+            role: 'tooltip',
+            className: join(css.hoverCard, surfaceClassName),
+            style: position,
+          },
           content,
         ),
         document.body,

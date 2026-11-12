@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import general from '../../../shared/general.cjs';
 
 export const ACTIVE = new Set(['queued', 'preparing', 'running', 'cancelling']);
 export const DEFAULTS = Object.freeze({
@@ -6,12 +7,9 @@ export const DEFAULTS = Object.freeze({
   maxInvalidOutputWrites: 3,
   maxConcurrentJobs: 2,
   maxDocuments: 30,
-  maxInputBytes: 2_000_000,
-  maxResultBytes: 250_000,
   maxNodes: 200,
   maxEdges: 1000,
   maxDepth: 5,
-  timeoutMs: 300_000,
   retainedJobs: 50,
   retainedRevisions: 3,
   gitnexusServer: 'gitnexus',
@@ -61,7 +59,7 @@ export function bounded(value, maxBytes) {
  * @returns Effective enhancement settings.
  */
 export function limits(config) {
-  return { ...DEFAULTS, ...config?.enhancements };
+  return { ...DEFAULTS, ...config?.enhancements, ...general.knowledgeLimits(config) };
 }
 /**
  * Validate a positive integer against its configured maximum.
