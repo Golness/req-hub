@@ -1,4 +1,5 @@
 'use strict';
+const { localizeMessage } = require('../utils/serverMessage.js');
 const { formatDateTime, useTimeZone } = require('../time.js');
 const disclosureCss = require('./shared/Disclosure.module.css').default;
 const { DOCUMENT_NAME_HINTS } = require('../document-name-hints.js');
@@ -331,7 +332,7 @@ function FileTreeSidebar({
         }
       } catch (error) {
         if (!cancelled) {
-          setLoadError(error.message);
+          setLoadError(localizeMessage(error.message));
         }
       }
       if (!cancelled) {

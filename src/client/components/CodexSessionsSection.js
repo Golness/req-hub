@@ -1,4 +1,5 @@
 'use strict';
+const { localizeMessage } = require('../utils/serverMessage.js');
 const { formatDateTime, useTimeZone } = require('../time.js');
 const { Disclosure } = require('./shared/Disclosure.js');
 const { t } = require('../locale.js');
@@ -49,6 +50,7 @@ function CodexSessionsSection({
   onCountChange,
   embedded = false,
   active = true,
+  compact = false,
   toolbarTarget,
 }) {
   useTimeZone();
@@ -145,7 +147,7 @@ function CodexSessionsSection({
         setError(
           error.message === 'CODEX_WORKSPACE_AMBIGUOUS'
             ? t('conversationSources.codexAmbiguous')
-            : error.message,
+            : localizeMessage(error.message),
         );
         setData((previous) =>
           action === 'refresh' ? { ...previous, sessions: [] } : { workspace: null, sessions: [] },
@@ -242,12 +244,14 @@ function CodexSessionsSection({
             ),
           actions,
         ),
-    h(
-      'p',
-      { className: 'rh-sync-hint' },
-      t(acquireOnly ? 'conversationSources.codexHint' : 'CodexSessionsSection.message014'),
-    ),
-    data.workspace &&
+    !compact &&
+      h(
+        'p',
+        { className: 'rh-sync-hint' },
+        t(acquireOnly ? 'conversationSources.codexHint' : 'CodexSessionsSection.message014'),
+      ),
+    !compact &&
+      data.workspace &&
       h(
         'p',
         {

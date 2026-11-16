@@ -1,3 +1,4 @@
+import { msg } from '../messages.js';
 import { resolve } from 'node:path';
 import { safeDocumentPath } from '../safe-path.js';
 import { normalizeSourcePath } from '../source-reader.js';
@@ -13,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { loadConfig } from '../config.js';
 import { executeTask } from '../task-executor.js';
 import { json, readBody } from '../utils.js';
+import { contentTemplates } from '../content-templates.js';
 import { knowledgeError } from '../source-reader.js';
 import { installWritingTools, WritingRuntime, WRITING_TOOLS } from '../writing-runtime.js';
 import { saveWriting } from '../writing-save.js';
@@ -36,14 +38,20 @@ function writingRequirementPath(value) {
 }
 export const WRITING_STARTERS = {
   requirement: {
-    label: '需求文档',
-    content:
-      '# 需求文档\n\n## 背景与目标\n\n## 用户与场景\n\n## 功能与业务规则\n\n## 异常与边界\n\n## 验收标准\n',
+    get label() {
+      return contentTemplates().docType.requirement;
+    },
+    get content() {
+      return contentTemplates().starters.requirement;
+    },
   },
   design: {
-    label: '技术方案',
-    content:
-      '# 技术方案\n\n## 背景与目标\n\n## 现状与约束\n\n## 方案设计\n\n## 接口与数据设计\n\n## 风险与兼容性\n\n## 验证与发布\n',
+    get label() {
+      return contentTemplates().docType.design;
+    },
+    get content() {
+      return contentTemplates().starters.design;
+    },
   },
 };
 
@@ -99,7 +107,7 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
     let reservation;
     try {
       if (closed) {
-        throw knowledgeError('写作服务已关闭', 503);
+        throw knowledgeError('WRITING_SERVICE_DISABLED', 503);
       }
       const url = new URL(req.url, 'http://localhost');
       const path = url.pathname.slice('/req-hub/writing'.length);
@@ -200,7 +208,7 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
       if (match) {
         const job = jobs.get(match[1]);
         if (!job) {
-          throw knowledgeError('优化任务不存在，请重新优化', 404);
+          throw knowledgeError('WRITING_OPTIMIZE_TASK_MISSING', 404);
         }
         if (req.method === 'POST' && match[2]) {
           job.controller.abort();
@@ -247,17 +255,17 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
         }
       }
       if (req.method !== 'POST' || path !== '/optimize') {
-        throw knowledgeError('接口不存在', 404);
+        throw knowledgeError('ERR_ENDPOINT_NOT_FOUND', 404);
       }
       let input;
       try {
         input = JSON.parse(await readBody(req));
       } catch {
-        throw knowledgeError('请求 JSON 无效');
+        throw knowledgeError('ERR_INVALID_REQUEST_JSON');
       }
       const workspace = registry.list().find((w) => w.id === input.workspaceId);
       if (!workspace || !Object.hasOwn(WRITING_STARTERS, input.docType)) {
-        throw knowledgeError('工作区或文档类型无效');
+        throw knowledgeError('WRITING_INVALID_WORKSPACE_OR_DOC_TYPE');
       }
       if (typeof input.content !== 'string' || !input.content.trim()) {
         throw knowledgeError('WRITING_CONTENT_REQUIRED', 400);
@@ -272,11 +280,11 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
         throw knowledgeError('WRITING_INSTRUCTION_TOO_LONG', 400);
       }
       if (!Array.isArray(input.scopeIds) || input.scopeIds.some((id) => typeof id !== 'string')) {
-        throw knowledgeError('知识库选择无效');
+        throw knowledgeError('KB_SELECTION_INVALID');
       }
       const parentAgent = agents?.get(input.sessionId);
       if (!parentAgent || parentAgent.status === 'stopped') {
-        throw knowledgeError('请先选择一个活跃的 DSH 会话');
+        throw knowledgeError('SESSION_SELECT_ACTIVE_REQUIRED');
       }
       const parentCwd = parentAgent.session?.header?.cwd || parentAgent.options?.cwd;
       if (
@@ -311,14 +319,14 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
       reservations.add(reservation);
       const provider = ctx.subagents?.getProvider?.(config.ai?.delegation?.provider || 'spawn');
       if (!provider?.capabilities?.toolFilter || provider.inheritsParentContext !== false) {
-        throw knowledgeError('写作需要支持工具隔离且不继承父上下文的 spawn provider', 503);
+        throw knowledgeError('WRITING_PROVIDER_REQUIREMENT', 503);
       }
       installation ||= installWritingTools(ctx);
       const origins = await knowledge.catalog();
       const selected = [...new Set(input.scopeIds)].map((id) => {
         const origin = origins.find((s) => s.id === id);
         if (!origin) {
-          throw knowledgeError('所选知识库已不存在，请刷新');
+          throw knowledgeError('KB_SELECTED_NOT_FOUND');
         }
         return origin;
       });
@@ -358,7 +366,7 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
         for (const entry of entries) {
           characters += entry.body.length;
           if (characters > 20000000 || documents.length >= 20000) {
-            throw knowledgeError('所选知识库过大，请减少选择范围', 413);
+            throw knowledgeError('KB_SELECTED_TOO_LARGE', 413);
           }
           documents.push({ ...entry, scopeId: origin.id });
         }
@@ -384,7 +392,7 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
         throw knowledgeError('WRITING_KNOWLEDGE_BUDGET', 413);
       }
       if (closed) {
-        throw knowledgeError('写作服务已关闭', 503);
+        throw knowledgeError('WRITING_SERVICE_DISABLED', 503);
       }
       const budget = await resolveSyncBudget({ ctx, llm, parentAgent });
       if (closed) {
@@ -426,7 +434,8 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
               runtimeId: runtime.id,
               docTypeName: WRITING_STARTERS[input.docType].label,
               content: input.content,
-              instruction: input.instruction.trim() || '结合原文和知识库完善表达、边界与可验证性',
+              instruction:
+                input.instruction.trim() || contentTemplates().writing.defaultInstruction,
               scopes: JSON.stringify(scopes),
             },
             runtime,
@@ -434,7 +443,9 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
             cwd: workspace.path,
             signal: job.controller.signal,
             toolFilter: { allow: WRITING_TOOLS },
-            description: `优化${WRITING_STARTERS[input.docType].label}`,
+            description: msg('WRITING_REFINE_TASK_TITLE', {
+              v0: WRITING_STARTERS[input.docType].label,
+            }),
             callbacks: {
               onProgress: (event) => {
                 if (closed || job.controller.signal.aborted) {
@@ -454,7 +465,7 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
             throw runtime.failure;
           }
           if (result.isError) {
-            throw new Error(result.diagnostic || 'Subagent 优化失败');
+            throw new Error(result.diagnostic || 'WRITING_SUBAGENT_OPTIMIZATION_FAILED');
           }
           if (!runtime.result) {
             throw new Error('WRITING_RESULT_INCOMPLETE');

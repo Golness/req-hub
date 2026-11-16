@@ -1,4 +1,5 @@
 'use strict';
+const { clientError } = require('../utils/serverMessage.js');
 const { t } = require('../locale.js');
 const React = require('react');
 const { ROUTE } = require('../constants.js');
@@ -33,7 +34,7 @@ function useSyncMonitor() {
         const response = await fetch(`${ROUTE}/sync-overview`);
         const data = await response.json();
         if (!response.ok || data.error) {
-          throw new Error(data.error || t('useSyncMonitor.message001'));
+          throw clientError(data.error, t('useSyncMonitor.message001'));
         }
         if (!disposed) {
           setState({

@@ -1,6 +1,7 @@
 'use strict';
 const { Disclosure } = require('./shared/Disclosure.js');
 const { t } = require('../locale.js');
+const { localizeMessage } = require('../utils/serverMessage.js');
 const { Button } = require('./shared/Button.js');
 
 const React = require('react');
@@ -58,7 +59,9 @@ function PromptManager({
   const id = useId();
   const categories = CATEGORIES.map((category) => ({
     ...category,
-    entries: Object.entries(registry || {}).filter(([key, meta]) => getPromptCategory(key, meta) === category.id),
+    entries: Object.entries(registry || {}).filter(
+      ([key, meta]) => getPromptCategory(key, meta) === category.id,
+    ),
   })).filter((category) => category.entries.length);
   const category = categories.find((item) => item.id === categoryId) || categories[0];
   const selected =
@@ -158,7 +161,9 @@ function PromptManager({
               onChange: (event) =>
                 setSelectedKeys((prev) => ({ ...prev, [category.id]: event.target.value })),
             },
-            category.entries.map(([key, meta]) => h('option', { key, value: key }, meta.label)),
+            category.entries.map(([key, meta]) =>
+              h('option', { key, value: key }, localizeMessage(meta.label)),
+            ),
           ),
           h(
             'nav',
@@ -173,7 +178,7 @@ function PromptManager({
                   'aria-current': selected[0] === key ? 'true' : undefined,
                   onClick: () => setSelectedKeys((prev) => ({ ...prev, [category.id]: key })),
                 },
-                h('span', null, meta.label),
+                h('span', null, localizeMessage(meta.label)),
                 ((prompts[key]?.trim() && prompts[key] !== meta.default) || skillBindings[key]) &&
                   h('span', {
                     className: 'rh-prompt-dot',
@@ -202,7 +207,11 @@ function PromptManager({
               h(
                 'div',
                 { className: 'rh-prompt-editor-heading' },
-                h('label', { htmlFor: `${id}-editor`, className: 'rh-prompt-name' }, meta.label),
+                h(
+                  'label',
+                  { htmlFor: `${id}-editor`, className: 'rh-prompt-name' },
+                  localizeMessage(meta.label),
+                ),
                 h(
                   'span',
                   { className: 'rh-prompt-status' },
@@ -228,7 +237,12 @@ function PromptManager({
                   t('PromptManager.message012'),
                 ),
               ),
-              meta.description && h('p', { className: 'rh-prompt-description' }, meta.description),
+              localizeMessage(meta.description) &&
+                h(
+                  'p',
+                  { className: 'rh-prompt-description' },
+                  localizeMessage(meta.description),
+                ),
               meta.generatesFileContent &&
                 h('p', { className: 'rh-prompt-description' }, t('prompt.nativeSkillHelp')),
               h(
@@ -314,7 +328,7 @@ function PromptManager({
                         type: 'button',
                         className: 'rh-btn rh-btn-sm rh-prompt-variable',
                         title: t('PromptManager.message021', {
-                          value0: variable.description || variable.name,
+                          value0: localizeMessage(variable.description) || variable.name,
                           value1: variable.required ? t('PromptManager.message020') : '',
                         }),
                         onClick: () => {
@@ -341,7 +355,7 @@ function PromptManager({
                     'ul',
                     null,
                     meta.requirements.map((requirement, index) =>
-                      h('li', { key: index }, requirement),
+                      h('li', { key: index }, localizeMessage(requirement)),
                     ),
                   ),
               ),

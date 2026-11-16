@@ -1,6 +1,11 @@
 import { json, readBody } from '../utils.js';
 import { fail, publicError } from '../knowledge-v2/contracts.js';
-import { listSources, getSource, stateByPath } from '../knowledge-v2/source-repository.js';
+import {
+  listSources,
+  getSource,
+  stateByPath,
+  listFileCandidates,
+} from '../knowledge-v2/source-repository.js';
 
 const PREFIX = '/req-hub/knowledge-v2';
 
@@ -48,6 +53,9 @@ export function createKnowledgeV2Routes(app) {
       }
       // Concrete collection routes must precede the /sources/:id catch-all;
       // otherwise "sessions" and "files" would be parsed as source IDs.
+      if (method === 'GET' && path === '/sources/files/candidates') {
+        return json(res, await listFileCandidates(store, { signal }));
+      }
       if (method === 'GET' && path === '/sources/sessions') {
         return json(res, await app.sessionOptions(input.workspaceId));
       }

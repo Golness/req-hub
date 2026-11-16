@@ -38,17 +38,17 @@ export function createCodexSessionRoutes(registry, service) {
           try {
             input = JSON.parse(await readBody(req));
           } catch {
-            throw codexError('请求 JSON 无效');
+            throw codexError('ERR_INVALID_REQUEST_JSON');
           }
         } else {
           input = Object.fromEntries(new URL(req.url, 'http://localhost').searchParams);
         }
         const workspace = registry.list().find((workspace) => workspace.id === input.workspaceId);
         if (!workspace) {
-          throw codexError('工作区不存在', 404);
+          throw codexError('ERR_WORKSPACE_NOT_FOUND', 404);
         }
         if (input.codexWorkspaceId !== undefined && typeof input.codexWorkspaceId !== 'string') {
-          throw codexError('Codex 工作区标识无效');
+          throw codexError('ERR_INVALID_CODEX_WORKSPACE_ID');
         }
         if (action !== 'workspaces') {
           matchedPath = workspace.path;

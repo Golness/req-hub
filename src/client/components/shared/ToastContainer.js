@@ -2,6 +2,7 @@
 const React = require('react');
 const h = React.createElement;
 const { Toast } = require('./Toast.js');
+const { localizeMessage } = require('../../utils/serverMessage.js');
 
 /**
  * @module ToastContainer
@@ -24,7 +25,9 @@ let toastListeners = [];
  */
 function showToast(config) {
   const id = Date.now() + Math.random();
-  toastListeners.forEach((listener) => listener({ id, ...config }));
+  const copy =
+    config.text === undefined ? config : { ...config, text: localizeMessage(config.text) };
+  toastListeners.forEach((listener) => listener({ id, ...copy }));
   return id;
 }
 

@@ -1,4 +1,5 @@
 'use strict';
+const { localizeMessage } = require('../utils/serverMessage.js');
 const { formatDateTime, useTimeZone } = require('../time.js');
 const { PagedList } = require('./shared/PagedList.js');
 const { Disclosure } = require('./shared/Disclosure.js');
@@ -87,7 +88,7 @@ function useAssist(workspaceId, context, revision, jobKinds) {
       })
       .catch((error) => {
         if (!abort.signal.aborted) {
-          setError(error.message);
+          setError(localizeMessage(error.message));
         }
       });
     return () => abort.abort();
@@ -112,7 +113,7 @@ function useAssist(workspaceId, context, revision, jobKinds) {
         }
       } catch (error) {
         if (!abort.signal.aborted) {
-          setError(error.message);
+          setError(localizeMessage(error.message));
           timer = setTimeout(poll, 3000);
         }
       }
@@ -134,7 +135,7 @@ function useAssist(workspaceId, context, revision, jobKinds) {
       await operation(signal);
     } catch (error) {
       if (!signal.aborted) {
-        setError(error.message);
+        setError(localizeMessage(error.message));
       }
     } finally {
       if (!signal.aborted) {

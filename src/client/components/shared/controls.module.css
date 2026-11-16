@@ -90,6 +90,10 @@
   border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-layer-1);
 }
+.inputWrap[data-rh-size='sm'] {
+  height: 28px;
+  border-radius: var(--dsw-radius-sm);
+}
 .inputWrap:focus-within {
   outline: 1px solid var(--dsw-alias-state-business-primary);
 }

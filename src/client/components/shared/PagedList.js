@@ -30,6 +30,7 @@ function PagedList({
   rowRole = 'listitem',
   plainRows = false,
   fitContent = false,
+  inset = false,
 }) {
   const items = React.Children.toArray(children);
   const [page, setPage] = React.useState(0);
@@ -116,6 +117,7 @@ function PagedList({
     {
       className: `${css.paged} ${fitContent ? css.fitContent : ''} ${className}`,
       'data-paged-list': '',
+      'data-rh-paged-inset': inset ? 'true' : undefined,
     },
     h(
       CompactListContext.Provider,

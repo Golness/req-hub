@@ -13,6 +13,7 @@ import { findRequirementDir } from './doc-reader.js';
 import { safeDocumentPath } from './safe-path.js';
 import { syncSupervisor } from './sync-supervisor.js';
 import { getSyncHistory } from './sync-state.js';
+import { larkPushFailure, pushSyncArtifacts } from './lark-scheduled-push.js';
 
 /**
  * Validate daily quick-sync configuration without changing repository state.
@@ -144,6 +145,7 @@ export class SyncDailyScheduler {
     knowledge,
     reports,
     routes,
+    lark = null,
     configLoader = loadConfig,
     clock = () => new Date(),
     listBranches = listSyncBranches,
@@ -154,6 +156,7 @@ export class SyncDailyScheduler {
       knowledge,
       reports,
       routes,
+      lark,
       configLoader,
       clock,
       listBranches,
@@ -196,6 +199,9 @@ export class SyncDailyScheduler {
     signal.throwIfAborted();
     const config = await this.configLoader();
     const settings = syncSchedule(config);
+    // The push flag is deliberately excluded from syncSchedule()'s digest, so
+    // toggling it never resets the activation day and skips a scheduled run.
+    const pushEnabled = config.sync?.larkPushEnabled === true && !!this.lark;
     this.state = { ...settings, state: settings.enabled ? 'enabled' : 'disabled' };
     const time = this.clock();
     const current = dailyClock(settings.timeZone, time);
@@ -226,8 +232,12 @@ export class SyncDailyScheduler {
     const targetDay = new Date(Date.parse(current.date + 'T12:00:00Z') - settings.days * 86400000)
       .toISOString()
       .slice(0, 10);
-    const { report, created } = this.reports.begin('sync', current.date, { ...settings, targetDay });
-    if (!created) {
+    const { report, created } = this.reports.begin('sync', current.date, {
+      ...settings,
+      targetDay,
+    });
+    if (!created && !this.reports.resume(report.id)) {
+      // A completed/partial report already owns this calendar day.
       return;
     }
     try {
@@ -254,6 +264,8 @@ export class SyncDailyScheduler {
               tasks: [],
             });
             let owner;
+            let requirementDirectory = null;
+            let branchDocsRoot = null;
             try {
               let result;
               do {
@@ -273,6 +285,7 @@ export class SyncDailyScheduler {
                 const docsRoot = await safeDocumentPath(workspace.path, config.docsDir || 'docs', {
                   allowMissing: true,
                 });
+                branchDocsRoot = docsRoot;
                 let directory = await findRequirementDir(docsRoot, parsed.requirementId);
                 if (!directory) {
                   directory = await safeDocumentPath(
@@ -283,6 +296,7 @@ export class SyncDailyScheduler {
                   signal.throwIfAborted();
                   await mkdir(directory, { recursive: true });
                 }
+                requirementDirectory = directory;
                 const tasks = new Map();
                 result = await this.runQuick(
                   this.routes,
@@ -314,6 +328,28 @@ export class SyncDailyScheduler {
                 error: result.value?.error || (failed ? 'SYNC_SCHEDULE_INCOMPLETE' : undefined),
                 ...(result.tasks ? { tasks: result.tasks } : {}),
               });
+              // Publication is a follow-up effect: a Lark failure must never
+              // turn a successful document sync into a failed branch.
+              if (pushEnabled && !failed && !result.value?.skipped && requirementDirectory) {
+                try {
+                  await pushSyncArtifacts({
+                    lark: this.lark,
+                    config,
+                    workspaceId: workspace.id,
+                    docsRoot: branchDocsRoot,
+                    directory: requirementDirectory,
+                    keyPrefix: branch,
+                    signal,
+                    onItem: (key, item) => this.reports.item(report.id, workspace, key, item),
+                  });
+                } catch (error) {
+                  this.reports.item(report.id, workspace, `lark:${branch}:fatal`, {
+                    kind: 'lark',
+                    status: 'failed',
+                    error: larkPushFailure(error).code,
+                  });
+                }
+              }
             } catch (error) {
               this.reports.item(report.id, workspace, branch, {
                 status: signal.aborted ? 'cancelled' : 'failed',
@@ -326,10 +362,16 @@ export class SyncDailyScheduler {
           }
         } catch (error) {
           signal.throwIfAborted();
+          // Plain folders, removed checkouts and nested repositories are not
+          // sync targets. They must not turn the whole day's report partial.
+          const benign = [
+            'SYNC_WORKSPACE_NOT_REPOSITORY',
+            'SYNC_WORKSPACE_REPOSITORY_MISMATCH',
+          ].includes(error.message);
           this.reports.item(report.id, workspace, 'workspace', {
             kind: 'workspace',
-            status: 'failed',
-            error: error.message,
+            status: benign ? 'skipped' : 'failed',
+            ...(benign ? { reason: error.message } : { error: error.message }),
           });
         }
       }

@@ -1,4 +1,5 @@
 'use strict';
+const { clientError } = require('../utils/serverMessage.js');
 const React = require('react');
 const { HoverCard } = require('./shared/controls.js');
 const { Disclosure } = require('./shared/Disclosure.js');
@@ -86,7 +87,7 @@ function LarkTargetSettings({ workspaceId, connectionKey, disabled, connectionBu
     });
     const data = await response.json();
     if (!response.ok || data.error || (data.code && !data.saved)) {
-      const failure = new Error(data.error || data.code || 'LARK_TARGET_FAILED');
+      const failure = clientError(data.error || data.code, 'LARK_TARGET_FAILED');
       failure.details = data.details;
       throw failure;
     }

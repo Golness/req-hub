@@ -1,6 +1,7 @@
 'use strict';
 const { t, installLocale } = require('./locale.js');
 const { installTimeZone } = require('./time.js');
+const { installUiLanguage, useUiLanguage } = require('./ui-language.js');
 /**
  * ReqHub - Requirements Hub
  * DSH (Developer Service Hub) plugin entry file.
@@ -45,7 +46,11 @@ const { TriggerButton } = require('./components/TriggerButton.js');
 module.exports = {
   inject: ['slots', 'sidebarRightTabs', 'sidebarRight', 'locale'],
   apply(ctx) {
-    const disposers = [ctx.effect(() => installLocale(ctx)), ctx.effect(() => installTimeZone())];
+    const disposers = [
+      ctx.effect(() => installLocale(ctx)),
+      ctx.effect(() => installTimeZone()),
+      ctx.effect(() => installUiLanguage()),
+    ];
 
     // Store context globally for components to access
     window.__DSH_CTX__ = ctx;
@@ -78,6 +83,7 @@ module.exports = {
         (listener) => ctx.locale.subscribe(listener),
         () => ctx.locale.getSnapshot(),
       );
+      useUiLanguage();
       return h(
         SessionSelectionContext.Provider,
         { value: currentSessionId },

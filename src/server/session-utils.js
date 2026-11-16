@@ -1,3 +1,4 @@
+import { contentTemplates } from './content-templates.js';
 import { createHash } from 'node:crypto';
 import { estimateTextTokens } from './token-utils.js';
 
@@ -36,19 +37,20 @@ export function extractTurnsFromEvents(events, { sessionId } = {}) {
       turn.messages.some((message) => message.role === 'user');
     let intermediate = 0;
     let users = 0;
+    const sessionLabels = contentTemplates().session.labels;
     turn.messages = turn.messages.map((message, index) => {
       let kind;
       let label;
       if (message.role === 'user') {
         users++;
         kind = users === 1 ? 'input' : 'followup';
-        label = users === 1 ? '用户输入' : '用户补充输入';
+        label = users === 1 ? sessionLabels.userInput : sessionLabels.userFollowUp;
       } else if (turn.syncable && index === turn.messages.length - 1) {
         kind = 'final';
-        label = '助手最终回复';
+        label = sessionLabels.assistantFinal;
       } else {
         kind = 'intermediate';
-        label = `助手中间回复 ${++intermediate}`;
+        label = sessionLabels.assistantIntermediate(++intermediate);
       }
       return { role: message.role, kind, label, text: message.text };
     });
@@ -105,7 +107,7 @@ export async function readSessionSnapshot(sessionQuery, sessionId, sessions) {
       }
     }
     if (!Array.isArray(events)) {
-      throw new Error('会话读取服务不可用');
+      throw new Error('SESSION_READ_SERVICE_UNAVAILABLE');
     }
   } catch (error) {
     throw new Error(`SESSION_READ_FAILED: ${sessionId}：${error.message}`);
@@ -147,14 +149,15 @@ export async function extractMultipleSessionTurns(sessionQuery, sessionIds, opti
  * @returns The Markdown text for the turn.
  */
 export function renderSessionTurn(turn) {
+  const session = contentTemplates().session;
   const messages =
     turn.messages ||
     [
-      { label: '用户输入', text: turn.userInput || '' },
-      { label: '助手最终回复', text: turn.summary || '' },
+      { label: session.labels.userInput, text: turn.userInput || '' },
+      { label: session.labels.assistantFinal, text: turn.summary || '' },
     ].filter((message) => message.text);
   return (
-    `## 第 ${turn.turnNumber ?? '?'} 轮\n\n` +
+    session.turnHeading(turn.turnNumber ?? '?') +
     messages.map((message) => `### ${message.label}\n\n${message.text}\n`).join('\n')
   );
 }
@@ -166,7 +169,9 @@ export function renderSessionTurn(turn) {
  * @returns The Markdown document.
  */
 export function renderSessionDocument(sessionId, turns) {
-  return `# 会话：${sessionId}\n\n` + turns.map(renderSessionTurn).join('\n');
+  return (
+    contentTemplates().session.sessionTitle(sessionId) + turns.map(renderSessionTurn).join('\n')
+  );
 }
 
 /**

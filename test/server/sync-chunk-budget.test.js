@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { chunkCodeDiff, chunkTurns } from '../../src/server/phased-sync-engine.js';
 import { estimateSubagentInputTokens } from '../../src/server/token-utils.js';
+import { messageDescriptor } from '../../src/server/messages.js';
 
 const file = (path, size) => ({ file: path, content: 'x'.repeat(size) });
 const options = (overhead = 0) => ({
@@ -65,10 +66,37 @@ describe('full sync input packing', () => {
   });
 
   it('fails explicitly for a single oversized file or session or fixed prompt', async () => {
-    await expect(chunkCodeDiff([file('big/a', 150000)], options())).rejects.toThrow('big/a');
-    await expect(chunkTurns([{ sessionId: 'big-session', userInput: 'x'.repeat(150000) }], options())).rejects.toThrow('big-session');
-    await expect(chunkCodeDiff([file('a', 1)], options(150000))).rejects.toThrow('预算');
-    await expect(chunkCodeDiff([{ file: '中文', content: '中'.repeat(50000) }], options())).rejects.toThrow('中文');
+    const overBudget = async (promise) => {
+      try {
+        await promise;
+      } catch (error) {
+        return messageDescriptor(error);
+      }
+      throw new Error('expected a budget rejection');
+    };
+    // The stable code is language-independent; dynamic file/session names stay
+    // in params so the client can render them in either language.
+    expect(await overBudget(chunkCodeDiff([file('big/a', 150000)], options()))).toMatchObject({
+      code: 'SYNC_SINGLE_ITEM_OVER_BUDGET',
+      params: { v0: 'SYNC_LABEL_CODE_FILE', v1: 'big/a' },
+    });
+    expect(
+      await overBudget(
+        chunkTurns([{ sessionId: 'big-session', userInput: 'x'.repeat(150000) }], options()),
+      ),
+    ).toMatchObject({
+      code: 'SYNC_SINGLE_ITEM_OVER_BUDGET',
+      params: {
+        v0: 'SYNC_LABEL_SESSION_ROUND',
+        v1: { code: 'SYNC_SESSION_ROUND_ID', params: { v0: 'big-session' } },
+      },
+    });
+    expect((await overBudget(chunkCodeDiff([file('a', 1)], options(150000)))).code).toBe(
+      'SYNC_SINGLE_ITEM_OVER_BUDGET',
+    );
+    expect(
+      await overBudget(chunkCodeDiff([{ file: '中文', content: '中'.repeat(50000) }], options())),
+    ).toMatchObject({ code: 'SYNC_SINGLE_ITEM_OVER_BUDGET', params: { v1: '中文' } });
   });
 
   it('handles empty sources without rendering a prompt', async () => {

@@ -517,7 +517,7 @@ describe('v2 sync route integration',()=>{
  it('protects a live document edit made during model analysis',async()=>{
   let edited=false;harness=createSyncHarness({onStart:()=>{if(!edited){edited=true;execFileSync('node',['-e',"require('fs').writeFileSync(process.argv[1],'USER_EDIT')",join(reqDir,'requirement.md')]);}}});
   routes=createSyncRoutes({list:()=>[{id:workspaceId,path:repo}]},{},{},{get:()=>harness.parentAgent},harness.ctx);
-  const response=await dispatch();expect(response.body).toContain('同步期间主文档已被修改');
+  const response=await dispatch();expect(response.body).toContain('SYNC_MAIN_DOC_CHANGED_DURING_SYNC');
   expect(await readFile(join(reqDir,'requirement.md'),'utf8')).toBe('USER_EDIT');
   expect((await getSyncHistory(workspaceId,requirementId))[0].status).toBe('failed');
  });
@@ -890,4 +890,30 @@ it('propagates scheduled cancellation into an active quick child and drains the 
   expect(syncSupervisor.owner).toBeNull();
   expect(start).toHaveBeenCalledOnce();
   expect((await getSyncHistory(workspaceId, requirementId))[0].status).toBe('aborted');
+});
+
+it('runs a scheduled quick sync from its owned background agent without an active session', async () => {
+  await routes.dispose();
+  const lookup = vi.fn(() => {
+    throw new Error('NO_ACTIVE_SESSION');
+  });
+  routes = createSyncRoutes(
+    { list: () => [{ id: workspaceId, path: repo }] },
+    {},
+    {},
+    { get: lookup },
+    harness.ctx,
+  );
+  const { runScheduledQuickSync } = await import('../../src/server/sync-daily-scheduler.js');
+  const result = await runScheduledQuickSync(
+    routes,
+    { workspaceId, requirementId, targetBranch: 'feature/dev/' + requirementId },
+    harness.parentAgent,
+    new AbortController().signal,
+    () => {},
+  );
+  expect(lookup).not.toHaveBeenCalled();
+  expect(result.status).toBe(200);
+  expect(result.value?.error).toBeUndefined();
+  expect(result.value?.type).toBe('done');
 });

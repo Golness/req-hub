@@ -1,3 +1,4 @@
+import { contentTemplates } from '../content-templates.js';
 import { rm, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createWorkspaceTaskAgent } from '../workspace-task-agent.js';
@@ -398,7 +399,12 @@ export async function runCompile({
         title: source.title,
         body:
           analysis.summary.trim() +
-          `\n\n来源：[${source.title}](source:${source.id}@${source.revision}#L1-L${sourceDoc.lineCount})\n`,
+          contentTemplates().wiki.sourceCitation(
+            source.title,
+            source.id,
+            source.revision,
+            sourceDoc.lineCount,
+          ),
         sources: [{ id: source.id, revision: source.revision }],
       });
       onStage?.('generating');
@@ -461,7 +467,9 @@ export async function runCompile({
       rulesHash: rules.rulesHash,
       sourceRevisions,
       operation: job.kind,
-      overview: overview.replace(/^# 概览\s*/, ''),
+      // Strip a leading H1 regardless of artifact language; the publisher
+      // adds the localized heading back.
+      overview: overview.replace(/^#\s+[^\n]*\s*/, ''),
     });
     signal.throwIfAborted();
     onStage?.('publishing');

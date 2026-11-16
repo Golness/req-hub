@@ -1,4 +1,5 @@
 /** Commit-based document sync: branch resolution, code inputs, and task reservation. */
+import { contentTemplates } from './content-templates.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import taskModel from '../shared/sync-task.cjs';
@@ -40,7 +41,7 @@ async function isAncestor(cwd, older, newer) {
     if (error.code === 1) {
       return false;
     }
-    throw new Error('历史同步 commit 不可用，无法安全判断同步基准');
+    throw new Error('SYNC_HISTORY_COMMIT_UNAVAILABLE');
   }
 }
 
@@ -129,7 +130,7 @@ export async function findBranchByRequirement(cwd, requirementId, currentBranch,
   }
   if (!branchName) {
     throw new Error(
-      matches.length ? '存在多个需求分支，请切换到目标需求分支' : '未找到需求对应的本地 Git 分支',
+      matches.length ? 'SYNC_MULTIPLE_REQUIREMENT_BRANCHES' : 'SYNC_REQUIREMENT_BRANCH_NOT_FOUND',
     );
   }
   return branchName;
@@ -148,7 +149,7 @@ export async function findBranchByRequirement(cwd, requirementId, currentBranch,
  */
 export async function prepareCommitSync(cwd, requirementId, docType, history, options = {}) {
   if (!['requirement', 'design'].includes(docType)) {
-    throw new Error('不支持的文档类型');
+    throw new Error('SYNC_UNSUPPORTED_DOC_TYPE');
   }
   await options.onProgress?.({ stage: 'commits' });
   const current = await git(cwd, 'branch', '--show-current');
@@ -179,11 +180,11 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
         skipped: true,
         commitHash,
         branchName,
-        message: '当前 commit 已同步，或早于历史成功同步版本',
+        message: 'SYNC_COMMIT_ALREADY_SYNCED',
       };
     }
     if (!(await isAncestor(cwd, item.commitHash, commitHash))) {
-      throw new Error('当前提交与历史同步提交已分叉，请先处理分支历史');
+      throw new Error('SYNC_COMMIT_DIVERGED');
     }
     if (!baseline || (await isAncestor(cwd, baseline, item.commitHash))) {
       baseline = item.commitHash;
@@ -192,7 +193,7 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
   if (!baseline) {
     const ref = options.baseBranch?.trim() || (await defaultSyncBaseBranch(cwd));
     if (!ref || ref.startsWith('-') || /[\s\x00]/.test(ref)) {
-      throw new Error('BASE_BRANCH_REQUIRED: 请配置同步基准分支');
+      throw new Error('BASE_BRANCH_REQUIRED');
     }
     const sha = await git(cwd, 'rev-parse', '--verify', ref + '^{commit}').catch(() => {
       throw new Error('BASE_BRANCH_NOT_FOUND: ' + ref);
@@ -204,7 +205,7 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
         .split('\n')
         .filter(Boolean);
       if (bases.length !== 1) {
-        throw new Error('BASE_ANCESTOR_AMBIGUOUS: 必须具有唯一最近共同祖先');
+        throw new Error('BASE_ANCESTOR_AMBIGUOUS');
       }
       baseline = bases[0];
     }
@@ -231,7 +232,7 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
         (hash) => typeof hash !== 'string' || !/^[a-f0-9]{40,64}$/.test(hash),
       )
     ) {
-      throw new Error('COMMIT_SELECTION_INVALID: 提交清单无效');
+      throw new Error('COMMIT_SELECTION_INVALID');
     }
     const ref = options.baseBranch?.trim() || (await defaultSyncBaseBranch(cwd));
     comparison = await listSyncCommits(cwd, branchName, ref);
@@ -241,11 +242,11 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
       (options.branchTip && options.branchTip !== commitHash) ||
       (options.baseCommit && options.baseCommit !== comparison.baseline)
     ) {
-      throw new Error('COMMIT_LIST_CHANGED: 分支已更新，请刷新 commit 列表后重新选择');
+      throw new Error('COMMIT_LIST_CHANGED');
     }
     const chosen = new Set(options.commitHashes);
     if ([...chosen].some((hash) => !comparison.commits.some((commit) => commit.hash === hash))) {
-      throw new Error('COMMIT_OUT_OF_RANGE: 所选 commit 不在目标分支相对基准分支的差异中');
+      throw new Error('COMMIT_OUT_OF_RANGE');
     }
     commits = comparison.commits.filter((commit) => chosen.has(commit.hash));
     const diffs = [];
@@ -308,20 +309,21 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
     uncommittedChanges.hasChanges &&
     current !== branchName
   ) {
-    throw new Error('当前工作分支存在未提交改动，请切换到需求分支后同步');
+    throw new Error('SYNC_WORKING_BRANCH_HAS_UNCOMMITTED_CHANGES');
   }
   const includeWorkingChanges = options.includeWorkingChanges !== false;
+  const headings = contentTemplates().diff;
   const codeDiff = [
-    committedDiff && `# 已提交的变更\n\n${committedDiff}`,
+    committedDiff && `${headings.committed}\n\n${committedDiff}`,
     includeWorkingChanges &&
       uncommittedChanges.staged &&
-      `# 已暂存但未提交的变更\n\n${uncommittedChanges.staged}`,
+      `${headings.staged}\n\n${uncommittedChanges.staged}`,
     includeWorkingChanges &&
       uncommittedChanges.unstaged &&
-      `# 未暂存的变更\n\n${uncommittedChanges.unstaged}`,
+      `${headings.unstaged}\n\n${uncommittedChanges.unstaged}`,
     includeWorkingChanges &&
       uncommittedChanges.untrackedDiff &&
-      `# 未跟踪的新文件\n\n${uncommittedChanges.untrackedDiff}`,
+      `${headings.untracked}\n\n${uncommittedChanges.untrackedDiff}`,
   ]
     .filter(Boolean)
     .join('\n\n');
@@ -419,10 +421,10 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
     (await git(cwd, 'rev-parse', branchName)) !== commitHash ||
     (await git(cwd, 'ls-files', '--stage', '-z')) !== indexBefore
   ) {
-    throw new Error('INPUT_CHANGED: Git 状态在捕获期间变化');
+    throw new Error('INPUT_CHANGED_GIT_STATUS');
   }
   if (JSON.stringify(await readWorkingChanges(cwd)) !== JSON.stringify(uncommittedChanges)) {
-    throw new Error('INPUT_CHANGED: 工作区在捕获期间变化');
+    throw new Error('INPUT_CHANGED_WORKSPACE');
   }
   if (selectionMode || sessionSnapshots.length || designReference) {
     const identity = [
@@ -448,7 +450,12 @@ export async function prepareCommitSync(cwd, requirementId, docType, history, op
           item.selectionKey === selectionKey,
       )
     ) {
-      return { skipped: true, commitHash, branchName, message: '所选 commit 和未提交改动已同步' };
+      return {
+        skipped: true,
+        commitHash,
+        branchName,
+        message: 'SYNC_SELECTED_COMMITS_ALREADY_SYNCED',
+      };
     }
   }
   return {
@@ -477,7 +484,7 @@ function abortable(promise, signal) {
   return new Promise((resolve, reject) => {
     const abort = () => {
       signal.removeEventListener('abort', abort);
-      reject(signal.reason || new Error('同步已取消'));
+      reject(signal.reason || new Error('SYNC_CANCELLED'));
     };
     signal.addEventListener('abort', abort, { once: true });
     Promise.resolve(promise).then(
@@ -519,7 +526,7 @@ export async function beginCommitSync(cwd, reqDir, fields, { signal, onProgress,
       store: getSyncScope(fields.workspaceId, fields.requirementId)?.store,
     });
     if (getAbortController(fields.workspaceId, fields.requirementId)?.controller.signal.aborted) {
-      throw new Error('上一个同步任务正在终止，请稍后重试');
+      throw new Error('SYNC_PREVIOUS_TASK_STOPPING');
     }
     const active = await getActiveSync(fields.workspaceId, fields.requirementId);
     if (taskModel.isSyncActive(active)) {

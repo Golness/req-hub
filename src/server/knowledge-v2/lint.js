@@ -21,8 +21,8 @@ export function structuralLint({ pages, sourceRevisions }) {
           level: 'error',
           pageId: page.pageId,
           target: id,
-          reason: '链接目标不存在',
-          suggestion: '修正链接或重建相关页面',
+          reason: 'KB_LINT_LINK_TARGET_MISSING',
+          suggestion: 'KB_LINT_FIX_LINK_TARGET',
         });
       }
     }
@@ -38,8 +38,8 @@ export function structuralLint({ pages, sourceRevisions }) {
         kind: 'orphan',
         level: 'warning',
         pageId: page.pageId,
-        reason: '没有其他页面链接到该页',
-        suggestion: '在相关页面补充链接',
+        reason: 'KB_LINT_NO_INBOUND_LINKS',
+        suggestion: 'KB_LINT_ADD_INBOUND_LINKS',
       });
     }
     if (meta.type !== 'source' && !page.links.length) {
@@ -47,8 +47,8 @@ export function structuralLint({ pages, sourceRevisions }) {
         kind: 'no_outlink',
         level: 'warning',
         pageId: page.pageId,
-        reason: '页面没有出链',
-        suggestion: '补充相关页面链接',
+        reason: 'KB_LINT_NO_OUTBOUND_LINKS',
+        suggestion: 'KB_LINT_ADD_OUTBOUND_LINKS',
       });
     }
     if (meta.type !== 'source' && !meta.sources.length) {
@@ -56,8 +56,8 @@ export function structuralLint({ pages, sourceRevisions }) {
         kind: 'no_source',
         level: 'error',
         pageId: page.pageId,
-        reason: '页面没有来源',
-        suggestion: '补充来源或移除该页',
+        reason: 'KB_LINT_NO_SOURCES',
+        suggestion: 'KB_LINT_ADD_SOURCE_OR_REMOVE',
       });
     }
     for (const ref of meta.sources) {
@@ -67,8 +67,8 @@ export function structuralLint({ pages, sourceRevisions }) {
           level: 'error',
           pageId: page.pageId,
           sourceId: ref.id,
-          reason: '来源缺失或版本过期',
-          suggestion: '重建知识库',
+          reason: 'KB_LINT_SOURCE_OUTDATED',
+          suggestion: 'KB_LINT_REBUILD_KB',
         });
       }
     }
@@ -77,8 +77,8 @@ export function structuralLint({ pages, sourceRevisions }) {
         kind: 'index_missing',
         level: 'warning',
         pageId: page.pageId,
-        reason: '索引未收录该页',
-        suggestion: '重建索引',
+        reason: 'KB_LINT_PAGE_NOT_INDEXED',
+        suggestion: 'KB_LINT_REBUILD_INDEX',
       });
     }
   }

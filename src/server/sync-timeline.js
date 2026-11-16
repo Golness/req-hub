@@ -5,11 +5,11 @@
  */
 export function buildSyncTimeline(history) {
   return history.map((sync) => {
-    let statusLabel = '同步失败';
+    let statusLabel = 'STATUS_SYNC_FAILED';
     if (sync.status === 'completed') {
-      statusLabel = '同步成功';
+      statusLabel = 'STATUS_SYNC_SUCCEEDED';
     } else if (sync.status === 'aborted') {
-      statusLabel = '已终止';
+      statusLabel = 'STATUS_TERMINATED';
     }
     return {
       id: sync.id,

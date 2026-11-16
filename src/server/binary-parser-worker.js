@@ -1,3 +1,5 @@
+import { msg, messageDescriptor } from './messages.js';
+import { contentTemplates, setContentLanguage } from './content-templates.js';
 import { parentPort, workerData } from 'node:worker_threads';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -5,6 +7,7 @@ import { parseDocument } from 'htmlparser2';
 import yauzl from 'yauzl';
 
 const { limits, extension } = workerData;
+setContentLanguage(workerData.contentLanguage);
 const bytes = Buffer.from(workerData.bytes);
 const require = createRequire(import.meta.url);
 
@@ -21,7 +24,7 @@ function collector() {
       }
       size += text.length + 2;
       if (size > limits.characters) {
-        throw new Error('提取正文超过 200 万字符，请拆分文件');
+        throw new Error('ERR_EXTRACTED_TEXT_TOO_LARGE');
       }
       const startLine = line;
       line += text.split('\n').length + 1;
@@ -38,7 +41,7 @@ async function checkOfficeArchive() {
   await new Promise((resolve, reject) =>
     yauzl.fromBuffer(bytes, { lazyEntries: true }, (error, zip) => {
       if (error) {
-        return reject(new Error('Office 文件无效、已加密或已损坏'));
+        return reject(new Error('ERR_OFFICE_FILE_INVALID'));
       }
       let total = 0;
       let count = 0;
@@ -51,15 +54,15 @@ async function checkOfficeArchive() {
           reject(new Error(message));
         }
       };
-      zip.on('error', () => fail('Office 压缩包损坏'));
+      zip.on('error', () => fail('ERR_OFFICE_ARCHIVE_CORRUPTED'));
       zip.on('entry', (entry) => {
         total += entry.uncompressedSize;
         count++;
         if (total > limits.zipBytes || count > limits.zipEntries) {
-          return fail('Office 解压内容过大，请拆分文件');
+          return fail('ERR_OFFICE_EXTRACTED_CONTENT_TOO_LARGE');
         }
         if (entry.generalPurposeBitFlag & 1) {
-          return fail('暂不支持加密的 Office 文件');
+          return fail('ERR_ENCRYPTED_OFFICE_UNSUPPORTED');
         }
         if (entry.fileName === (extension === '.docx' ? 'word/document.xml' : 'xl/workbook.xml')) {
           main = true;
@@ -70,7 +73,7 @@ async function checkOfficeArchive() {
         if (!done) {
           done = true;
           zip.close();
-          main ? resolve() : reject(new Error('文件内容与扩展名不符'));
+          main ? resolve() : reject(new Error('ERR_FILE_CONTENT_EXTENSION_MISMATCH'));
         }
       });
       zip.readEntry();
@@ -80,7 +83,7 @@ async function checkOfficeArchive() {
 
 async function pdf() {
   if (!bytes.subarray(0, 1024).includes(Buffer.from('%PDF-'))) {
-    throw new Error('PDF 文件无效或已损坏');
+    throw new Error('ERR_PDF_INVALID');
   }
   const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const root = dirname(require.resolve('pdfjs-dist/package.json'));
@@ -98,7 +101,7 @@ async function pdf() {
   try {
     document = await task.promise;
     if (document.numPages > limits.pages) {
-      throw new Error('PDF 超过 500 页，请拆分文件');
+      throw new Error('ERR_PDF_TOO_MANY_PAGES');
     }
     const output = collector();
     let textPages = 0;
@@ -125,23 +128,27 @@ async function pdf() {
       }
       if (text.trim()) {
         textPages++;
-        output.add(`## 第 ${pageNumber} 页\n\n${text.trim()}`, { page: pageNumber });
+        output.add(contentTemplates().binary.pageHeading(pageNumber, text.trim()), {
+          page: pageNumber,
+        });
       }
       page.cleanup();
     }
     if (!textPages) {
-      throw new Error('PDF 未提取到文字，可能是扫描件，需要 OCR；当前仅支持文字型 PDF');
+      throw new Error('ERR_PDF_NO_TEXT_NEEDS_OCR');
     }
     const result = output.result();
     if (textPages !== document.numPages) {
       result.warnings = [
-        `${document.numPages - textPages} 页未提取到文字（空白页或扫描页），未执行 OCR`,
+        messageDescriptor(
+          msg('ERR_PDF_PAGE_NO_TEXT_OCR_SKIPPED', { v0: document.numPages - textPages }),
+        ),
       ];
     }
     return result;
   } catch (error) {
     if (error.name === 'PasswordException') {
-      throw new Error('PDF 已加密，请先解除密码后再分析');
+      throw new Error('ERR_PDF_ENCRYPTED');
     }
     throw error;
   } finally {
@@ -173,7 +180,7 @@ async function docx() {
     }
     if (/^(p|h[1-6]|li|tr)$/.test(node.name || '')) {
       if (++paragraph > limits.blocks) {
-        throw new Error('Word 超过 10000 个段落或表格行，请拆分文件');
+        throw new Error('ERR_WORD_TOO_MANY_PARAGRAPHS');
       }
       const heading = /^h[1-6]$/.test(node.name);
       const text =
@@ -207,7 +214,7 @@ async function xlsx() {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(bytes);
   if (workbook.worksheets.length > limits.sheets) {
-    throw new Error('Excel 超过 50 个工作表，请拆分文件');
+    throw new Error('ERR_EXCEL_TOO_MANY_SHEETS');
   }
   const output = collector();
   let count = 0;
@@ -219,15 +226,16 @@ async function xlsx() {
       let last;
       row.eachCell((cell) => {
         if (++count > limits.cells) {
-          throw new Error('Excel 超过 100000 个非空单元格，请拆分文件');
+          throw new Error('ERR_EXCEL_TOO_MANY_CELLS');
         }
         if (cell.isMerged && cell.master.address !== cell.address) {
           return;
         }
         const value = cell.value;
         const display = value instanceof Date ? value.toISOString() : cell.text;
+        const binary = contentTemplates().binary;
         const formula = cell.formula
-          ? ` [公式：${cell.formula}${cell.result === undefined ? '；无缓存结果，未计算' : ''}]`
+          ? binary.formulaNote(cell.formula, cell.result === undefined ? binary.formulaMissing : '')
           : '';
         values.push(`${cell.address}: ${display}${formula}`);
         first ??= cell.address;
@@ -235,7 +243,7 @@ async function xlsx() {
       });
       if (values.length) {
         if (!started) {
-          output.add(`## 工作表：${sheet.name}`, { sheet: sheet.name });
+          output.add(contentTemplates().binary.worksheetHeading(sheet.name), { sheet: sheet.name });
           started = true;
         }
         output.add(values.join(' | '), {
@@ -255,5 +263,5 @@ try {
   const result = await { '.pdf': pdf, '.docx': docx, '.xlsx': xlsx }[extension]();
   parentPort.postMessage({ result });
 } catch (error) {
-  parentPort.postMessage({ error: error.message || '文档解析失败' });
+  parentPort.postMessage({ error: messageDescriptor(error) });
 }

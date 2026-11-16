@@ -1,4 +1,5 @@
 'use strict';
+const { localizeMessage } = require('../utils/serverMessage.js');
 const React = require('react');
 const { t } = require('../locale.js');
 const { ROUTE } = require('../constants.js');
@@ -37,7 +38,7 @@ function DocumentAssociationSettings() {
       })
       .catch((error) => {
         if (!controller.signal.aborted) {
-          setError(error.message);
+          setError(localizeMessage(error.message));
         }
       });
     return () => controller.abort();
@@ -79,7 +80,7 @@ function DocumentAssociationSettings() {
       }
     } catch (error) {
       if (!signal.aborted) {
-        setError(error.message);
+        setError(localizeMessage(error.message));
       }
     } finally {
       if (!signal.aborted) {

@@ -1,3 +1,4 @@
+import { msg, messageDescriptor } from '../messages.js';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { readdir, open, readFile, realpath, stat } from 'node:fs/promises';
@@ -7,13 +8,21 @@ import { DatabaseSync } from 'node:sqlite';
 import { createCodexTranscript } from './transcript.js';
 
 /**
- * Create a Codex source error with an HTTP status.
- * @param message - Failure message.
+ * Create a Codex source error with an HTTP status, preserving message params.
+ * @param message - Bare stable code or `{ code, params }` descriptor.
  * @param [statusCode] - HTTP status for the domain failure.
  * @returns An Error carrying statusCode.
  */
-export const codexError = (message, statusCode = 400) =>
-  Object.assign(new Error(message), { statusCode });
+export const codexError = (message, statusCode = 400) => {
+  const descriptor = messageDescriptor(message);
+  const code = typeof descriptor === 'string' ? descriptor : descriptor.code;
+  const error = new Error(code);
+  error.messageCode = code;
+  if (typeof descriptor === 'object') {
+    error.params = descriptor.params;
+  }
+  return Object.assign(error, { statusCode });
+};
 /**
  * Normalize path spelling without resolving the filesystem or validating access.
  * @param value - Source path with optional Windows extended-length prefix.
@@ -67,7 +76,7 @@ async function readTitles(home, warnings) {
     }
   } catch (error) {
     if (error.code !== 'ENOENT') {
-      warnings.push('Codex 标题索引不可读：' + error.message);
+      warnings.push(msg('LOG_CODEX_TITLE_INDEX_UNREADABLE', { v0: error.message }));
     }
   }
   return titles;
@@ -116,7 +125,7 @@ async function prefixInfo(path) {
       }
     }
     if (!meta?.id && !meta?.session_id) {
-      throw codexError('CODEX_METADATA_INVALID: 无法读取 Codex 会话标识');
+      throw codexError('CODEX_METADATA_INVALID');
     }
     return { ...meta, root: root || meta.workspace_root || meta.cwd };
   } finally {
@@ -136,7 +145,7 @@ export class CodexSource {
       return {
         workspaces: [],
         sessions: [],
-        warnings: ['未找到本机 Codex 会话目录，请检查 CODEX_HOME 或 ~/.codex。'],
+        warnings: ['ERR_CODEX_SESSION_DIR_NOT_FOUND'],
       };
     }
     const databases = entries
@@ -169,7 +178,7 @@ export class CodexSource {
             .map((column) => column.name),
         );
         if (!['id', 'cwd', 'rollout_path', 'archived'].every((column) => columns.has(column))) {
-          throw Error('不支持的 threads 表结构');
+          throw Error('ERR_CODEX_THREADS_SCHEMA_UNSUPPORTED');
         }
         const tables = new Set(
           db
@@ -226,7 +235,7 @@ export class CodexSource {
           if (!workspace) {
             workspace =
               workspaces.get(projectId(row.cwd)) ||
-              addWorkspace(projectId(row.cwd), label(row.cwd) || '无工作区', [row.cwd]);
+              addWorkspace(projectId(row.cwd), label(row.cwd) || 'STATUS_NO_WORKSPACE', [row.cwd]);
           }
           const rolloutPath = canonicalPath(row.rollout_path);
           const sourcePath = isAbsolute(rolloutPath)
@@ -250,10 +259,7 @@ export class CodexSource {
         }
       } catch (error) {
         signal?.throwIfAborted();
-        throw codexError(
-          'CODEX_DATABASE_READ_FAILED: 无法读取 Codex 会话目录：' + error.message,
-          503,
-        );
+        throw codexError(msg('CODEX_DATABASE_READ_FAILED', { v0: error.message }), 503);
       } finally {
         db?.close();
       }
@@ -270,7 +276,9 @@ export class CodexSource {
           const nativeId = meta.session_id || meta.id;
           const workspace =
             workspaces.get(projectId(meta.root)) ||
-            addWorkspace(projectId(meta.root), label(meta.root) || '无工作区', [meta.root]);
+            addWorkspace(projectId(meta.root), label(meta.root) || 'STATUS_NO_WORKSPACE', [
+              meta.root,
+            ]);
           const details = await stat(file);
           const title = titles.get(nativeId);
           sessions.push({
@@ -302,7 +310,7 @@ export class CodexSource {
     const root = await realpath(join(this.home, 'sessions'));
     const path = await realpath(session.sourcePath);
     if (!beneath(root, path)) {
-      throw codexError('CODEX_SOURCE_INVALID: 会话文件不在 Codex 活跃会话目录内');
+      throw codexError('CODEX_SOURCE_INVALID');
     }
     const before = await stat(path);
     const parser = createCodexTranscript(session.id);
@@ -337,16 +345,13 @@ export class CodexSource {
     signal?.throwIfAborted();
     const after = await stat(path);
     if (before.size !== after.size || before.mtimeMs !== after.mtimeMs) {
-      throw codexError('CODEX_SESSION_CHANGING: 会话正在写入，请稍后刷新', 409);
+      throw codexError('CODEX_SESSION_CHANGING', 409);
     }
     if (malformed) {
-      throw codexError(
-        'CODEX_SESSION_INVALID: 会话 JSONL 包含损坏或尚未写完的记录，请稍后刷新',
-        409,
-      );
+      throw codexError('CODEX_SESSION_INVALID', 409);
     }
     if (metaId !== session.nativeId || archived) {
-      throw codexError('CODEX_SOURCE_INVALID: 会话标识不符或已归档', 409);
+      throw codexError('CODEX_SOURCE_INVALID_ARCHIVED', 409);
     }
     return parser.finish();
   }

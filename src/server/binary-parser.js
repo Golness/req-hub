@@ -1,3 +1,5 @@
+import { currentContentLanguage } from './content-templates.js';
+import { msg, messageFromDescriptor } from './messages.js';
 import { Worker } from 'node:worker_threads';
 
 export const BINARY_EXTENSIONS = new Set(['.pdf', '.docx', '.xlsx']);
@@ -17,7 +19,12 @@ export function parseBinary(bytes, extension, { signal, timeoutMs = 30_000 } = {
   signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./binary-parser-worker.js', import.meta.url), {
-      workerData: { bytes, extension, limits: PARSE_LIMITS },
+      workerData: {
+        bytes,
+        extension,
+        limits: PARSE_LIMITS,
+        contentLanguage: currentContentLanguage(),
+      },
       resourceLimits: { maxOldGenerationSizeMb: 256 },
       execArgv: process.execArgv.filter((arg) => !arg.startsWith('--input-type')),
     });
@@ -36,19 +43,18 @@ export function parseBinary(bytes, extension, { signal, timeoutMs = 30_000 } = {
         resolve(result);
       }
     };
-    const abort = () => finish(signal.reason || new Error('任务已取消'));
-    const timer = setTimeout(
-      () => finish(new Error('文档解析超过 30 秒，请拆分文件后重试')),
-      timeoutMs,
-    );
+    const abort = () => finish(signal.reason || new Error('TASK_CANCELLED'));
+    const timer = setTimeout(() => finish(new Error('ERR_DOC_PARSE_TIMEOUT')), timeoutMs);
     signal?.addEventListener('abort', abort, { once: true });
     worker.once('message', (message) =>
-      finish(message.error ? new Error(message.error) : null, message.result),
+      finish(message.error ? messageFromDescriptor(message.error) : null, message.result),
     );
-    worker.once('error', (error) => finish(new Error(`文档解析失败：${error.message}`)));
+    worker.once('error', (error) =>
+      finish(msg('ERR_DOC_PARSE_FAILED_WITH_REASON', { v0: error.message })),
+    );
     worker.once('exit', (code) => {
       if (!finished) {
-        finish(new Error(`文档解析进程提前退出（${code}）`));
+        finish(msg('ERR_DOC_PARSE_WORKER_EXITED', { v0: code }));
       }
     });
     if (signal?.aborted) {

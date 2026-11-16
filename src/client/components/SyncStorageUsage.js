@@ -1,3 +1,4 @@
+const { localizeMessage } = require('../utils/serverMessage.js');
 const React = require('react');
 const { t } = require('../locale.js');
 const { ROUTE } = require('../constants.js');
@@ -11,7 +12,9 @@ function storageError(error) {
   if ([401, 403].includes(error.status)) {
     return t('sync.storage.forbidden', {
       reason:
-        error.message === 'SYNC_STORAGE_RESPONSE_INVALID' ? `HTTP ${error.status}` : error.message,
+        error.message === 'SYNC_STORAGE_RESPONSE_INVALID'
+          ? `HTTP ${error.status}`
+          : localizeMessage(error.message),
     });
   }
   if (error.message === 'SYNC_STORAGE_RESPONSE_INVALID') {

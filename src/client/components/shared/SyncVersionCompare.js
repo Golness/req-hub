@@ -1,4 +1,5 @@
 'use strict';
+const { localizeMessage, clientError } = require('../../utils/serverMessage.js');
 const { t } = require('../../locale.js');
 const css = require('./SyncVersionCompare.module.css').default;
 const { Button } = require('./Button.js');
@@ -68,7 +69,7 @@ function SyncVersionCompare({
       const response = await fetch(`${ROUTE}/sync-version-diff?${params}`);
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || t('SyncVersionCompare.message001'));
+        throw clientError(data.error, t('SyncVersionCompare.message001'));
       }
       if (token === request.current) {
         review.open({
@@ -79,7 +80,7 @@ function SyncVersionCompare({
       }
     } catch (error) {
       if (token === request.current) {
-        setError(error.message);
+        setError(localizeMessage(error.message));
       }
     } finally {
       if (token === request.current) {

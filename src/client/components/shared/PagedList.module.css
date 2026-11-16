@@ -103,6 +103,10 @@
   font-size: 12px;
   line-height: 18px;
 }
+/* Inset variant keeps paging controls off the border of a framed list card. */
+.paged[data-rh-paged-inset='true'] .pager {
+  padding-inline: 8px;
+}
 .count {
   flex: 1 1 100%;
   min-width: 0;

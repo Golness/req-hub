@@ -33,7 +33,7 @@ it('prefers main, falls back to master, and returns a manual-entry hint when bot
  git('branch','-m','main','trunk');expect(await defaultSyncBaseBranch(repo)).toBe('master');
  info=await get(`sync-branch-info?workspaceId=ws&requirementId=${requirementId}`);expect(info.data.baseBranch).toBe('master');
  git('branch','-D','master');expect(await defaultSyncBaseBranch(repo)).toBeNull();
- info=await get(`sync-branch-info?workspaceId=ws&requirementId=${requirementId}`);expect(info.data.baseBranch).toBeNull();expect(info.data.baseBranchHint).toContain('手动填写');
+ info=await get(`sync-branch-info?workspaceId=ws&requirementId=${requirementId}`);expect(info.data.baseBranch).toBeNull();expect(info.data.baseBranchHint).toBe('SYNC_DEFAULT_BRANCH_NOT_FOUND');
 });
 it('lists only commits reachable from target and absent from base, preserving order and metadata',async()=>{
  git('switch','main');const baseOnly=await commit('upstream.js','UPSTREAM_ONLY','base only');git('switch',branch);

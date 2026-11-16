@@ -9,15 +9,23 @@ import {
   validateSyncSettings,
 } from './sync-settings.js';
 import { syncWorkspaceSessions } from './session-sync.js';
+import { larkPushFailure, pushKnowledgeArtifacts } from '../lark-scheduled-push.js';
 
 /**
  * Own Knowledge V2 save-debounce and daily synchronization without request state.
  */
 export class KnowledgeSyncScheduler {
-  constructor({ application, configLoader = loadConfig, configSaver = saveConfig, onError }) {
+  constructor({
+    application,
+    configLoader = loadConfig,
+    configSaver = saveConfig,
+    lark = null,
+    onError,
+  }) {
     this.application = application;
     this.configLoader = configLoader;
     this.configSaver = configSaver;
+    this.lark = lark;
     this.onError = onError;
     this.autoTimers = new Map();
     this.dailyTimer = null;
@@ -144,77 +152,94 @@ export class KnowledgeSyncScheduler {
       return [];
     }
     const current = dailyClock(schedule.timeZone, now);
-    if (current.minute !== schedule.time) {
+    const due = Number(schedule.time.slice(0, 2)) * 60 + Number(schedule.time.slice(3, 5));
+    const minutes = Number(current.minute.slice(0, 2)) * 60 + Number(current.minute.slice(3, 5));
+    // Catch up when the Host was busy or restarted just after the exact minute.
+    // An exact equality check silently loses the whole day in that case.
+    if (minutes < due) {
       return [];
     }
-    const results = [];
+    // The report store persists the day marker across restarts, so a late or
+    // repeated tick cannot run the same batch twice.
+    const began = this.reportSafe('begin', 'knowledge', current.date, {
+      timeZone: schedule.timeZone,
+    });
     let reportId = null;
-    for (const workspace of this.application.registry.list()) {
-      if (
-        this.completedDays.get(workspace.id) === current.date ||
-        this.dailyRunning.has(workspace.id)
-      ) {
-        continue;
+    if (began?.report) {
+      if (!began.created && !this.reportSafe('resume', began.report.id)) {
+        return [];
       }
-      if (!reportId) {
-        reportId =
-          this.reportSafe('begin', 'knowledge', current.date, {
-            timeZone: schedule.timeZone,
-          })?.report?.id || null;
-      }
-      if (reportId) {
-        this.reportSafe('item', reportId, workspace, 'workspace', {
-          kind: 'workspace',
-          status: 'running',
-        });
-      }
-      this.dailyRunning.add(workspace.id);
-      const task = this.runDaily(workspace.id, current.date, {
-        signal: this.controller.signal,
-        reportId,
-      })
-        .then((result) => {
-          this.completedDays.set(workspace.id, current.date);
-          this.states.set(workspace.id, {
-            state: result.fileFailed ? 'error' : 'idle',
-            lastRunAt: new Date().toISOString(),
-            lastDate: current.date,
-            error: result.failed ? 'KB_SYNC_PARTIAL_FAILED' : null,
-            result,
+      reportId = began.report.id;
+    }
+    const results = [];
+    try {
+      for (const workspace of this.application.registry.list()) {
+        if (
+          this.completedDays.get(workspace.id) === current.date ||
+          this.dailyRunning.has(workspace.id)
+        ) {
+          continue;
+        }
+        if (reportId) {
+          this.reportSafe('item', reportId, workspace, 'workspace', {
+            kind: 'workspace',
+            status: 'running',
           });
-          if (reportId) {
-            this.reportSafe('item', reportId, workspace, 'workspace', {
-              kind: 'workspace',
-              status: result.failed ? 'partial' : 'completed',
+        }
+        this.dailyRunning.add(workspace.id);
+        const task = this.runDaily(workspace.id, current.date, {
+          signal: this.controller.signal,
+          reportId,
+        })
+          .then((result) => {
+            this.completedDays.set(workspace.id, current.date);
+            this.states.set(workspace.id, {
+              state: result.fileFailed ? 'error' : 'idle',
+              lastRunAt: new Date().toISOString(),
+              lastDate: current.date,
+              error: result.failed ? 'KB_SYNC_PARTIAL_FAILED' : null,
               result,
             });
-          }
-          return result;
-        })
-        .catch((error) => {
-          this.states.set(workspace.id, {
-            state: 'error',
-            lastRunAt: new Date().toISOString(),
-            lastDate: current.date,
-            error: error.code || error.message,
-          });
-          if (reportId) {
-            this.reportSafe('item', reportId, workspace, 'workspace', {
-              kind: 'workspace',
-              status: 'failed',
+            if (reportId) {
+              this.reportSafe('item', reportId, workspace, 'workspace', {
+                kind: 'workspace',
+                status: result.failed ? 'partial' : 'completed',
+                result,
+              });
+            }
+            return result;
+          })
+          .catch((error) => {
+            this.states.set(workspace.id, {
+              state: 'error',
+              lastRunAt: new Date().toISOString(),
+              lastDate: current.date,
               error: error.code || error.message,
             });
-          }
-          if (!this.closed) {
-            this.onError?.(error);
-          }
-          return { workspaceId: workspace.id, failed: 1, fileFailed: 1, error: error.code || error.message };
-        })
-        .finally(() => this.dailyRunning.delete(workspace.id));
-      results.push(await task);
-    }
-    if (reportId) {
-      this.reportSafe('finish', reportId);
+            if (reportId) {
+              this.reportSafe('item', reportId, workspace, 'workspace', {
+                kind: 'workspace',
+                status: 'failed',
+                error: error.code || error.message,
+              });
+            }
+            if (!this.closed) {
+              this.onError?.(error);
+            }
+            return {
+              workspaceId: workspace.id,
+              failed: 1,
+              fileFailed: 1,
+              error: error.code || error.message,
+            };
+          })
+          .finally(() => this.dailyRunning.delete(workspace.id));
+        results.push(await task);
+      }
+    } finally {
+      if (reportId) {
+        this.reportSafe('finish', reportId);
+      }
     }
     return results;
   }
@@ -244,7 +269,8 @@ export class KnowledgeSyncScheduler {
       }
     }
     const config = await this.configLoader();
-    if (dailySettings(syncSettings(config), config.general.timeZone).importConversations) {
+    const settings = syncSettings(config);
+    if (dailySettings(settings, config.general.timeZone).importConversations) {
       try {
         sessions = await syncWorkspaceSessions(this.application, store, {
           signal,
@@ -290,6 +316,43 @@ export class KnowledgeSyncScheduler {
     const job = sourceIds.size
       ? await this.application.enqueueCompile(store, 'ingest', [...sourceIds])
       : null;
+    let larkPush = null;
+    if (this.lark && settings.larkPushEnabled === true) {
+      // Pushing the release is a follow-up effect. A Lark outage must not
+      // mark the file/session synchronization itself as failed.
+      try {
+        larkPush = await pushKnowledgeArtifacts({
+          lark: this.lark,
+          config,
+          store,
+          workspaceId,
+          signal,
+          waitForCompile: async () => {
+            if (!job?.id || !this.application.queue?.waitFor) {
+              return;
+            }
+            await this.application.queue.waitFor(store, job.id, { signal, timeoutMs: 120000 });
+          },
+          onItem: (key, item) => {
+            if (reportId) {
+              this.reportSafe('item', reportId, store.scope.workspace, key, item);
+            }
+          },
+        });
+      } catch (error) {
+        larkPush = { pushed: 0, skipped: 0, failed: 1, generationId: null };
+        if (reportId) {
+          this.reportSafe('item', reportId, store.scope.workspace, `lark:${workspaceId}:fatal`, {
+            kind: 'lark',
+            status: 'failed',
+            error: larkPushFailure(error).code,
+          });
+        }
+        if (!this.closed) {
+          this.onError?.(error);
+        }
+      }
+    }
     return {
       workspaceId,
       date,
@@ -300,6 +363,7 @@ export class KnowledgeSyncScheduler {
       sessionFailed,
       sourceIds: [...sourceIds],
       job,
+      larkPush,
     };
   }
 

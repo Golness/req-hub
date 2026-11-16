@@ -1,8 +1,8 @@
-import type { zh } from './locales/types';
+import type { zh, en } from './locales/types';
 import type {} from '@deepseek-ai/dsh-client-locale/client';
 declare module '@deepseek-ai/dsh-client-locale/client' {
   interface LocaleNamespaceMap {
-    reqHub: typeof zh;
+    reqHub: typeof zh & typeof en;
   }
 }
 

@@ -5,7 +5,9 @@ const require = createRequire(import.meta.url),
   React = require('react'),
   { act } = React;
 const { createRoot } = require('react-dom/client');
-const { ConversationKnowledgeImport } = require('../../src/client/components/ConversationKnowledgeImport.js');
+const {
+  ConversationKnowledgeImport,
+} = require('../../src/client/components/ConversationKnowledgeImport.js');
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let root, container;
 afterEach(async () => {
@@ -21,6 +23,7 @@ const TARGET = 'target-kb';
 const workspace = { id: TARGET, title: 'Target workspace', path: '/knowledge/target' };
 const session = {
   conversationId: 'conversation-one',
+  id: 'codex:sess-one',
   title: 'Fixture conversation',
   source: 'codex',
   snapshotVersion: 'v1',
@@ -28,6 +31,7 @@ const session = {
 };
 const dshSession = {
   conversationId: 'dsh-one',
+  id: 'dsh-native-one',
   title: 'DSH discussion',
   source: 'dsh',
   snapshotVersion: 'v1',
@@ -43,6 +47,20 @@ const turns = [1, 2, 3].map((number) => ({
   knowledgeState: ['new', 'same', 'changed'][number - 1],
   importable: number !== 2,
   syncable: number !== 3,
+  messages: [
+    {
+      role: 'user',
+      kind: 'input',
+      label: '用户输入',
+      text: '轮次 ' + number + ' 的原始输入',
+    },
+    {
+      role: 'assistant',
+      kind: 'final',
+      label: '助手最终回复',
+      text: '轮次 ' + number + ' 的完整回复',
+    },
+  ],
 }));
 const detail = (entry = session, version = 'v1') => ({ entry, version, versions, turns });
 const response = (data) => ({ ok: true, json: async () => data });
@@ -52,6 +70,9 @@ function api(options = {}) {
   const fetch = vi.fn(async (url, init) => {
     const parsed = new URL(String(url), 'http://localhost');
     const path = parsed.pathname;
+    if (path === '/req-hub/session-turns') {
+      return response(options.sessionTurns || { success: true, turns: [] });
+    }
     if (!path.startsWith('/req-hub/knowledge-v2')) {
       return response({ sessions: [], workspaces: [], items: [], total: 0 });
     }
@@ -69,7 +90,9 @@ function api(options = {}) {
     if (tail === '/sources/sessions/detail') {
       const id = parsed.searchParams.get('id');
       const entry = (options.sessions || [session]).find((item) => item.conversationId === id);
-      return response(detail(entry || session, parsed.searchParams.get('version') || 'v1'));
+      return response(
+        options.detail || detail(entry || session, parsed.searchParams.get('version') || 'v1'),
+      );
     }
     return response({});
   });
@@ -94,6 +117,14 @@ const button = (text) =>
   [...document.querySelectorAll('button')].find((node) => node.textContent === text);
 const click = async (node) => act(async () => node.click());
 const flush = () => act(async () => {});
+function setInputValue(element, value) {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  setter.call(element, value);
+  element.dispatchEvent(new Event('input', { bubbles: true }));
+}
+const tabs = () => [
+  ...document.querySelectorAll('[role="tablist"][aria-label="会话来源"] [role="tab"]'),
+];
 
 it.each([undefined, { id: 'wrong-workspace' }])(
   'rejects unscoped or mismatched workspace responses instead of showing global conversations',
@@ -121,7 +152,9 @@ it('uses the current workspace without destination or source workspace pickers',
   expect(fetch.mock.calls.some(([url]) => String(url).includes('-options'))).toBe(false);
   expect(document.querySelector('button[aria-label="目标知识库工作区"]')).toBeNull();
   expect(document.querySelector('button[aria-label="DSH 会话工作区"]')).toBeNull();
-  expect(document.querySelector('input[aria-label="选择会话：Fixture conversation"]')).not.toBeNull();
+  expect(
+    document.querySelector('input[aria-label="选择会话：Fixture conversation"]'),
+  ).not.toBeNull();
   expect(button('导入所选轮次').disabled).toBe(true);
 });
 
@@ -133,6 +166,147 @@ it('groups DSH and Codex sessions by source', async () => {
   expect(groups.map((node) => node.getAttribute('data-source'))).toEqual(['dsh', 'codex']);
   expect(groups.map((node) => node.getAttribute('aria-label'))).toEqual(['DSH', 'Codex']);
   expect(document.querySelector('input[aria-label="选择会话：DSH discussion"]')).not.toBeNull();
+});
+
+it('switches DSH and Codex through tabs while keeping per-source search drafts', async () => {
+  api({ sessions: [session, dshSession] });
+  await render();
+  await flush();
+  const switches = tabs();
+  expect(switches).toHaveLength(2);
+  expect(switches.map((node) => node.getAttribute('aria-selected'))).toEqual(['true', 'false']);
+  const dshPanel = document.querySelector('[role="tabpanel"][data-source="dsh"]');
+  const codexPanel = document.querySelector('[role="tabpanel"][data-source="codex"]');
+  expect(dshPanel.hidden).toBe(false);
+  expect(codexPanel.hidden).toBe(true);
+  await act(async () => setInputValue(dshPanel.querySelector('input[type="search"]'), 'DSH'));
+  expect(dshPanel.querySelector('input[type="search"]').value).toBe('DSH');
+  await click(switches[1]);
+  expect(tabs()[1].getAttribute('aria-selected')).toBe('true');
+  expect(dshPanel.hidden).toBe(true);
+  expect(codexPanel.hidden).toBe(false);
+  expect(codexPanel.querySelector('input[type="search"]').value).toBe('');
+  await click(switches[0]);
+  expect(tabs()[0].getAttribute('aria-selected')).toBe('true');
+  expect(dshPanel.querySelector('input[type="search"]').value).toBe('DSH');
+});
+
+it('keeps selected turns and the import action when the active source changes', async () => {
+  api({ sessions: [session, dshSession] });
+  await render();
+  await flush();
+  await click(tabs()[1]);
+  await click(document.querySelector('input[aria-label="选择会话：Fixture conversation"]'));
+  await flush();
+  expect(document.body.textContent).toContain('已选择 1 个会话、2 个轮次');
+  await click(tabs()[0]);
+  expect(document.body.textContent).toContain('已选择 1 个会话、2 个轮次');
+  expect(button('导入所选轮次').disabled).toBe(false);
+});
+
+it('uses the shared tab, action bar and inset pager layout', async () => {
+  api();
+  await render();
+  await flush();
+  const dialog = document.querySelector('[data-rh-modal]');
+  expect(dialog.querySelector('[role="tablist"][aria-label="会话来源"]')).toBeTruthy();
+  expect(
+    [...dialog.querySelectorAll('[role="tabpanel"][data-source]')].map((node) =>
+      node.getAttribute('data-source'),
+    ),
+  ).toEqual(['dsh', 'codex']);
+  expect(dialog.textContent).toContain('/knowledge/target');
+  const bar = dialog.querySelector('[data-rh-action-bar="section"]');
+  expect(bar).toBeTruthy();
+  expect(bar.textContent).toContain('已选择 0 个会话、0 个轮次');
+  expect(bar.textContent).toContain('保存并更新 Wiki');
+  expect(dialog.querySelector('[data-rh-paged-inset="true"]')).toBeTruthy();
+  expect(
+    new Set(
+      [...dialog.querySelectorAll('[role="tabpanel"] [data-rh-size]')].map((node) =>
+        node.getAttribute('data-rh-size'),
+      ),
+    ),
+  ).toEqual(new Set(['sm']));
+});
+
+it('previews the frozen conversation content without changing the turn selection', async () => {
+  const fetch = api();
+  await render();
+  await flush();
+  const previewButton = () =>
+    [...document.querySelectorAll('button')].find((node) => node.textContent === '查看内容');
+  expect(previewButton()).toBeTruthy();
+  await click(previewButton());
+  await flush();
+  expect(document.querySelector('[aria-label="会话内容"]')).toBeTruthy();
+  expect(document.querySelector('[aria-label="会话内容"]').textContent).toContain('第 1 轮');
+  expect(document.querySelector('[aria-label="会话轮次"]')).toBeNull();
+  expect(fetch.mock.calls.some(([url]) => String(url).includes('/session-turns'))).toBe(false);
+  await click(button('全部展开'));
+  expect(document.body.textContent).toContain('轮次 1 的完整回复');
+  expect(document.body.textContent).toContain('轮次 3 的原始输入');
+  expect(button('导入所选轮次').disabled).toBe(true);
+  const detailCalls = fetch.mock.calls.filter(([url]) =>
+    String(url).includes('/sources/sessions/detail'),
+  );
+  expect(detailCalls).toHaveLength(1);
+  await click(button('选择轮次'));
+  await flush();
+  expect(document.querySelector('[aria-label="会话轮次"]')).toBeTruthy();
+  expect(
+    fetch.mock.calls.filter(([url]) => String(url).includes('/sources/sessions/detail')),
+  ).toHaveLength(1);
+});
+
+/** Older Host processes return turns with no frozen text at all. */
+const detailWithoutText = {
+  entry: session,
+  version: 'v1',
+  versions,
+  turns: turns.map(({ messages, ...item }) => item),
+};
+const syncSnapshot = {
+  success: true,
+  version: 'v1',
+  turns: [1, 2, 3].map((number) => ({
+    turnNumber: number,
+    messages: [
+      { role: 'user', kind: 'input', label: '用户输入', text: `同步输入 ${number}` },
+      { role: 'assistant', kind: 'final', label: '助手最终回复', text: `同步回复 ${number}` },
+    ],
+  })),
+};
+
+it('fills missing frozen text from the sync-side session snapshot', async () => {
+  const fetch = api({ detail: detailWithoutText, sessionTurns: syncSnapshot });
+  await render();
+  await flush();
+  await click(button('查看内容'));
+  await flush();
+  await flush();
+  await click(button('全部展开'));
+  await flush();
+  expect(document.body.textContent).toContain('同步回复 1');
+  expect(document.body.textContent).toContain('同步输入 3');
+  expect(document.body.textContent).toContain('正文来自同步功能');
+  expect(fetch.mock.calls.some(([url]) => String(url).includes('/session-turns'))).toBe(true);
+  expect(
+    fetch.mock.calls.filter(([url]) => String(url).includes('/sources/sessions/detail')),
+  ).toHaveLength(1);
+});
+
+it('explains unavailable conversation text instead of rendering blank rows', async () => {
+  api({ detail: detailWithoutText, sessionTurns: { success: false, error: 'SESSION_CHANGED' } });
+  await render();
+  await flush();
+  await click(button('查看内容'));
+  await flush();
+  await flush();
+  await click(button('全部展开'));
+  await flush();
+  expect(document.body.textContent).toContain('这一轮没有可显示的正文');
+  expect(document.body.textContent).toContain('无法读取会话正文');
 });
 
 it('selects only importable frozen turns and submits the chosen rounds', async () => {

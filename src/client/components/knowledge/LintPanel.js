@@ -4,11 +4,9 @@ const { t, hasLocaleKey } = require('../../locale.js');
 const { Button } = require('../shared/Button.js');
 const { EmptyState } = require('../shared/EmptyState.js');
 const { showToast } = require('../shared/ToastContainer.js');
-const {
-  knowledgeV2Request,
-  knowledgeV2ErrorText,
-} = require('../../hooks/useKnowledgeV2.js');
+const { knowledgeV2Request, knowledgeV2ErrorText } = require('../../hooks/useKnowledgeV2.js');
 const css = require('./KnowledgeWorkspace.module.css').default;
+const { localizeMessage } = require('../../utils/serverMessage.js');
 const h = React.createElement;
 
 /**
@@ -66,7 +64,9 @@ function LintPanel({ workspaceId, jobs, onOpenPage }) {
   }, [jobs.jobs, semanticJobId]);
   const semanticRunning =
     semanticJobId !== null ||
-    jobs.jobs.some((job) => job.kind === 'lint' && ['queued', 'running', 'cancelling'].includes(job.status));
+    jobs.jobs.some(
+      (job) => job.kind === 'lint' && ['queued', 'running', 'cancelling'].includes(job.status),
+    );
   const errors = (findings || []).filter((item) => item.level === 'error').length;
   const warnings = (findings || []).filter((item) => item.level === 'warning').length;
   return h(
@@ -77,12 +77,22 @@ function LintPanel({ workspaceId, jobs, onOpenPage }) {
       { className: css.toolbar },
       h(
         Button,
-        { variant: 'primary', size: 'sm', disabled: busy || semanticRunning, onClick: () => run('structural') },
+        {
+          variant: 'primary',
+          size: 'sm',
+          disabled: busy || semanticRunning,
+          onClick: () => run('structural'),
+        },
         t('kb.lint.structural'),
       ),
       h(
         Button,
-        { variant: 'outline', size: 'sm', disabled: busy || semanticRunning, onClick: () => run('semantic') },
+        {
+          variant: 'outline',
+          size: 'sm',
+          disabled: busy || semanticRunning,
+          onClick: () => run('semantic'),
+        },
         t('kb.lint.semantic'),
       ),
       findings &&
@@ -138,9 +148,13 @@ function LintPanel({ workspaceId, jobs, onOpenPage }) {
                 h('p', { className: css.muted }, `${t('kb.lint.target')}: ${finding.target}`),
               finding.sourceId &&
                 h('p', { className: css.muted }, `${t('kb.lint.source')}: ${finding.sourceId}`),
-              h('p', null, finding.reason),
+              h('p', null, localizeMessage(finding.reason)),
               finding.suggestion &&
-                h('p', { className: css.muted }, `${t('kb.lint.suggestion')}: ${finding.suggestion}`),
+                h(
+                  'p',
+                  { className: css.muted },
+                  `${t('kb.lint.suggestion')}: ${localizeMessage(finding.suggestion)}`,
+                ),
             );
           }),
         ),

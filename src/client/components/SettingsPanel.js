@@ -1,7 +1,15 @@
 'use strict';
+const { localizeMessage } = require('../utils/serverMessage.js');
 const { t } = require('../locale.js');
 const { setTimeZone } = require('../time.js');
-const { GENERAL_DEFAULTS } = require('../../shared/general.cjs');
+const { setUiLanguage } = require('../ui-language.js');
+const {
+  GENERAL_DEFAULTS,
+  DEFAULT_UI_LANGUAGE,
+  UI_LANGUAGES,
+  DEFAULT_CONTENT_LANGUAGE,
+  CONTENT_LANGUAGES,
+} = require('../../shared/general.cjs');
 const { Button } = require('./shared/Button.js');
 const { Input } = require('./shared/Input.js');
 const { SettingsActionBar, SettingsActionScope } = require('./shared/SettingsActionBar.js');
@@ -9,8 +17,9 @@ const { Disclosure } = require('./shared/Disclosure.js');
 const { HoverCard } = require('./shared/controls.js');
 const { DependencySettings } = require('./DependencySettings.js');
 const css = require('./SettingsPanel.module.css').default;
-const SETTINGS_TABS = ['general', 'dependencies', 'sync', 'prompts'];
+const SETTINGS_TABS = ['general', 'dependencies', 'sync', 'knowledge', 'prompts'];
 const { SyncScheduleSettings } = require('./SyncScheduleSettings.js');
+const { KnowledgeSettings } = require('./knowledge/KnowledgeSettings.js');
 
 const React = require('react');
 const { Select } = require('./shared/Select.js');
@@ -34,9 +43,10 @@ const { PromptManager } = require('./PromptManager.js');
  * @param {string} props.workspaceId - The workspace ID for fetching skills and configuration
  * @param {Function} props.onClose - Callback invoked when the panel is closed or cancelled
  * @param {string} [props.initialTab] - Destination selected by a settings shortcut.
+ * @param {Function} [props.onKnowledgeChanged] - Notifies the owning view that knowledge data changed.
  * @returns {JSX.Element}
  */
-function SettingsPanel({ workspaceId, onClose, initialTab = 'general' }) {
+function SettingsPanel({ workspaceId, onClose, initialTab = 'general', onKnowledgeChanged }) {
   const destination = ['associations', 'lark'].includes(initialTab) ? 'dependencies' : initialTab;
   const firstTab = SETTINGS_TABS.includes(destination) ? destination : 'general';
   const [tab, setTab] = useState(firstTab);
@@ -48,7 +58,12 @@ function SettingsPanel({ workspaceId, onClose, initialTab = 'general' }) {
   };
   const selectedSession = React.useContext(SessionSelectionContext);
   const [settings, setSettings] = useState({
-    general: { timeZone: 'Asia/Shanghai', ...GENERAL_DEFAULTS },
+    general: {
+      timeZone: 'Asia/Shanghai',
+      uiLanguage: DEFAULT_UI_LANGUAGE,
+      contentLanguage: DEFAULT_CONTENT_LANGUAGE,
+      ...GENERAL_DEFAULTS,
+    },
     defaultUsername: '',
     ai: {
       selectedModel: '',
@@ -94,7 +109,13 @@ function SettingsPanel({ workspaceId, onClose, initialTab = 'general' }) {
         if (configRes.ok) {
           const data = await configRes.json();
           const nextSettings = {
-            general: { timeZone: 'Asia/Shanghai', ...GENERAL_DEFAULTS, ...data.general },
+            general: {
+              timeZone: 'Asia/Shanghai',
+              uiLanguage: DEFAULT_UI_LANGUAGE,
+              contentLanguage: DEFAULT_CONTENT_LANGUAGE,
+              ...GENERAL_DEFAULTS,
+              ...data.general,
+            },
             defaultUsername: data.defaultUsername || '',
             ai: {
               selectedModel: data.ai?.selectedModel || '',
@@ -119,6 +140,7 @@ function SettingsPanel({ workspaceId, onClose, initialTab = 'general' }) {
           };
           setSettings(nextSettings);
           setTimeZone(nextSettings.general.timeZone);
+          setUiLanguage(nextSettings.general.uiLanguage);
           setSavedSettings(JSON.stringify(nextSettings));
         } else {
           setMessage({ type: 'error', text: t('SettingsPanel.message002') });
@@ -135,7 +157,7 @@ function SettingsPanel({ workspaceId, onClose, initialTab = 'general' }) {
           setLlmConfig({ error: `HTTP ${llmRes.status}` });
         }
       } catch (err) {
-        setLlmConfig({ error: err.message });
+        setLlmConfig({ error: localizeMessage(err.message) });
       }
 
       await loadPromptRegistry();
@@ -223,13 +245,17 @@ function SettingsPanel({ workspaceId, onClose, initialTab = 'general' }) {
       });
       if (res.ok) {
         setTimeZone(settings.general.timeZone);
+        setUiLanguage(settings.general.uiLanguage);
         setSavedSettings(snapshot);
         setMessage({ type: 'success', text: t('SettingsPanel.message003') });
       } else {
         setMessage({ type: 'error', text: t('FilePreview.message002') });
       }
     } catch (err) {
-      setMessage({ type: 'error', text: t('SettingsPanel.message004') + err.message });
+      setMessage({
+        type: 'error',
+        text: t('SettingsPanel.message004') + localizeMessage(err.message),
+      });
     } finally {
       setSaving(false);
     }
@@ -401,6 +427,50 @@ function SettingsPanel({ workspaceId, onClose, initialTab = 'general' }) {
       h(
         'div',
         { className: css.settingField },
+        settingTitle('rh-ui-language-title', t('general.uiLanguage'), t('general.uiLanguageHelp')),
+        h(Select, {
+          className: css.languageSelect,
+          'aria-labelledby': 'rh-ui-language-title',
+          value: settings.general.uiLanguage || DEFAULT_UI_LANGUAGE,
+          disabled: saving || savedSettings === null,
+          options: UI_LANGUAGES.map((id) => ({
+            id,
+            label: t(`general.uiLanguage.${id}`),
+          })),
+          onChange: (event) =>
+            setSettings((previous) => ({
+              ...previous,
+              general: { ...previous.general, uiLanguage: event.target.value },
+            })),
+        }),
+      ),
+      h(
+        'div',
+        { className: css.settingField },
+        settingTitle(
+          'rh-content-language-title',
+          t('general.contentLanguage'),
+          t('general.contentLanguageHelp'),
+        ),
+        h(Select, {
+          className: css.languageSelect,
+          'aria-labelledby': 'rh-content-language-title',
+          value: settings.general.contentLanguage || DEFAULT_CONTENT_LANGUAGE,
+          disabled: saving || savedSettings === null,
+          options: CONTENT_LANGUAGES.map((id) => ({
+            id,
+            label: t(`general.contentLanguage.${id}`),
+          })),
+          onChange: (event) =>
+            setSettings((previous) => ({
+              ...previous,
+              general: { ...previous.general, contentLanguage: event.target.value },
+            })),
+        }),
+      ),
+      h(
+        'div',
+        { className: css.settingField },
         settingTitle(
           'rh-default-username-title',
           t('schedule.username'),
@@ -501,6 +571,13 @@ function SettingsPanel({ workspaceId, onClose, initialTab = 'general' }) {
       return h(SyncScheduleSettings, {
         key: 'sync-' + workspaceId,
         defaultUsername: savedSettings ? JSON.parse(savedSettings).defaultUsername : undefined,
+      });
+    }
+    if (id === 'knowledge') {
+      return h(KnowledgeSettings, {
+        key: 'knowledge-' + workspaceId,
+        workspaceId,
+        onChanged: onKnowledgeChanged,
       });
     }
     return h(PromptManager, {

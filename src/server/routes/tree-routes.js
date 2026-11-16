@@ -1,3 +1,4 @@
+import { msg } from '../messages.js';
 import { safeDocumentPath } from '../safe-path.js';
 import { withDocumentLock } from '../sync-document-validator.js';
 import { creationStatus } from '../creation.js';
@@ -111,11 +112,11 @@ export function createTreeRoutes(registry, options = {}) {
             child.unref();
             json(res, { success: true, path: fullPath });
           } catch (e) {
-            log.tree.error(`打开文件资源管理器失败: ${e.message}`);
+            log.tree.error(msg('DOC_OPEN_FILE_EXPLORER_FAILED', { v0: e.message }));
             json(res, { error: e.message }, 500);
           }
         } catch (e) {
-          log.tree.error(`打开文件资源管理器失败: ${e.message}`);
+          log.tree.error(msg('DOC_OPEN_FILE_EXPLORER_FAILED', { v0: e.message }));
           json(res, { error: e.message }, 500);
         }
       },
@@ -169,7 +170,7 @@ export function createTreeRoutes(registry, options = {}) {
 
           json(res, stats);
         } catch (e) {
-          log.tree.error(`获取统计信息失败: ${e.message}`);
+          log.tree.error(msg('DOC_GET_STATS_FAILED', { v0: e.message }));
           json(res, { error: e.message }, 500);
         }
       },
@@ -370,12 +371,12 @@ export function createTreeRoutes(registry, options = {}) {
           const ext = filePath.toLowerCase().match(/\.[^.]+$/)?.[0] || '';
           const allowedExts = ['.md', '.txt', '.text', '.json'];
           if (!allowedExts.includes(ext)) {
-            json(res, { error: `文件类型 ${ext} 不支持编辑` }, 400);
+            json(res, { error: msg('DOC_FILE_TYPE_NOT_EDITABLE', { v0: ext }) }, 400);
             return;
           }
 
           if (content.length > 10 * 1024 * 1024) {
-            json(res, { error: '文件内容超过 10MB 限制' }, 400);
+            json(res, { error: 'DOC_FILE_CONTENT_TOO_LARGE' }, 400);
             return;
           }
 
@@ -415,7 +416,7 @@ export function createTreeRoutes(registry, options = {}) {
           }
           json(res, result);
         } catch (e) {
-          log.tree.error(`文件写入失败: ${e.message}`);
+          log.tree.error(msg('DOC_FILE_WRITE_FAILED', { v0: e.message }));
           json(res, { success: false, error: e.message }, e.status || 500);
         }
       },
@@ -562,7 +563,7 @@ export function createTreeRoutes(registry, options = {}) {
                 cwd: workspace.path,
               });
               if (existing.trim()) {
-                json(res, { error: `分支 "${branchName}" 已存在` }, 409);
+                json(res, { error: msg('DOC_BRANCH_ALREADY_EXISTS', { v0: branchName }) }, 409);
                 return;
               }
 
@@ -577,22 +578,26 @@ export function createTreeRoutes(registry, options = {}) {
 
               await execAsync(`git checkout "${branchName}"`, { cwd: workspace.path });
 
-              log.tree.info(`新建分支: ${branchName} (from ${fromBranch})`);
+              log.tree.info(msg('DOC_BRANCH_CREATED', { v0: branchName, v1: fromBranch }));
               branchResult = {
                 created: true,
                 branchName,
                 fromBranch,
               };
             } catch (gitErr) {
-              log.tree.error(`新建分支失败: ${gitErr.message}`);
-              json(res, { error: `Git 操作失败: ${gitErr.stderr || gitErr.message}` }, 500);
+              log.tree.error(msg('DOC_CREATE_BRANCH_FAILED', { v0: gitErr.message }));
+              json(
+                res,
+                { error: msg('DOC_GIT_OPERATION_FAILED', { v0: gitErr.stderr || gitErr.message }) },
+                500,
+              );
               return;
             }
           }
 
           await safeDocumentPath(docsRoot, join(developer, dirName), { allowMissing: true });
           await mkdir(targetPath, { recursive: true });
-          log.tree.info(`创建目录: ${developer}/${dirName}`);
+          log.tree.info(msg('DOC_DIRECTORY_CREATED', { v0: developer, v1: dirName }));
           json(res, {
             success: true,
             path: relative(docsRoot, targetPath),
@@ -600,7 +605,7 @@ export function createTreeRoutes(registry, options = {}) {
             branch: branchResult,
           });
         } catch (e) {
-          log.tree.error(`创建目录失败: ${e.message}`);
+          log.tree.error(msg('DOC_CREATE_DIRECTORY_FAILED', { v0: e.message }));
           json(res, { error: e.message }, 500);
         }
       },
@@ -746,7 +751,7 @@ export function createTreeRoutes(registry, options = {}) {
           const fileTree = await buildFileTree(reqPath);
           json(res, { tree: fileTree });
         } catch (e) {
-          log.tree.error(`获取文件树失败: ${e.message}`);
+          log.tree.error(msg('DOC_GET_FILE_TREE_FAILED', { v0: e.message }));
           json(res, { error: e.message }, 500);
         }
       },

@@ -1,4 +1,5 @@
 'use strict';
+const { localizeMessage } = require('../utils/serverMessage.js');
 const { t } = require('../locale.js');
 const css = require('./SkillPreview.module.css').default;
 
@@ -100,7 +101,7 @@ function SkillPreview({ skillName, workspaceId, onBack, inlineBack = false }) {
           return;
         }
         if (!res.ok) {
-          setError(data.error || t('common.loadFailed'));
+          setError(localizeMessage(data.error) || t('common.loadFailed'));
         } else {
           setText(data.content || '');
           setDescription(data.description || '');

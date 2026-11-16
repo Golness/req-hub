@@ -1,3 +1,4 @@
+import { msg } from './messages.js';
 import { createOperations, installOperationTool } from './operations.js';
 import { authenticatedRoute, disposeAll } from './plugin-boundaries.js';
 import { configureStorage, Config } from './config.js';
@@ -28,6 +29,7 @@ import { createKnowledgeV2Routes } from './routes/knowledge-v2-routes.js';
 import { log, getLogs, clearLogs, getLogLevels, getLogTags } from './logger.js';
 import { json } from './utils.js';
 import { setSkillsService } from './prompts.js';
+import { setContentLanguage } from './content-templates.js';
 
 /**
  * Plugin identity — required by DSH Cordis Loader.
@@ -81,6 +83,7 @@ export function apply(ctx, config = {}) {
   const releaseConfig = configureStorage(config, {
     filePath: profile?.dir ? join(profile.dir, 'req-hub', 'config.json') : undefined,
   });
+  setContentLanguage(config?.general?.contentLanguage);
   const {
     workspaceRegistry,
     webServer,
@@ -97,8 +100,8 @@ export function apply(ctx, config = {}) {
   setSkillsService(skills);
   const subagentScheduler = installSubagentScheduler(subagents);
 
-  log.startup.info('ReqHub 插件启动 (模块化架构 - Subagent 统一委托)');
-  log.startup.debug('可用服务', {
+  log.startup.info("LOG_PLUGIN_STARTED");
+  log.startup.debug("LOG_AVAILABLE_SERVICES", {
     hasSessions: !!sessions,
     hasSkills: !!skills,
     hasLlm: !!llm,
@@ -116,6 +119,7 @@ export function apply(ctx, config = {}) {
     ctx,
     registry: workspaceRegistry,
     profileDir: profile?.dir,
+    lark,
     onSyncError: (error) => log.startup.warn('KNOWLEDGE_SYNC_FAILED: ' + error.message),
   });
   disposers.push(() => knowledgeV2.close());
@@ -125,13 +129,7 @@ export function apply(ctx, config = {}) {
   knowledgeV2.onJobChange = (job) => reports.knowledgeJob(job);
   const enhancements = createEnhancementRoutes(knowledgeV2.context, ctx);
   disposers.push(() => enhancements.dispose());
-  const writing = createWritingRoutes(
-    workspaceRegistry,
-    llm,
-    agents,
-    ctx,
-    knowledgeV2.context,
-  );
+  const writing = createWritingRoutes(workspaceRegistry, llm, agents, ctx, knowledgeV2.context);
   const creation = createCreationRoutes(workspaceRegistry);
   disposers.push(() => creation.dispose());
   disposers.push(() => writing.dispose());
@@ -148,6 +146,7 @@ export function apply(ctx, config = {}) {
     knowledge: knowledgeV2,
     reports,
     routes: syncRoutes,
+    lark,
   });
 
   const routes = [
@@ -156,6 +155,7 @@ export function apply(ctx, config = {}) {
 
     ...createConfigRoutes(workspaceRegistry, llm, ctx, {
       onSaved: (config, previous) => {
+        setContentLanguage(config.general?.contentLanguage);
         const zoneChanged = config.general?.timeZone !== previous.general?.timeZone;
         const keys = ['dailyUpdateEnabled', 'dailyUpdateTime', 'dailyOffsetDays'];
         if (
@@ -176,9 +176,7 @@ export function apply(ctx, config = {}) {
         ];
         if (
           zoneChanged ||
-          knowledgeKeys.some(
-            (key) => config.knowledgeV2?.[key] !== previous.knowledgeV2?.[key],
-          )
+          knowledgeKeys.some((key) => config.knowledgeV2?.[key] !== previous.knowledgeV2?.[key])
         ) {
           void knowledgeV2.sync.refresh().catch((error) => {
             log.startup.warn('KNOWLEDGE_SYNC_REFRESH_FAILED: ' + error.message);
@@ -218,7 +216,7 @@ export function apply(ctx, config = {}) {
           return;
         }
         clearLogs();
-        log.startup.info('日志已清空');
+        log.startup.info("LOG_CLEARED");
         json(res, { success: true });
       },
     },
@@ -287,7 +285,7 @@ export function apply(ctx, config = {}) {
           }
 
           if (matchedSessions.length === 0) {
-            json(res, { error: `没有找到标题包含 "${titleQuery}" 的会话`, sessions: [] });
+            json(res, { error: msg("SESSION_NOT_FOUND_BY_TITLE", { v0: titleQuery }), sessions: [] });
             return;
           }
 
@@ -344,7 +342,7 @@ export function apply(ctx, config = {}) {
 
             subagentDetails.push({
               id: desc.id,
-              label: desc.label || '(无标签)',
+              label: desc.label || "STATUS_NO_TAG",
               status: desc.status || 'unknown',
               agentStatus,
               isActive,
@@ -385,7 +383,7 @@ export function apply(ctx, config = {}) {
         const sessionId = url.searchParams.get('sessionId');
 
         if (!skills) {
-          json(res, { skills: [], error: 'skills 服务不可用' });
+          json(res, { skills: [], error: "ERR_SKILLS_SERVICE_UNAVAILABLE" });
           return;
         }
 
@@ -467,7 +465,7 @@ export function apply(ctx, config = {}) {
             },
           });
         } catch (e) {
-          log.startup.error(`获取 skills 失败: ${e.message}`, { stack: e.stack });
+          log.startup.error(msg("ERR_FETCH_SKILLS_FAILED", { v0: e.message }), { stack: e.stack });
           json(res, { skills: [], error: e.message }, 500);
         } finally {
           await scopeLease?.[Symbol.asyncDispose]();
@@ -496,7 +494,7 @@ export function apply(ctx, config = {}) {
         }
 
         if (!skills) {
-          json(res, { error: 'skills 服务不可用' }, 500);
+          json(res, { error: "ERR_SKILLS_SERVICE_UNAVAILABLE" }, 500);
           return;
         }
 
@@ -559,7 +557,7 @@ export function apply(ctx, config = {}) {
             provider: skill.provider,
           });
         } catch (e) {
-          log.startup.error(`获取 skill 内容失败: ${e.message}`);
+          log.startup.error(msg("ERR_FETCH_SKILL_CONTENT_FAILED", { v0: e.message }));
           json(res, { error: e.message }, 500);
         } finally {
           await scopeLease?.[Symbol.asyncDispose]();
@@ -586,7 +584,7 @@ export function apply(ctx, config = {}) {
       () => subagentScheduler.close(),
       releaseConfig,
     ]).then(() => {
-      log.startup.info('ReqHub 插件卸载');
+      log.startup.info("LOG_PLUGIN_UNLOADED");
     }));
   // Cordis owns effects; returning a function from apply alone is insufficient.
   ctx.effect(() => cleanup, 'req-hub: lifecycle');
@@ -599,6 +597,6 @@ export function apply(ctx, config = {}) {
   void scheduledSync.refresh().catch((error) => {
     log.startup.warn('SYNC_SCHEDULE_REFRESH_FAILED: ' + error.message);
   });
-  log.startup.info(`已注册 ${routes.length} 个路由`);
+  log.startup.info(msg("LOG_ROUTES_REGISTERED", { v0: routes.length }));
   return cleanup;
 }

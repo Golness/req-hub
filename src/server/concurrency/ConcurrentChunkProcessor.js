@@ -1,3 +1,4 @@
+import { msg } from '../messages.js';
 /** Run chunks with bounded concurrency, preserving failures without stopping sibling chunks. */
 
 import { BoundedSemaphore, AbortError } from './BoundedSemaphore.js';
@@ -98,16 +99,16 @@ export class ConcurrentChunkProcessor {
         stats.failed++;
         errors.push({
           chunk: index + 1,
-          error: '处理函数返回空结果',
+          error: 'TASK_HANDLER_RETURNED_EMPTY',
         });
-        log.concurrency.warn(`Chunk ${index + 1} 返回空结果`);
+        log.concurrency.warn(msg('TASK_CHUNK_EMPTY_RESULT', { v0: index + 1 }));
 
         await onProgress?.({
           phase,
           status: 'chunk_failed',
           chunk: index + 1,
           total: stats.total,
-          error: '处理函数返回空结果',
+          error: 'TASK_HANDLER_RETURNED_EMPTY',
         });
         return;
       }

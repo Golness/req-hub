@@ -1,4 +1,5 @@
 'use strict';
+const { clientError } = require('../utils/serverMessage.js');
 const React = require('react');
 const { Input } = require('./shared/Input.js');
 const { Select } = require('./shared/Select.js');
@@ -176,7 +177,7 @@ function LarkCliSettings({ workspaceId } = {}) {
       });
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || data.code || 'LARK_CHECK_FAILED');
+        throw clientError(data.error || data.code, 'LARK_CHECK_FAILED');
       }
       if (!signal.aborted) {
         setResult(data);

@@ -84,7 +84,7 @@ describe('Knowledge V2 synchronization settings', () => {
         dailyUpdateTime: '04:05',
       },
     });
-    // Saving writes only the five supported keys under knowledgeV2 and leaves
+    // Saving writes only the supported keys under knowledgeV2 and leaves
     // unrelated configuration blocks untouched.
     expect(config.knowledgeV2).toEqual({
       autoManage: true,
@@ -92,6 +92,7 @@ describe('Knowledge V2 synchronization settings', () => {
       dailyUpdateEnabled: true,
       dailyImportConversations: true,
       dailyUpdateTime: '04:05',
+      larkPushEnabled: false,
     });
     expect(config.wiki).toEqual({
       autoManage: true,

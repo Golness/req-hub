@@ -10,7 +10,10 @@ const ACTIVE = new Set(['queued', 'running']);
 
 /** Persistent scheduled-run reports; individual items survive cancellation and process restart. */
 export class TaskReports {
-  constructor(registry, { directory = dirname(configFilePath()), ownerKey = configFilePath() } = {}) {
+  constructor(
+    registry,
+    { directory = dirname(configFilePath()), ownerKey = configFilePath() } = {},
+  ) {
     this.registry = registry;
     this.owner = digest(ownerKey);
     mkdirSync(directory, { recursive: true });
@@ -83,6 +86,41 @@ export class TaskReports {
       fail('REPORT_NOT_FOUND', 404);
     }
     return JSON.parse(row.payload);
+  }
+  /**
+   * Reopen today's interrupted or cancelled run so a later scheduler tick can
+   * finish it instead of losing the whole day to a restart or reconfiguration.
+   * @param id - Report identity.
+   * @returns The reopened report, or null when the run is already terminal.
+   */
+  resume(id) {
+    const report = this.get(id);
+    if (!['interrupted', 'cancelled'].includes(report.status)) {
+      return null;
+    }
+    report.status = 'running';
+    report.dispatched = false;
+    delete report.completedAt;
+    for (const row of this.db
+      .prepare('SELECT workspace_id,item_key,payload FROM reqhub_report_items WHERE report_id=?')
+      .all(id)) {
+      const item = JSON.parse(row.payload);
+      if (
+        !['queued', 'running', 'waiting_session', 'cancelled', 'interrupted'].includes(item.status)
+      ) {
+        continue;
+      }
+      // The next tick re-reports every workspace it processes; stale in-flight
+      // items must not keep the report permanently in the running state.
+      item.status = 'skipped';
+      item.updatedAt = new Date().toISOString();
+      this.db
+        .prepare(
+          'UPDATE reqhub_report_items SET payload=? WHERE report_id=? AND workspace_id=? AND item_key=?',
+        )
+        .run(JSON.stringify(item), id, row.workspace_id, row.item_key);
+    }
+    return this.save(report);
   }
   item(id, workspace, key, value) {
     const report = this.get(id);
@@ -271,7 +309,11 @@ export class TaskReports {
             }
             const kind = input.get('kind');
             const cursor = Number(input.get('cursor') || 0);
-            if (!['knowledge', 'sync'].includes(kind) || !Number.isSafeInteger(cursor) || cursor < 0) {
+            if (
+              !['knowledge', 'sync'].includes(kind) ||
+              !Number.isSafeInteger(cursor) ||
+              cursor < 0
+            ) {
               fail('REPORT_INVALID_INPUT');
             }
             const rows = this.db

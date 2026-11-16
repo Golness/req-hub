@@ -11,6 +11,7 @@ import {
   larkWorkspacesRevision,
   listLarkWorkspaceBindings,
 } from './lark-workspace-bindings.js';
+import { pushLarkDocuments, syncLarkFile } from './lark-file-sync.js';
 import { loadConfig, saveConfig } from './config.js';
 import { verifyLarkApplication } from './lark-application.js';
 import { validateLarkSettings } from './lark-settings.js';
@@ -132,6 +133,44 @@ export function createLarkCliRoutes(registry = { list: () => [] }) {
       }
     });
   };
+  /** Reserve the single CLI slot for both interactive and scheduled pushes. */
+  const acquireSlot = async (signal) => {
+    if (queue.waitingCount >= 16) {
+      throw Object.assign(new Error('LARK_QUEUE_FULL'), { status: 429 });
+    }
+    const waiting = new AbortController();
+    const timer = setTimeout(() => waiting.abort(), 30000);
+    try {
+      const { slot } = await queue.acquire(AbortSignal.any([signal, waiting.signal]));
+      return slot;
+    } catch (error) {
+      if (signal.aborted) {
+        throw new Error('LARK_CHECK_CANCELLED');
+      }
+      if (waiting.signal.aborted) {
+        throw new Error('LARK_QUEUE_TIMEOUT');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  /** Run a non-HTTP (scheduler-owned) CLI operation with the saved connection. */
+  const runWithSlot = async (task, signal) => {
+    if (controller.signal.aborted) {
+      throw new Error('LARK_CHECK_CANCELLED');
+    }
+    const owned = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal;
+    const slot = await acquireSlot(owned);
+    try {
+      owned.throwIfAborted();
+      const config = await loadConfig();
+      const settings = validateLarkSettings(config.lark);
+      return await task({ config, settings, signal: owned });
+    } finally {
+      slot.release();
+    }
+  };
   const check = async (req, res, action) => {
     if (req.method !== 'POST') {
       return json(res, { error: 'METHOD_NOT_ALLOWED' }, 405);
@@ -169,27 +208,27 @@ export function createLarkCliRoutes(registry = { list: () => [] }) {
       if (input.lark !== undefined && req.operationExec) {
         return json(res, { error: 'LARK_USER_REQUIRED' }, 403);
       }
-      if (queue.waitingCount >= 16) {
-        throw Object.assign(new Error('LARK_QUEUE_FULL'), { status: 429 });
-      }
-      const waiting = new AbortController();
-      const queueTimer = setTimeout(() => waiting.abort(), 30000);
-      try {
-        ({ slot } = await queue.acquire(AbortSignal.any([signal, waiting.signal])));
-      } catch (error) {
-        if (signal.aborted) {
-          throw new Error('LARK_CHECK_CANCELLED');
-        }
-        if (waiting.signal.aborted) {
-          throw new Error('LARK_QUEUE_TIMEOUT');
-        }
-        throw error;
-      } finally {
-        clearTimeout(queueTimer);
-      }
+      slot = await acquireSlot(signal);
       signal.throwIfAborted();
       const existing = await loadConfig();
       const settings = validateLarkSettings(input.lark === undefined ? existing.lark : input.lark);
+      if (action === 'file-sync') {
+        // Synchronization always uses the saved connection, never a request body.
+        const result = await syncLarkFile({
+          registry,
+          config: existing,
+          settings: validateLarkSettings(existing.lark),
+          workspaceId: input.workspaceId,
+          path: input.path,
+          execute: run,
+          signal,
+        });
+        return json(res, {
+          synced: true,
+          ...result,
+          code: result.action === 'created' ? 'LARK_SYNC_CREATED' : 'LARK_SYNC_UPDATED',
+        });
+      }
       if (action.startsWith('target-')) {
         if (action === 'target-list') {
           return json(res, await listLarkWorkspaceBindings(registry, existing, signal));
@@ -400,6 +439,7 @@ export function createLarkCliRoutes(registry = { list: () => [] }) {
       'target-save',
       'target-default-save',
       'target-remove',
+      'file-sync',
     ].map((action) => ({
       kind: 'exact',
       path: '/req-hub/lark/' + action,
@@ -409,6 +449,38 @@ export function createLarkCliRoutes(registry = { list: () => [] }) {
         return task.finally(() => tasks.delete(task));
       },
     })),
+    /** Push one saved workspace document (scheduled sync products). */
+    async pushFile({ workspaceId, path, signal } = {}) {
+      return runWithSlot(
+        ({ config, settings, signal: owned }) =>
+          syncLarkFile({
+            registry,
+            config,
+            settings,
+            workspaceId,
+            path,
+            execute: run,
+            signal: owned,
+          }),
+        signal,
+      );
+    },
+    /** Push compiled Markdown products that are not stored under docsDir. */
+    async pushDocuments({ workspaceId, documents, signal } = {}) {
+      return runWithSlot(
+        ({ config, settings, signal: owned }) =>
+          pushLarkDocuments({
+            registry,
+            config,
+            settings,
+            workspaceId,
+            documents,
+            execute: run,
+            signal: owned,
+          }),
+        signal,
+      );
+    },
     async dispose() {
       controller.abort();
       await Promise.allSettled([...tasks]);

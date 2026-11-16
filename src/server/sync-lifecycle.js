@@ -51,7 +51,7 @@ export class SyncLifecycle {
     signal?.throwIfAborted();
     const analysis = this.task.steps.find((step) => step.phase === 'analysis');
     if (phase === 'index' && analysis && analysis.status !== 'completed') {
-      return this.step(phase, { status: 'skipped', text: '构建分析未成功，未重建依赖它的索引' });
+      return this.step(phase, { status: 'skipped', text: 'SYNC_ANALYSIS_BUILD_FAILED_INDEX_KEPT' });
     }
     await this.step(phase, { status: 'running', text });
     try {
@@ -140,12 +140,16 @@ export class SyncLifecycle {
         text:
           progress.error ||
           progress.reason ||
-          { running: '执行中…', completed: '已完成', skipped: '无相关变更' }[state] ||
-          '执行失败',
+          {
+            running: 'STATUS_RUNNING',
+            completed: 'STATUS_COMPLETED',
+            skipped: 'SYNC_NO_RELEVANT_CHANGES',
+          }[state] ||
+          'STATUS_EXECUTION_FAILED',
       });
     }
     if (status === 'merging_chunks') {
-      return this.step(phase, { text: '汇总分块分析…' });
+      return this.step(phase, { text: 'LOG_SUMMARIZING_CHUNK_ANALYSIS' });
     }
   }
 }

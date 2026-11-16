@@ -41,6 +41,7 @@ function SyncScheduleSettings({ defaultUsername } = {}) {
               dailyUpdateEnabled: config.sync?.dailyUpdateEnabled ?? false,
               dailyUpdateTime: config.sync?.dailyUpdateTime || '03:00',
               dailyOffsetDays: config.sync?.dailyOffsetDays ?? 1,
+              larkPushEnabled: config.sync?.larkPushEnabled ?? false,
             },
           });
         }
@@ -152,6 +153,25 @@ function SyncScheduleSettings({ defaultUsername } = {}) {
       }),
     );
   const field = (key, input) => h('div', { className: css.field }, title(key), input);
+  const switchControl = (key, checked) =>
+    h(
+      'button',
+      {
+        type: 'button',
+        role: 'switch',
+        className: css.toggle,
+        'aria-label': label(key),
+        'aria-checked': checked,
+        disabled: busy,
+        onClick: () => update(key, !checked),
+      },
+      h(
+        'span',
+        { className: css.toggleTrack, 'aria-hidden': true },
+        h('span', { className: css.toggleThumb }),
+      ),
+      label(checked ? 'on' : 'off'),
+    );
   const clockSelect = (part, count) =>
     h(Select, {
       className: css.clockSelect,
@@ -248,6 +268,10 @@ function SyncScheduleSettings({ defaultUsername } = {}) {
         ),
         !validDays &&
           h('p', { id: `${formId}-offset-error`, role: 'alert' }, label('offsetInvalid')),
+        field(
+          'larkPushEnabled',
+          switchControl('larkPushEnabled', values.sync.larkPushEnabled === true),
+        ),
       ),
     ),
     error && h('p', { role: 'alert' }, error),

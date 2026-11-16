@@ -55,7 +55,7 @@ describe('publishing validated bytes',()=>{
   const dir=await mkdtemp(join(tmpdir(),'req-hub-v2-newconflict-'));
   try{const docPath=join(dir,'design.md'),original=await readDocumentVersion(docPath);await writeFile(docPath,'');
    const candidateBytes=Buffer.from('# New\n'),validation=validate('','# New\n','design.md');
-   await expect(publishDocument({docPath,syncDir:dir,fileName:'design.md',original,candidateBytes,validation})).rejects.toThrow('主文档已被修改');
+   await expect(publishDocument({docPath,syncDir:dir,fileName:'design.md',original,candidateBytes,validation})).rejects.toThrow('SYNC_MAIN_DOC_CHANGED_DURING_SYNC');
    expect(await readFile(docPath,'utf8')).toBe('');
   }finally{await rm(dir,{recursive:true,force:true});}
  });

@@ -1,4 +1,5 @@
 'use strict';
+const { messageCode, localizeMessage } = require('../utils/serverMessage.js');
 const { Disclosure } = require('./shared/Disclosure.js');
 const { WritingKnowledge } = require('./WritingKnowledge.js');
 const { useKnowledgeAssistant } = require('../hooks/useKnowledgeAssistant.js');
@@ -94,11 +95,11 @@ async function request(path, body, signal, sessionId) {
   if (!response.ok) {
     throw Object.assign(
       new Error(
-        data.error === 'WRITING_SESSION_DENIED'
+        messageCode(data.error) === 'WRITING_SESSION_DENIED'
           ? t('enhancement.sessionDenied')
-          : writingError(data.error, data.details) || t('WritingPanel.message001'),
+          : writingError(messageCode(data.error), data.details) || t('WritingPanel.message001'),
       ),
-      { status: response.status, code: data.error, details: data.details },
+      { status: response.status, code: messageCode(data.error), details: data.details },
     );
   }
   return data;
@@ -239,7 +240,7 @@ function WritingPanelBody({
       })
       .catch((e) => {
         if (!controller.signal.aborted) {
-          setError(e.message);
+          setError(localizeMessage(e.message));
         }
       });
     return () => controller.abort();
@@ -311,7 +312,7 @@ function WritingPanelBody({
         if (controller.signal.aborted) {
           return;
         }
-        setError(e.message);
+        setError(localizeMessage(e.message));
         if (e.status === 404) {
           setRunning(false);
           jobRef.current = null;
@@ -349,7 +350,7 @@ function WritingPanelBody({
       })
       .catch((error) => {
         if (!controller.signal.aborted) {
-          setError(error.message);
+          setError(localizeMessage(error.message));
         }
       })
       .finally(() => {
@@ -409,7 +410,7 @@ function WritingPanelBody({
       await request(`/jobs/${jobRef.current}/cancel`, {});
     } catch (e) {
       setCancelling(false);
-      setError(e.message);
+      setError(localizeMessage(e.message));
     }
   };
   const openProposal = (candidate, targetType = candidate.docType || docType) =>

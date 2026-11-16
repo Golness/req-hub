@@ -6,6 +6,24 @@ const GENERAL_DEFAULTS = Object.freeze({
   knowledgeMaxResultBytes: 250000,
 });
 
+/** Language of generated artifacts (document/Wiki scaffolding), independent of UI language. */
+const CONTENT_LANGUAGES = Object.freeze(['zh', 'en']);
+const DEFAULT_CONTENT_LANGUAGE = 'zh';
+
+/** @param value - Candidate preference. @returns A supported artifact language. */
+function normalizeContentLanguage(value) {
+  return CONTENT_LANGUAGES.includes(value) ? value : DEFAULT_CONTENT_LANGUAGE;
+}
+
+/** UI language preference: follow the host locale or force one plugin dictionary. */
+const UI_LANGUAGES = Object.freeze(['follow', 'zh', 'en']);
+const DEFAULT_UI_LANGUAGE = 'follow';
+
+/** @param value - Candidate preference. @returns A supported preference. */
+function normalizeUiLanguage(value) {
+  return UI_LANGUAGES.includes(value) ? value : DEFAULT_UI_LANGUAGE;
+}
+
 /**
  * Resolve shared execution policy without consulting former feature overrides.
  * @param config - Validated profile settings.
@@ -49,4 +67,15 @@ function withoutIndependentSettings(config) {
   return next;
 }
 
-module.exports = { GENERAL_DEFAULTS, generalSettings, knowledgeLimits, withoutIndependentSettings };
+module.exports = {
+  GENERAL_DEFAULTS,
+  CONTENT_LANGUAGES,
+  DEFAULT_CONTENT_LANGUAGE,
+  normalizeContentLanguage,
+  UI_LANGUAGES,
+  DEFAULT_UI_LANGUAGE,
+  normalizeUiLanguage,
+  generalSettings,
+  knowledgeLimits,
+  withoutIndependentSettings,
+};

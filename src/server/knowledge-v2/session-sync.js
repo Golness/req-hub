@@ -1,5 +1,5 @@
 import { realpath } from 'node:fs/promises';
-import { describeTurns } from './session-export.js';
+import { describeTurns, sessionMessages } from './session-export.js';
 
 const MAX_SESSIONS_PER_RUN = 20;
 
@@ -138,7 +138,11 @@ export class SessionSync {
           try {
             const snapshot = await adapter.snapshot(session, { signal });
             signal?.throwIfAborted();
-            const turns = describeTurns(snapshot).filter((item) => item.turn.messages.length);
+            // Legacy snapshots may store userInput/summary instead of messages.
+            // Normalize before selecting so an old turn cannot abort the batch.
+            const turns = describeTurns(snapshot).filter(
+              (item) => sessionMessages(item.turn).length > 0,
+            );
             if (!turns.length) {
               counts.skipped++;
               onItem({

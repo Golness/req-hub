@@ -113,6 +113,51 @@ it('shows workspace groups and DSH/Codex labels with source, history and artifac
   await click(button('产物'));
   expect(onNavigate).toHaveBeenLastCalledWith({ kind: 'document', workspaceId: 'ws', task });
 });
+it('shows a localized reason for a skipped workspace without an error alert', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url) => {
+      const query = new URL(String(url), 'http://localhost').searchParams;
+      if (!query.has('id')) {
+        return response({
+          items: [
+            {
+              id: 'sync',
+              day: '2026-11-14',
+              status: 'completed',
+              startedAt: '2026-11-14T00:00:00Z',
+            },
+          ],
+        });
+      }
+      return response({
+        id: 'sync',
+        day: '2026-11-14',
+        status: 'completed',
+        workspaces: [
+          {
+            id: 'blank',
+            title: 'blank',
+            items: [
+              {
+                key: 'workspace',
+                kind: 'workspace',
+                status: 'skipped',
+                reason: 'SYNC_WORKSPACE_NOT_REPOSITORY',
+              },
+            ],
+          },
+        ],
+      });
+    }),
+  );
+  await mount(React.createElement(TaskReportsPanel, {}));
+  await click(button('报告详情'));
+  expect(container.textContent).toContain('该工作区不是 Git 仓库');
+  expect(container.textContent).not.toContain('SYNC_WORKSPACE_NOT_REPOSITORY');
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+});
+
 it('retains report data and displays a refresh error', async () => {
   const fetch = vi.fn(async () =>
     response({ items: [{ id: 'run', day: '2026-11-04', status: 'completed' }] }),
@@ -149,6 +194,7 @@ it('saves the T-x schedule without writing the shared username', async () => {
       dailyUpdateEnabled: true,
       dailyUpdateTime: '03:00',
       dailyOffsetDays: 2,
+      larkPushEnabled: false,
     },
   });
   const notice = container.querySelector('[role="status"]');
@@ -175,7 +221,7 @@ it('keeps schedule settings compact and exposes details through accessible help 
   expect(container.textContent).not.toContain('星号代表需求名称');
   expect(container.textContent).not.toContain('将如何同步');
   const help = container.querySelector('[aria-label="提前天数说明"]');
-  expect(container.querySelectorAll('button[aria-label$="说明"]')).toHaveLength(3);
+  expect(container.querySelectorAll('button[aria-label$="说明"]')).toHaveLength(4);
   await act(async () => help.focus());
   const tooltip = document.querySelector('[role="tooltip"]');
   expect(tooltip.textContent).toContain('生成分支名时使用的日期偏移天数');
@@ -220,4 +266,37 @@ it('keeps schedule settings compact and exposes details through accessible help 
     dailyUpdateEnabled: false,
     dailyUpdateTime: '09:45',
   });
+});
+
+it('exposes and saves the scheduled Lark push switch independently', async () => {
+  const fetch = vi.fn(async (_url, options) =>
+    options?.method === 'POST'
+      ? response({ synced: true })
+      : response({
+          defaultUsername: 'alice',
+          sync: {
+            dailyUpdateEnabled: true,
+            dailyUpdateTime: '03:00',
+            dailyOffsetDays: 1,
+            larkPushEnabled: false,
+          },
+        }),
+  );
+  vi.stubGlobal('fetch', fetch);
+  await mount(React.createElement(SyncScheduleSettings));
+  const switches = [...container.querySelectorAll('[role="switch"]')];
+  expect(switches).toHaveLength(2);
+  const push = switches.find((node) => node.getAttribute('aria-label') === '推送飞书');
+  expect(push).toBeTruthy();
+  expect(push.getAttribute('aria-checked')).toBe('false');
+  expect(push.textContent).toContain('已关闭');
+  expect(container.querySelector('[aria-label="推送飞书说明"]')).toBeTruthy();
+  await click(push);
+  expect(push.getAttribute('aria-checked')).toBe('true');
+  await click(button('保存'));
+  const body = JSON.parse(
+    fetch.mock.calls.find(([, options]) => options?.method === 'POST')[1].body,
+  );
+  expect(body.sync.larkPushEnabled).toBe(true);
+  expect(body.sync.dailyUpdateEnabled).toBe(true);
 });

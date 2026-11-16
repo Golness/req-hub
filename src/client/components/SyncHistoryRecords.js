@@ -7,6 +7,7 @@ const { ActionBar } = require('./shared/ActionBar.js');
 const { DeleteSyncTaskButton } = require('./shared/DeleteSyncTaskButton.js');
 const { RetrySyncTaskButton } = require('./shared/RetrySyncTaskButton.js');
 const { t } = require('../locale.js');
+const { localizeMessage } = require('../utils/serverMessage.js');
 const css = require('./SyncHistory.module.css').default;
 const h = React.createElement;
 
@@ -44,7 +45,7 @@ function SyncHistoryRecords({ history, workspaceId, requirementId, onSelect, onD
           h(
             'header',
             { className: css.recordHeading },
-            h('h4', null, sync.docTypeName),
+            h('h4', null, localizeMessage(sync.docTypeName)),
             h(
               'span',
               { className: css.status, 'data-status': sync.status },

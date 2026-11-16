@@ -128,7 +128,7 @@ it.skipIf(!available).each([[false, false], [true, false], [false, true], [false
             const denied = await ctx.tools.execute({ name: 'child_session_helper', arguments: {}, callId: `denied-${nested}`,
               agent: ctx.agents.get(request.sessionId), signal: new AbortController().signal,
               ...(nested ? { parent: Symbol('run_code') } : {}) });
-            expect(JSON.stringify(denied.content)).toContain('禁止旁路工具');
+            expect(JSON.stringify(denied.content)).toContain('SYNC_V2_BYPASS_TOOLS_FORBIDDEN');
           }
           expect(localCalls).toBe(0);
         }

@@ -11,6 +11,7 @@ const React = require('react');
 const h = React.createElement;
 const { useState, useEffect } = React;
 const { ROUTE } = require('../constants.js');
+const { localizeMessage } = require('../utils/serverMessage.js');
 
 /**
  * @component LogPanel
@@ -312,7 +313,7 @@ function ApplicationLogs({ onClose }) {
           .map((tag) => {
             const isSelected = selectedTags.includes(tag);
             const count = tagCounts[tag] || 0;
-            const tagLabel = logMeta.tags[tag] || tag;
+            const tagLabel = localizeMessage(logMeta.tags[tag] || tag);
             return h(
               Button,
               {
@@ -364,10 +365,10 @@ function ApplicationLogs({ onClose }) {
                     {
                       className: 'rh-log-type' + ' ' + css.mutedText2,
                     },
-                    logMeta.tags[log.tag] || log.tag,
+                    localizeMessage(logMeta.tags[log.tag] || log.tag),
                   ),
                 ),
-                h('div', { className: 'rh-log-message' }, log.message),
+                h('div', { className: 'rh-log-message' }, localizeMessage(log.message)),
 
                 log.data &&
                   h(

@@ -1,3 +1,4 @@
+import { contentTemplates } from '../content-templates.js';
 import { mkdir, readdir, readFile, rm, rename, cp, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -103,13 +104,21 @@ export async function readStagingPages(staging) {
 
 /** Build the Host-owned index catalog; the model never writes this file. */
 export function buildIndex(pages, generationId) {
+  const wiki = contentTemplates().wiki;
   const groups = [
-    ['sources', '资料摘要'],
-    ['entities', '实体'],
-    ['concepts', '概念'],
-    ['topics', '主题'],
+    ['sources', wiki.groups.summary],
+    ['entities', wiki.groups.entity],
+    ['concepts', wiki.groups.concept],
+    ['topics', wiki.groups.topic],
   ];
-  const lines = [`# 知识索引`, '', `发布版本：${generationId}`, '', '- [[overview|概览]]', ''];
+  const lines = [
+    wiki.indexTitle,
+    '',
+    wiki.publishedVersion(generationId),
+    '',
+    wiki.overviewLink,
+    '',
+  ];
   for (const [type, label] of groups) {
     const items = pages.filter((page) => page.meta.type === type);
     if (!items.length) {
@@ -138,7 +147,7 @@ export async function appendLog(staging, baseGeneration, store, entry) {
   lines.push(`- ${entry}`);
   await writeTextAtomic(
     join(staging, 'wiki', 'log.md'),
-    '# 更新日志\n\n' + lines.join('\n') + '\n',
+    contentTemplates().wiki.changelogTitle + lines.join('\n') + '\n',
   );
 }
 
@@ -179,9 +188,10 @@ export async function finalizeStaging(store, staging, input) {
   }
   const generationId = 'gen-' + randomUUID();
   await writeTextAtomic(join(staging, 'wiki', 'index.md'), buildIndex(pages, generationId));
+  const wiki = contentTemplates().wiki;
   await writeTextAtomic(
     join(staging, 'wiki', 'overview.md'),
-    `# 概览\n\n${input.overview || '暂无概览。'}\n`,
+    `${wiki.overviewTitle}\n\n${input.overview || wiki.overviewEmpty}\n`,
   );
   await appendLog(
     staging,

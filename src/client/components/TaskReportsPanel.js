@@ -4,6 +4,7 @@ const { PagedList } = require('./shared/PagedList.js');
 const React = require('react');
 const { ROUTE } = require('../constants.js');
 const { t, hasLocaleKey } = require('../locale.js');
+const { localizeMessage } = require('../utils/serverMessage.js');
 const { Button } = require('./shared/Button.js');
 const css = require('./TaskReportsPanel.module.css').default;
 const h = React.createElement;
@@ -220,17 +221,17 @@ function TaskReportsPanel({ onClose, onNavigate }) {
                 h(
                   'article',
                   { key: workspace.id + item.key, className: css.record },
-                  h('h3', null, item.branch || item.title || item.sessionId || workspace.title),
+                  h(
+                    'h3',
+                    null,
+                    item.branch || localizeMessage(item.title) || item.sessionId || workspace.title,
+                  ),
                   item.source &&
                     h('span', { className: css.badge }, item.source === 'dsh' ? 'DSH' : 'Codex'),
                   h('p', null, workspace.title, ' · ', status(item.status)),
                   item.originWorkspace && h('p', { className: css.hint }, item.originWorkspace),
-                  item.error &&
-                    h(
-                      'p',
-                      { role: 'alert' },
-                      typeof item.error === 'string' ? item.error : item.error.code,
-                    ),
+                  item.reason && h('p', { className: css.hint }, localizeMessage(item.reason)),
+                  item.error && h('p', { role: 'alert' }, localizeMessage(item.error)),
                   (item.documentId || item.documentIds?.[0]) &&
                     h(
                       Button,

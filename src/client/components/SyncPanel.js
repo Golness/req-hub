@@ -1,4 +1,5 @@
 'use strict';
+const { localizeMessage, clientError } = require('../utils/serverMessage.js');
 const { formatDateTime, useTimeZone } = require('../time.js');
 const { PagedList } = require('./shared/PagedList.js');
 const { SyncStepList } = require('./SyncSteps.js');
@@ -387,7 +388,7 @@ function QuickSync({ workspaceId, onRequirementReady, active }) {
       const data = await response.json();
       controller.signal.throwIfAborted();
       if (!response.ok) {
-        throw new Error(data.error || t('sync.loadFailed'));
+        throw clientError(data.error, t('sync.loadFailed'));
       }
       return data;
     };
@@ -527,10 +528,10 @@ function SessionTurnsView({ workspaceId, sessionId, sessionTitle, snapshotVersio
         if (data.success) {
           setTurnsData(data);
         } else {
-          setError(data.error || t('sync.loadFailed'));
+          setError(localizeMessage(data.error) || t('sync.loadFailed'));
         }
       } else {
-        setError(data.error || t('sync.loadFailed'));
+        setError(localizeMessage(data.error) || t('sync.loadFailed'));
       }
     } catch (e) {
       console.error('Failed to load session turns:', e);
@@ -786,7 +787,11 @@ function SyncProgressView({
         showToast({ tone: 'error', text: data.error || t('SyncPanel.message031'), holdMs: 3000 });
       }
     } catch (e) {
-      showToast({ tone: 'error', text: t('SyncPanel.message032') + e.message, holdMs: 3000 });
+      showToast({
+        tone: 'error',
+        text: t('SyncPanel.message032') + localizeMessage(e.message),
+        holdMs: 3000,
+      });
     } finally {
       setAborting(false);
     }
@@ -1454,7 +1459,7 @@ function PhasedSyncUI({
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok || data.error) {
-          throw new Error(data.error || t('SyncPanel.message054'));
+          throw clientError(data.error, t('SyncPanel.message054'));
         }
         return data;
       })
@@ -1520,7 +1525,7 @@ function PhasedSyncUI({
         const res = await fetch(`${ROUTE}/sync-commits?${params}`, { signal: controller.signal });
         const data = await res.json();
         if (!res.ok || data.error) {
-          throw new Error(data.error || t('SyncPanel.message055'));
+          throw clientError(data.error, t('SyncPanel.message055'));
         }
         if (controller.signal.aborted) {
           return;
@@ -1529,7 +1534,12 @@ function PhasedSyncUI({
         setSelectedCommits(data.commits.map((commit) => commit.hash));
       } catch (error) {
         if (!controller.signal.aborted) {
-          setCommitState({ data: null, error: error.message, loading: false, key: comparisonKey });
+          setCommitState({
+            data: null,
+            error: localizeMessage(error.message),
+            loading: false,
+            key: comparisonKey,
+          });
         }
       }
     }, 250);
@@ -1662,7 +1672,7 @@ function PhasedSyncUI({
         }
       } catch (error) {
         if (!stopped && mounted.current) {
-          setError(error.message);
+          setError(localizeMessage(error.message));
         }
       } finally {
         fetching = false;
@@ -1840,7 +1850,7 @@ function PhasedSyncUI({
             return data.sync.status === 'completed';
           }
         } else {
-          throw new Error(data.error || data.message || t('SyncPanel.message061'));
+          throw clientError(data.error || data.message, t('SyncPanel.message061'));
         }
         return;
       }
@@ -2069,7 +2079,7 @@ function PhasedSyncUI({
     } else if (commitState.loading || !commitState.key) {
       return h('p', { role: 'status', className: 'rh-sync-hint' }, t('SyncPanel.message078'));
     } else if (commitState.error) {
-      return h('p', { role: 'alert', className: 'rh-error' }, commitState.error);
+      return h('p', { role: 'alert', className: 'rh-error' }, localizeMessage(commitState.error));
     } else {
       return (
         commitsReady &&

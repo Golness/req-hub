@@ -1,3 +1,4 @@
+import { msg } from './messages.js';
 /** Read-only Git comparison shared by the selector and sync preflight. */
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -21,7 +22,17 @@ const git = async (cwd, ...args) =>
  * @returns Local branch names without changing the checkout or index.
  */
 export async function listSyncBranches(cwd) {
-  const root = await realpath(await git(cwd, 'rev-parse', '--show-toplevel'));
+  let root;
+  try {
+    root = await realpath(await git(cwd, 'rev-parse', '--show-toplevel'));
+  } catch (error) {
+    // A registered workspace may be a plain folder (or a removed checkout).
+    // Report a stable code instead of leaking git's stderr into the daily report.
+    if (error?.killed || error?.code === 'ABORT_ERR') {
+      throw error;
+    }
+    throw Object.assign(new Error('SYNC_WORKSPACE_NOT_REPOSITORY'), { cause: error });
+  }
   const workspaceRoot = await realpath(cwd);
   const canonical = (path) => (process.platform === 'win32' ? path.toLowerCase() : path);
   if (canonical(root) !== canonical(workspaceRoot)) {
@@ -39,10 +50,10 @@ export async function listSyncBranches(cwd) {
  */
 export async function resolveSyncRef(cwd, ref) {
   if (typeof ref !== 'string' || !ref.trim() || ref.startsWith('-') || /[\s\x00]/.test(ref)) {
-    throw new Error('请填写有效的同步分支');
+    throw new Error('SYNC_BRANCH_REQUIRED');
   }
   return git(cwd, 'rev-parse', '--verify', `${ref}^{commit}`).catch(() => {
-    throw new Error(`分支不存在：${ref}`);
+    throw msg('SYNC_BRANCH_NOT_FOUND', { v0: ref });
   });
 }
 

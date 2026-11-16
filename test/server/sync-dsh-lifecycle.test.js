@@ -43,7 +43,7 @@ it('cancels timed-out DSH startup and disposes a handle that arrives after the t
   h.ctx.subagents.start = (_provider, req) => { request = req; return new Promise(resolve => req.signal.addEventListener('abort', () => setTimeout(() => resolve(run), 20), { once: true })); };
   const executor = new TaskExecutor({ ...h, config: {} });
   const pending = executor.startSubagent({ promptKey: 'phased-test', syncV2: true }, { fullPrompt: 'bounded prompt' });
-  const rejected = expect(pending).rejects.toThrow('启动超时');
+  const rejected = expect(pending).rejects.toThrow('ERR_SUBAGENT_START_TIMEOUT');
   await vi.advanceTimersByTimeAsync(30000); expect(request.signal.aborted).toBe(true); expect(run.dispose).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(20); await rejected; expect(run.dispose).toHaveBeenCalledTimes(1);
 });
@@ -66,5 +66,5 @@ it('awaits one-shot disposal before returning an execution timeout to the sync e
   const pending = executor.executeViaSubagent({ promptKey: 'phased-test', syncV2: true, liveness: { enabled: false }, preparedPromptData: { fullPrompt: 'bounded prompt' } }, Date.now()).then(result => { settled = true; return result; });
   await vi.advanceTimersByTimeAsync(TaskExecutorConfig.minTimeout + 1);
   expect(run.dispose).toHaveBeenCalledTimes(1); expect(settled).toBe(false);
-  releaseDispose(); const result = await pending; expect(result.isError).toBe(true); expect(result.diagnostic).toContain('执行超时');
+  releaseDispose(); const result = await pending; expect(result.isError).toBe(true); expect(result.diagnostic).toContain('ERR_EXECUTION_TIMEOUT');
 });

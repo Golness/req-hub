@@ -1,3 +1,4 @@
+import { msg } from './messages.js';
 /**
  * Prompt management module.
  * Handles prompt registration, retrieval, and management.
@@ -239,10 +240,10 @@ The program records edits, generates the standard Unified Diff, and checks repla
  */
 export const PROMPT_REGISTRY = {
   'kb-analyze': {
-    label: '知识库资料分析',
+    label: 'PROMPT_KB_SOURCE_ANALYSIS',
     category: 'knowledge',
     generatesFileContent: true,
-    description: '读取冻结资料与维护规则，提交结构化分析供编译器生成页面',
+    description: 'PROMPT_KB_SOURCE_ANALYSIS_DESC',
     default: `Task: analyze. Runtime: {runtimeId}.
 Read every required frozen document with req_hub_kb_task_read.
 Follow nextOffset until eof for each document.
@@ -275,13 +276,13 @@ Frozen document IDs: {documents}`,
       required: name !== 'instruction',
     })),
     outputFormat: 'JSON',
-    requirements: ['完整读取冻结资料，通过受控工具提交带原文行号的结构化分析'],
+    requirements: ['PROMPT_KB_SOURCE_ANALYSIS_INSTRUCTION'],
   },
   'kb-generate': {
-    label: '知识库页面生成',
+    label: 'PROMPT_KB_PAGE_GENERATION',
     category: 'knowledge',
     generatesFileContent: true,
-    description: '基于资料分析生成或更新 Wiki 页面，由 Host 校验后发布',
+    description: 'PROMPT_KB_PAGE_GENERATION_DESC',
     default: `Task: generate. Runtime: {runtimeId}.
 Read every required frozen document with req_hub_kb_task_read.
 Follow nextOffset until eof for each document.
@@ -320,13 +321,13 @@ Frozen document IDs: {documents}`,
       required: name !== 'instruction',
     })),
     outputFormat: 'JSON',
-    requirements: ['完整读取冻结资料，页面引用精确来源版本与行号，由 Host 校验发布'],
+    requirements: ['PROMPT_KB_PAGE_GENERATION_INSTRUCTION'],
   },
   'kb-query': {
-    label: '知识库问答',
+    label: 'PROMPT_KB_QA',
     category: 'knowledge',
     generatesFileContent: false,
-    description: '基于已发布 Wiki 与授权原文回答问题，结论附带证据引用',
+    description: 'PROMPT_ANSWER_WITH_EVIDENCE',
     default: `Task: query. Runtime: {runtimeId}.
 Read every required frozen document with req_hub_kb_task_read.
 Follow nextOffset until eof for each document.
@@ -353,13 +354,13 @@ Frozen document IDs: {documents}`,
       required: true,
     })),
     outputFormat: 'JSON',
-    requirements: ['完整读取所需证据，回答附带精确版本与行号引用'],
+    requirements: ['PROMPT_ANSWER_WITH_VERSION_REFS'],
   },
   'kb-lint': {
-    label: '知识库语义检查',
+    label: 'PROMPT_KB_SEMANTIC_CHECK',
     category: 'knowledge',
     generatesFileContent: false,
-    description: '检查已发布 Wiki 的语义问题，提交可审阅发现而不修改页面',
+    description: 'PROMPT_KB_SEMANTIC_CHECK_DESC',
     default: `Task: lint. Runtime: {runtimeId}.
 Read every required frozen document with req_hub_kb_task_read.
 Follow nextOffset until eof for each document.
@@ -386,13 +387,13 @@ Frozen document IDs: {documents}`,
       required: name !== 'instruction',
     })),
     outputFormat: 'JSON',
-    requirements: ['完整读取相关页面与证据，发现附带精确引用，不修改页面'],
+    requirements: ['PROMPT_KB_FINDINGS_WITH_CITATIONS'],
   },
   'knowledge-enhancement': {
     generatesFileContent: true,
-    label: '知识检查与范例建议',
+    label: 'PROMPT_KNOWLEDGE_EXAMPLE_ADVICE',
     category: 'knowledge',
-    description: '基于用户所选冻结资料生成可审阅建议，不修改正式文档',
+    description: 'PROMPT_REVIEWABLE_SUGGESTIONS',
     default: `REQHUB_ENHANCEMENT={runtimeId}
 Task kind: {kind}. Authorized documents: {documents}.
 Read each document fully with req_hub_enhancement_read(documentId,offset). Follow nextOffset until eof.
@@ -419,13 +420,13 @@ Do not return a complete document. Do not automatically write or merge content.`
       required: true,
     })),
     outputFormat: 'JSON',
-    requirements: ['必须完整读取授权资料并通过受控工具提交，所有建议有版本与原文位置'],
+    requirements: ['PROMPT_SUBMIT_VIA_CONTROLLED_TOOLS'],
   },
   writing: {
     generatesFileContent: true,
-    label: '文档优化',
+    label: 'PROMPT_DOC_REFINEMENT',
     category: 'writing',
-    description: '结合所选知识库优化需求文档或技术方案',
+    description: 'PROMPT_DOC_REFINEMENT_DESC',
     default: `REQHUB_WRITING={runtimeId}
 You are a senior product manager and software architect. Improve the user's {docTypeName}.
 The knowledge scopes explicitly selected for this call are: {scopes}. These are the only authorized scopes.
@@ -474,207 +475,207 @@ Document body:
       required: true,
     })),
     outputFormat: 'Markdown',
-    requirements: ['必须通过写作工具提交完整文档与知识引用'],
+    requirements: ['PROMPT_SUBMIT_DOC_WITH_CITATIONS'],
   },
 
   'phased-code-analysis-requirement': {
-    label: '代码差异分析（需求文档）',
+    label: 'PROMPT_CODE_DIFF_REQ',
     category: 'phased-sync',
     generatesFileContent: true,
     contractVersion: 2,
-    description: 'v2 只读证据引用；局部编辑并由程序生成补丁',
+    description: 'PROMPT_V2_READONLY_PATCH',
     default: syncAnalysisPrompt('requirement', 'code'),
     variables: [
-      { name: 'runtimeId', description: '受控运行ID', required: true },
-      { name: 'manifestId', description: '冻结清单ID', required: true },
-      { name: 'reportId', description: 'Markdown输出ID', required: false },
-      { name: 'changesId', description: 'JSON索引输出ID', required: false },
+      { name: 'runtimeId', description: 'PROMPT_CONTROLLED_RUN_ID', required: true },
+      { name: 'manifestId', description: 'PROMPT_FROZEN_LIST_ID', required: true },
+      { name: 'reportId', description: 'PROMPT_MARKDOWN_OUTPUT_ID', required: false },
+      { name: 'changesId', description: 'PROMPT_JSON_INDEX_OUTPUT_ID', required: false },
     ],
     outputFormat: 'Markdown + JSON',
     requirements: [
-      '入口不内联 diff、原文或会话正文',
-      '证据完整读取，禁止无关改动',
-      '标准补丁由程序生成',
+      'PROMPT_NO_INLINE_DIFF',
+      'PROMPT_FULL_EVIDENCE_NO_UNRELATED_CHANGES',
+      'PROMPT_PATCH_BY_PROGRAM',
     ],
   },
   'phased-discussion-analysis-requirement': {
-    label: '讨论差异分析（需求文档）',
+    label: 'PROMPT_DISCUSSION_DIFF_REQ',
     category: 'phased-sync',
     generatesFileContent: true,
     contractVersion: 2,
-    description: 'v2 只读证据引用；局部编辑并由程序生成补丁',
+    description: 'PROMPT_V2_READONLY_PATCH',
     default: syncAnalysisPrompt('requirement', 'discussion'),
     variables: [
-      { name: 'runtimeId', description: '受控运行ID', required: true },
-      { name: 'manifestId', description: '冻结清单ID', required: true },
-      { name: 'reportId', description: 'Markdown输出ID', required: false },
-      { name: 'changesId', description: 'JSON索引输出ID', required: false },
+      { name: 'runtimeId', description: 'PROMPT_CONTROLLED_RUN_ID', required: true },
+      { name: 'manifestId', description: 'PROMPT_FROZEN_LIST_ID', required: true },
+      { name: 'reportId', description: 'PROMPT_MARKDOWN_OUTPUT_ID', required: false },
+      { name: 'changesId', description: 'PROMPT_JSON_INDEX_OUTPUT_ID', required: false },
     ],
     outputFormat: 'Markdown + JSON',
     requirements: [
-      '入口不内联 diff、原文或会话正文',
-      '证据完整读取，禁止无关改动',
-      '标准补丁由程序生成',
+      'PROMPT_NO_INLINE_DIFF',
+      'PROMPT_FULL_EVIDENCE_NO_UNRELATED_CHANGES',
+      'PROMPT_PATCH_BY_PROGRAM',
     ],
   },
   'phased-code-analysis-merge-requirement': {
-    label: '代码分析汇总（需求文档）',
+    label: 'PROMPT_CODE_ANALYSIS_SUMMARY_REQ',
     category: 'phased-sync',
     generatesFileContent: true,
     contractVersion: 2,
-    description: 'v2 只读证据引用；局部编辑并由程序生成补丁',
+    description: 'PROMPT_V2_READONLY_PATCH',
     default: syncAnalysisMergePrompt('requirement', 'code'),
     variables: [
-      { name: 'runtimeId', description: '受控运行ID', required: true },
-      { name: 'manifestId', description: '冻结清单ID', required: true },
-      { name: 'reportId', description: 'Markdown输出ID', required: false },
-      { name: 'changesId', description: 'JSON索引输出ID', required: false },
+      { name: 'runtimeId', description: 'PROMPT_CONTROLLED_RUN_ID', required: true },
+      { name: 'manifestId', description: 'PROMPT_FROZEN_LIST_ID', required: true },
+      { name: 'reportId', description: 'PROMPT_MARKDOWN_OUTPUT_ID', required: false },
+      { name: 'changesId', description: 'PROMPT_JSON_INDEX_OUTPUT_ID', required: false },
     ],
     outputFormat: 'Markdown + JSON',
     requirements: [
-      '入口不内联 diff、原文或会话正文',
-      '证据完整读取，禁止无关改动',
-      '标准补丁由程序生成',
+      'PROMPT_NO_INLINE_DIFF',
+      'PROMPT_FULL_EVIDENCE_NO_UNRELATED_CHANGES',
+      'PROMPT_PATCH_BY_PROGRAM',
     ],
   },
   'phased-discussion-analysis-merge-requirement': {
-    label: '讨论分析汇总（需求文档）',
+    label: 'PROMPT_DISCUSSION_ANALYSIS_SUMMARY_REQ',
     category: 'phased-sync',
     generatesFileContent: true,
     contractVersion: 2,
-    description: 'v2 只读证据引用；局部编辑并由程序生成补丁',
+    description: 'PROMPT_V2_READONLY_PATCH',
     default: syncAnalysisMergePrompt('requirement', 'discussion'),
     variables: [
-      { name: 'runtimeId', description: '受控运行ID', required: true },
-      { name: 'manifestId', description: '冻结清单ID', required: true },
-      { name: 'reportId', description: 'Markdown输出ID', required: false },
-      { name: 'changesId', description: 'JSON索引输出ID', required: false },
+      { name: 'runtimeId', description: 'PROMPT_CONTROLLED_RUN_ID', required: true },
+      { name: 'manifestId', description: 'PROMPT_FROZEN_LIST_ID', required: true },
+      { name: 'reportId', description: 'PROMPT_MARKDOWN_OUTPUT_ID', required: false },
+      { name: 'changesId', description: 'PROMPT_JSON_INDEX_OUTPUT_ID', required: false },
     ],
     outputFormat: 'Markdown + JSON',
     requirements: [
-      '入口不内联 diff、原文或会话正文',
-      '证据完整读取，禁止无关改动',
-      '标准补丁由程序生成',
+      'PROMPT_NO_INLINE_DIFF',
+      'PROMPT_FULL_EVIDENCE_NO_UNRELATED_CHANGES',
+      'PROMPT_PATCH_BY_PROGRAM',
     ],
   },
   'phased-merge-requirement': {
-    label: '隔离文档局部编辑（需求文档）',
+    label: 'PROMPT_ISOLATED_LOCAL_EDIT_REQ',
     category: 'phased-sync',
     generatesFileContent: true,
     contractVersion: 2,
-    description: 'v2 只读证据引用；局部编辑并由程序生成补丁',
+    description: 'PROMPT_V2_READONLY_PATCH',
     default: syncMergePrompt('requirement'),
     variables: [
-      { name: 'runtimeId', description: '受控运行ID', required: true },
-      { name: 'manifestId', description: '冻结清单ID', required: true },
-      { name: 'reportId', description: 'Markdown输出ID', required: false },
-      { name: 'changesId', description: 'JSON索引输出ID', required: false },
+      { name: 'runtimeId', description: 'PROMPT_CONTROLLED_RUN_ID', required: true },
+      { name: 'manifestId', description: 'PROMPT_FROZEN_LIST_ID', required: true },
+      { name: 'reportId', description: 'PROMPT_MARKDOWN_OUTPUT_ID', required: false },
+      { name: 'changesId', description: 'PROMPT_JSON_INDEX_OUTPUT_ID', required: false },
     ],
     outputFormat: 'Candidate document',
     requirements: [
-      '入口不内联 diff、原文或会话正文',
-      '证据完整读取，禁止无关改动',
-      '标准补丁由程序生成',
+      'PROMPT_NO_INLINE_DIFF',
+      'PROMPT_FULL_EVIDENCE_NO_UNRELATED_CHANGES',
+      'PROMPT_PATCH_BY_PROGRAM',
     ],
   },
   'phased-code-analysis-design': {
-    label: '代码差异分析（技术文档）',
+    label: 'PROMPT_CODE_DIFF_TECH',
     category: 'phased-sync',
     generatesFileContent: true,
     contractVersion: 2,
-    description: 'v2 只读证据引用；局部编辑并由程序生成补丁',
+    description: 'PROMPT_V2_READONLY_PATCH',
     default: syncAnalysisPrompt('design', 'code'),
     variables: [
-      { name: 'runtimeId', description: '受控运行ID', required: true },
-      { name: 'manifestId', description: '冻结清单ID', required: true },
-      { name: 'reportId', description: 'Markdown输出ID', required: false },
-      { name: 'changesId', description: 'JSON索引输出ID', required: false },
+      { name: 'runtimeId', description: 'PROMPT_CONTROLLED_RUN_ID', required: true },
+      { name: 'manifestId', description: 'PROMPT_FROZEN_LIST_ID', required: true },
+      { name: 'reportId', description: 'PROMPT_MARKDOWN_OUTPUT_ID', required: false },
+      { name: 'changesId', description: 'PROMPT_JSON_INDEX_OUTPUT_ID', required: false },
     ],
     outputFormat: 'Markdown + JSON',
     requirements: [
-      '入口不内联 diff、原文或会话正文',
-      '证据完整读取，禁止无关改动',
-      '标准补丁由程序生成',
+      'PROMPT_NO_INLINE_DIFF',
+      'PROMPT_FULL_EVIDENCE_NO_UNRELATED_CHANGES',
+      'PROMPT_PATCH_BY_PROGRAM',
     ],
   },
   'phased-discussion-analysis-design': {
-    label: '讨论差异分析（技术文档）',
+    label: 'PROMPT_DISCUSSION_DIFF_TECH',
     category: 'phased-sync',
     generatesFileContent: true,
     contractVersion: 2,
-    description: 'v2 只读证据引用；局部编辑并由程序生成补丁',
+    description: 'PROMPT_V2_READONLY_PATCH',
     default: syncAnalysisPrompt('design', 'discussion'),
     variables: [
-      { name: 'runtimeId', description: '受控运行ID', required: true },
-      { name: 'manifestId', description: '冻结清单ID', required: true },
-      { name: 'reportId', description: 'Markdown输出ID', required: false },
-      { name: 'changesId', description: 'JSON索引输出ID', required: false },
+      { name: 'runtimeId', description: 'PROMPT_CONTROLLED_RUN_ID', required: true },
+      { name: 'manifestId', description: 'PROMPT_FROZEN_LIST_ID', required: true },
+      { name: 'reportId', description: 'PROMPT_MARKDOWN_OUTPUT_ID', required: false },
+      { name: 'changesId', description: 'PROMPT_JSON_INDEX_OUTPUT_ID', required: false },
     ],
     outputFormat: 'Markdown + JSON',
     requirements: [
-      '入口不内联 diff、原文或会话正文',
-      '证据完整读取，禁止无关改动',
-      '标准补丁由程序生成',
+      'PROMPT_NO_INLINE_DIFF',
+      'PROMPT_FULL_EVIDENCE_NO_UNRELATED_CHANGES',
+      'PROMPT_PATCH_BY_PROGRAM',
     ],
   },
   'phased-code-analysis-merge-design': {
-    label: '代码分析汇总（技术文档）',
+    label: 'PROMPT_CODE_ANALYSIS_SUMMARY_TECH',
     category: 'phased-sync',
     generatesFileContent: true,
     contractVersion: 2,
-    description: 'v2 只读证据引用；局部编辑并由程序生成补丁',
+    description: 'PROMPT_V2_READONLY_PATCH',
     default: syncAnalysisMergePrompt('design', 'code'),
     variables: [
-      { name: 'runtimeId', description: '受控运行ID', required: true },
-      { name: 'manifestId', description: '冻结清单ID', required: true },
-      { name: 'reportId', description: 'Markdown输出ID', required: false },
-      { name: 'changesId', description: 'JSON索引输出ID', required: false },
+      { name: 'runtimeId', description: 'PROMPT_CONTROLLED_RUN_ID', required: true },
+      { name: 'manifestId', description: 'PROMPT_FROZEN_LIST_ID', required: true },
+      { name: 'reportId', description: 'PROMPT_MARKDOWN_OUTPUT_ID', required: false },
+      { name: 'changesId', description: 'PROMPT_JSON_INDEX_OUTPUT_ID', required: false },
     ],
     outputFormat: 'Markdown + JSON',
     requirements: [
-      '入口不内联 diff、原文或会话正文',
-      '证据完整读取，禁止无关改动',
-      '标准补丁由程序生成',
+      'PROMPT_NO_INLINE_DIFF',
+      'PROMPT_FULL_EVIDENCE_NO_UNRELATED_CHANGES',
+      'PROMPT_PATCH_BY_PROGRAM',
     ],
   },
   'phased-discussion-analysis-merge-design': {
-    label: '讨论分析汇总（技术文档）',
+    label: 'PROMPT_DISCUSSION_ANALYSIS_SUMMARY_TECH',
     category: 'phased-sync',
     generatesFileContent: true,
     contractVersion: 2,
-    description: 'v2 只读证据引用；局部编辑并由程序生成补丁',
+    description: 'PROMPT_V2_READONLY_PATCH',
     default: syncAnalysisMergePrompt('design', 'discussion'),
     variables: [
-      { name: 'runtimeId', description: '受控运行ID', required: true },
-      { name: 'manifestId', description: '冻结清单ID', required: true },
-      { name: 'reportId', description: 'Markdown输出ID', required: false },
-      { name: 'changesId', description: 'JSON索引输出ID', required: false },
+      { name: 'runtimeId', description: 'PROMPT_CONTROLLED_RUN_ID', required: true },
+      { name: 'manifestId', description: 'PROMPT_FROZEN_LIST_ID', required: true },
+      { name: 'reportId', description: 'PROMPT_MARKDOWN_OUTPUT_ID', required: false },
+      { name: 'changesId', description: 'PROMPT_JSON_INDEX_OUTPUT_ID', required: false },
     ],
     outputFormat: 'Markdown + JSON',
     requirements: [
-      '入口不内联 diff、原文或会话正文',
-      '证据完整读取，禁止无关改动',
-      '标准补丁由程序生成',
+      'PROMPT_NO_INLINE_DIFF',
+      'PROMPT_FULL_EVIDENCE_NO_UNRELATED_CHANGES',
+      'PROMPT_PATCH_BY_PROGRAM',
     ],
   },
   'phased-merge-design': {
-    label: '隔离文档局部编辑（技术文档）',
+    label: 'PROMPT_ISOLATED_LOCAL_EDIT_TECH',
     category: 'phased-sync',
     generatesFileContent: true,
     contractVersion: 2,
-    description: 'v2 只读证据引用；局部编辑并由程序生成补丁',
+    description: 'PROMPT_V2_READONLY_PATCH',
     default: syncMergePrompt('design'),
     variables: [
-      { name: 'runtimeId', description: '受控运行ID', required: true },
-      { name: 'manifestId', description: '冻结清单ID', required: true },
-      { name: 'reportId', description: 'Markdown输出ID', required: false },
-      { name: 'changesId', description: 'JSON索引输出ID', required: false },
+      { name: 'runtimeId', description: 'PROMPT_CONTROLLED_RUN_ID', required: true },
+      { name: 'manifestId', description: 'PROMPT_FROZEN_LIST_ID', required: true },
+      { name: 'reportId', description: 'PROMPT_MARKDOWN_OUTPUT_ID', required: false },
+      { name: 'changesId', description: 'PROMPT_JSON_INDEX_OUTPUT_ID', required: false },
     ],
     outputFormat: 'Candidate document',
     requirements: [
-      '入口不内联 diff、原文或会话正文',
-      '证据完整读取，禁止无关改动',
-      '标准补丁由程序生成',
+      'PROMPT_NO_INLINE_DIFF',
+      'PROMPT_FULL_EVIDENCE_NO_UNRELATED_CHANGES',
+      'PROMPT_PATCH_BY_PROGRAM',
     ],
   },
 };
@@ -771,7 +772,7 @@ export async function getScopedSkills(sessionId, sessionQuery, agents, agentPres
       return { skills: scoped, scope: live };
     }
   } catch (e) {
-    console.warn(`获取 scoped skills 失败: ${e.message}`);
+    console.warn(msg('LOG_GET_SCOPED_SKILLS_FAILED', { v0: e.message }));
   }
 
   return null;
@@ -836,12 +837,12 @@ export function validatePromptTemplate(promptKey, template) {
 
   const meta = PROMPT_REGISTRY[promptKey];
   if (!meta) {
-    result.warnings.push(`未知的 promptKey: ${promptKey}`);
+    result.warnings.push(msg('ERR_UNKNOWN_PROMPT_KEY', { v0: promptKey }));
     return result;
   }
 
   if (!template || template.trim().length === 0) {
-    result.errors.push('模板不能为空');
+    result.errors.push('ERR_TEMPLATE_EMPTY');
     result.valid = false;
     return result;
   }
@@ -851,7 +852,9 @@ export function validatePromptTemplate(promptKey, template) {
       if (varDef.required) {
         const pattern = new RegExp(`\\{${varDef.name}\\}`);
         if (!pattern.test(template)) {
-          result.errors.push(`模板中缺少必需变量: {${varDef.name}} (${varDef.description})`);
+          result.errors.push(
+            msg('ERR_TEMPLATE_MISSING_REQUIRED_VAR', { v0: varDef.name, v1: varDef.description }),
+          );
           result.valid = false;
         }
       }
@@ -860,7 +863,7 @@ export function validatePromptTemplate(promptKey, template) {
 
   if (meta.outputFormat === 'JSON') {
     if (!template.includes('JSON') && !template.includes('json')) {
-      result.warnings.push('此 prompt 要求返回 JSON 格式，建议在模板中明确说明');
+      result.warnings.push('PROMPT_JSON_OUTPUT_ADVICE');
     }
   }
 

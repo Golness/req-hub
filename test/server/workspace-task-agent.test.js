@@ -61,6 +61,17 @@ it('creates independent empty owners in two workspaces without inspecting live s
   }
 });
 
+it('creates a background owner when no model service is bound to an active session', async () => {
+  delete ctx.agentDefaultModel;
+  const handle = await createWorkspaceTaskAgent(ctx, workspaces[0], new AbortController().signal);
+  try {
+    expect(ctx.agents.create).toHaveBeenCalledTimes(1);
+    expect(ctx.agents.create.mock.calls[0][0].agentOptions).toEqual({});
+  } finally {
+    await handle.dispose();
+  }
+});
+
 it('does not create an owner for a pre-cancelled task', async () => {
   const controller = new AbortController();
   controller.abort(new Error('cancelled'));

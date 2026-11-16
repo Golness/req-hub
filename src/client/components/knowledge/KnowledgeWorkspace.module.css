@@ -225,6 +225,9 @@
 .badge[data-tone='success'] {
   color: var(--dsw-alias-state-success-primary);
 }
+.badge[data-tone='warning'] {
+  color: var(--dsw-alias-state-warn-label);
+}
 .badge[data-tone='error'] {
   color: var(--dsw-alias-state-error-primary);
 }
@@ -274,6 +277,95 @@
   align-items: baseline;
   gap: 8px;
   min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* Double class wins over the shared dialog's 440px default width. Keep above
+   the 640px paged-list breakpoint so the pager stays on one line. */
+.importDialog.importDialog {
+  width: min(760px, 100%);
+}
+/* One vertical rhythm for every section of the dialog body. */
+.importBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.importRoot {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 8px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.searchForm {
+  display: flex;
+  flex: 1 1 320px;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+}
+.importSearch {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.toolbarActions {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin-inline-start: auto;
+  min-width: 0;
+}
+.resultPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-1);
+}
+.resultPanel > * {
+  margin: 0;
+}
+/* A definite height keeps the paged rows from collapsing to one line. */
+.candidateFrame {
+  box-sizing: border-box;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-height: 0;
+  height: min(52vh, 440px);
+  overflow: hidden;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-sm);
+}
+.candidateFrame[data-compact='true'] {
+  height: auto;
+}
+.candidateRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 8px;
+}
+.candidatePath {
+  flex: 1;
+  min-width: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 20px;
   overflow-wrap: anywhere;
 }
 .queryForm {
@@ -356,9 +448,6 @@
 }
 .taskTitle {
   font-weight: 500;
-}
-.settingsPane {
-  overflow: auto;
 }
 @container (max-width: 760px) {
   .wikiLayout {

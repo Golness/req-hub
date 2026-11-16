@@ -39,10 +39,10 @@ const Button = React.forwardRef(function Button(
  * @param ref - The forwarded native-control ref.
  * @returns The rendered component content.
  */
-const Input = React.forwardRef(function Input({ icon, className, ...props }, ref) {
+const Input = React.forwardRef(function Input({ icon, className, size = 'md', ...props }, ref) {
   return h(
     'span',
-    { className: join(css.inputWrap, className) },
+    { className: join(css.inputWrap, className), 'data-rh-size': size },
     icon,
     h('input', { ...props, ref, className: css.input }),
   );

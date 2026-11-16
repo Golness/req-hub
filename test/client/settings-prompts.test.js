@@ -9,6 +9,7 @@ const { act } = React;
 const { createRoot } = require('react-dom/client');
 const { SettingsPanel } = require('../../src/client/components/SettingsPanel.js');
 const { DocsViewerContext, SessionSelectionContext } = require('../../src/client/context.js');
+const { currentUiLanguage, setUiLanguage } = require('../../src/client/ui-language.js');
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let root;
 let config;
@@ -54,7 +55,24 @@ beforeEach(() => {
     } else if (url.endsWith('/llm-config')) data = { provider: 'Provider', models: ['model'] };
     else if (url.includes('/knowledge/enhancements/jobs'))
       data = { enabled: false, jobs: [], mcpServers: [], mcpAvailable: false };
-    else if (url.endsWith('/prompt-registry')) {
+    else if (url.includes('/knowledge-v2/rules') && options?.method === 'POST') {
+      data = { rules: { purpose: '', schema: '', language: 'auto' }, job: null };
+    } else if (url.includes('/knowledge-v2/rules')) {
+      data = { purpose: '', schema: '', language: 'auto' };
+    } else if (url.includes('/knowledge-v2/settings')) {
+      data = {
+        values: {
+          autoManage: false,
+          autoManageDelayMs: 30000,
+          dailyUpdateEnabled: false,
+          dailyImportConversations: false,
+          dailyUpdateTime: '02:00',
+          larkPushEnabled: false,
+        },
+        version: 'settings-v1',
+        schedule: { state: 'idle', lastRunAt: null },
+      };
+    } else if (url.endsWith('/prompt-registry')) {
       data = PROMPT_REGISTRY;
       ok = !failRegistry;
     } else if (url.includes('/skill-content?')) data = { content: '# Skill', description: '' };
@@ -72,9 +90,10 @@ afterEach(async () => {
   document.body.innerHTML = '';
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  setUiLanguage('follow');
 });
 
-async function renderSettings(sessionId = null, initialTab = 'prompts') {
+async function renderSettings(sessionId = null, initialTab = 'prompts', settingsProps = {}) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -88,7 +107,11 @@ async function renderSettings(sessionId = null, initialTab = 'prompts') {
         React.createElement(
           DocsViewerContext.Provider,
           { value: { headerBackTarget: header } },
-          React.createElement(SettingsPanel, { workspaceId: 'ws', onClose: vi.fn() }),
+          React.createElement(SettingsPanel, {
+            workspaceId: 'ws',
+            onClose: vi.fn(),
+            ...settingsProps,
+          }),
         ),
       ),
     ),
@@ -358,6 +381,7 @@ it('separates settings features and retains prompt drafts across top-level tabs'
     '通用',
     '依赖',
     '同步',
+    '知识库',
     'Prompt 管理',
   ]);
   expect(document.querySelector('#settings-tab-general').getAttribute('aria-selected')).toBe(
@@ -414,4 +438,87 @@ it('separates settings features and retains prompt drafts across top-level tabs'
   await click(document.querySelector('#settings-tab-dependencies'));
   expect(dependencyTabs[1].getAttribute('aria-selected')).toBe('true');
   expect(dependencies.querySelector('input[id$="-profile"]').value).toBe('draft');
+});
+
+it('hosts knowledge settings in its own tab and keeps drafts while switching', async () => {
+  await renderSettings(null, 'general');
+  const knowledgeTab = document.querySelector('#settings-tab-knowledge');
+  expect(knowledgeTab.textContent).toBe('知识库');
+  await click(knowledgeTab);
+  const panel = document.querySelector('#settings-content-knowledge');
+  expect(panel.hidden).toBe(false);
+  expect(panel.getAttribute('aria-labelledby')).toBe('settings-tab-knowledge');
+  expect(panel.textContent).toContain('自动整理与每日更新');
+  expect(panel.textContent).toContain('整理规则');
+  expect(panel.textContent).toContain('清空知识库');
+  // Each section owns its save; this tab does not contribute a page-level action bar.
+  expect(panel.querySelectorAll('[data-settings-actions="section"]')).toHaveLength(3);
+  expect(document.querySelector('.rh-settings-actions')).toBeNull();
+  const purpose = panel.querySelector('textarea');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(
+      purpose,
+      '未保存的用途说明',
+    );
+    purpose.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await click(document.querySelector('#settings-tab-general'));
+  expect(panel.hidden).toBe(true);
+  await click(knowledgeTab);
+  expect(panel.querySelector('textarea').value).toBe('未保存的用途说明');
+});
+
+it('notifies the owning view after knowledge rules are saved', async () => {
+  const onKnowledgeChanged = vi.fn();
+  await renderSettings(null, 'general', { onKnowledgeChanged });
+  await click(document.querySelector('#settings-tab-knowledge'));
+  const bars = document.querySelectorAll(
+    '#settings-content-knowledge [data-settings-actions="section"]',
+  );
+  await click(bars[1].querySelector('button'));
+  expect(onKnowledgeChanged).toHaveBeenCalledOnce();
+});
+
+it('loads the forced UI language into general settings and saves it back', async () => {
+  config.general = { timeZone: 'Asia/Shanghai', uiLanguage: 'en' };
+  await renderSettings(null, 'general');
+  expect(document.getElementById('rh-ui-language-title')?.textContent).toBe('Interface language');
+  expect(document.getElementById('rh-time-zone-title')?.textContent).toBe('Time zone');
+  expect(currentUiLanguage()).toBe('en');
+  const username = document.querySelector('[aria-labelledby="rh-default-username-title"]');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(
+      username,
+      'alice',
+    );
+    username.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await click(save());
+  const posted = fetchMock.mock.calls.find(
+    ([url, options]) => url.endsWith('/config') && options?.method === 'POST',
+  );
+  expect(JSON.parse(posted[1].body).general.uiLanguage).toBe('en');
+});
+
+it('keeps artifact language independent from UI language and saves it back', async () => {
+  config.general = {
+    timeZone: 'Asia/Shanghai',
+    uiLanguage: 'en',
+    contentLanguage: 'zh',
+  };
+  await renderSettings(null, 'general');
+  const title = document.getElementById('rh-content-language-title');
+  expect(title?.textContent).toBe('Artifact language');
+  expect(document.getElementById('rh-ui-language-title')?.textContent).toBe('Interface language');
+  const trigger = document.querySelector('[aria-labelledby="rh-content-language-title"]');
+  expect(trigger).toBeTruthy();
+  await click(trigger);
+  await click(document.querySelector('[role="menuitem"][data-value="en"]'));
+  await click(save());
+  const posted = fetchMock.mock.calls.find(
+    ([url, options]) => url.endsWith('/config') && options?.method === 'POST',
+  );
+  const general = JSON.parse(posted[1].body).general;
+  expect(general.contentLanguage).toBe('en');
+  expect(general.uiLanguage).toBe('en');
 });

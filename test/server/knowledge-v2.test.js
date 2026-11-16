@@ -16,6 +16,7 @@ import {
   importFiles,
   importSessionMarkdown,
   listSources,
+  listFileCandidates,
   getSource,
   stateByPath,
   sourceIdentity,
@@ -24,6 +25,7 @@ import {
   describeTurns,
   mergeSessionTurns,
   buildSessionDocument,
+  sessionMessages,
 } from '../../src/server/knowledge-v2/session-export.js';
 import { KbTaskRuntime } from '../../src/server/knowledge-v2/runtime.js';
 import { KnowledgeQueue } from '../../src/server/knowledge-v2/queue.js';
@@ -38,6 +40,7 @@ import {
 import { structuralLint, isAnswerable } from '../../src/server/knowledge-v2/lint.js';
 import { WikiSearchIndex } from '../../src/server/knowledge-v2/search.js';
 import { createKnowledgeV2Routes } from '../../src/server/routes/knowledge-v2-routes.js';
+import { KnowledgeApplication } from '../../src/server/knowledge-v2/application.js';
 
 const NUL = String.fromCharCode(0);
 let root;
@@ -141,6 +144,28 @@ describe('source repository', () => {
     );
     const list = await listSources(store, {});
     expect(list.total).toBe(2);
+  });
+  it('lists import candidates with snapshot state and batch limit', async () => {
+    await writeDoc('alice/a.md', '# A\n甲');
+    await writeDoc('alice/b.txt', '乙');
+    await writeDoc('alice/ignored.pdf', 'binary');
+    await writeDoc('alice/.hidden/c.md', '# Hidden');
+    const before = await listFileCandidates(store);
+    expect(before.items.map((item) => item.relativePath)).toEqual(['alice/a.md', 'alice/b.txt']);
+    expect(before.items.every((item) => item.state === 'new')).toBe(true);
+    expect(before.batchLimit).toBe(100);
+    expect(before.truncated).toBe(false);
+    expect(before.base).toEqual({ workspace: 'ws', path: store.scope.docsRoot });
+
+    await importFiles(store, { files: [{ relativePath: 'alice/a.md' }] });
+    const after = await listFileCandidates(store);
+    const byPath = Object.fromEntries(after.items.map((item) => [item.relativePath, item.state]));
+    expect(byPath['alice/a.md']).toBe('imported');
+    expect(byPath['alice/b.txt']).toBe('new');
+
+    await writeDoc('alice/a.md', '# A\n丙');
+    const changed = await listFileCandidates(store);
+    expect(changed.items.find((item) => item.relativePath === 'alice/a.md').state).toBe('changed');
   });
   it('rejects traversal and absolute paths per item without failing the batch', async () => {
     await writeDoc('alice/a.md', '# A\n甲');
@@ -312,6 +337,79 @@ describe('session export', () => {
     expect(doc.markdown).toContain('# 会话');
     expect(doc.markdown).toContain('## 第 1 轮');
     expect(doc.turns[0].endLine).toBeGreaterThan(doc.turns[0].startLine);
+  });
+});
+
+describe('session detail preview', () => {
+  const store = { scope: { scopeId: 'sc' }, sources: async () => ({ sources: [] }) };
+  const callDetail = (turns) => {
+    const context = {
+      registry: { list: () => [{ id: 'ws', title: 'W', path: '/w' }] },
+      sessionEntries: async () => [
+        {
+          conversationId: 'c1',
+          id: 's1',
+          source: 'dsh',
+          sourceInstanceId: 'i',
+          snapshotVersion: 'v1',
+          title: 'Fixture',
+        },
+      ],
+      conversations: {
+        library: {
+          store: {
+            project: async () => ({ version: 'v1', turns }),
+            versions: async () => [{ version: 'v1' }],
+          },
+        },
+      },
+    };
+    return KnowledgeApplication.prototype.sessionDetail.call(context, store, { id: 'c1' });
+  };
+
+  it('returns the frozen turn messages together with importable flags', async () => {
+    const messages = [
+      { role: 'user', kind: 'input', label: '用户输入', text: '原始输入' },
+      { role: 'assistant', kind: 'final', label: '助手最终回复', text: '完整回复' },
+    ];
+    const detail = await callDetail([
+      {
+        turnNumber: 1,
+        sourceTurnId: 't1',
+        status: 'complete',
+        syncable: true,
+        messages,
+      },
+    ]);
+    expect(detail.turns).toHaveLength(1);
+    expect(detail.turns[0].messages).toEqual(messages);
+    expect(detail.turns[0].importable).toBe(true);
+  });
+
+  it('normalizes legacy snapshots that never stored labelled messages', async () => {
+    const legacy = {
+      turnNumber: 1,
+      status: 'completed',
+      syncable: true,
+      userInput: '旧版问题',
+      summary: '旧版回答',
+    };
+    const detail = await callDetail([legacy]);
+    expect(detail.turns[0].messages).toEqual([
+      { role: 'user', kind: 'input', label: '用户输入', text: '旧版问题' },
+      { role: 'assistant', kind: 'final', label: '助手最终回复', text: '旧版回答' },
+    ]);
+    const described = describeTurns({ turns: [legacy] });
+    expect(described[0].anchor).toBeTruthy();
+    const doc = buildSessionDocument({
+      title: '会话',
+      origin: { provider: 'dsh', sessionId: 's1' },
+      snapshotVersion: 'v1',
+      turns: described,
+    });
+    expect(doc.markdown).toContain('旧版问题');
+    expect(sessionMessages({ messages: [] })).toEqual([]);
+    expect(sessionMessages({ messages: [{ role: 'user', content: '正文' }] })[0].text).toBe('正文');
   });
 });
 
@@ -701,6 +799,21 @@ describe('knowledge v2 routes', () => {
     );
     expect(detail.status).toBe(200);
     expect(JSON.parse(detail.body)).toEqual({ id: 'detail' });
+  });
+
+  it('serves file candidates from the authorized workspace scope', async () => {
+    await writeDoc('alice/a.md', '# A\n甲');
+    const app = application();
+    app.scope = vi.fn(async () => store);
+    const [route] = createKnowledgeV2Routes(app);
+    const res = response();
+    await route.handler(request('GET', '/sources/files/candidates?workspaceId=ws'), res);
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.items.map((item) => item.relativePath)).toEqual(['alice/a.md']);
+    expect(body.items[0].state).toBe('new');
+    expect(body.batchLimit).toBe(100);
+    expect(body.base).toEqual({ workspace: 'ws', path: store.scope.docsRoot });
   });
 
   it('rejects requests without an explicit workspace id', async () => {

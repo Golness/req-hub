@@ -7,6 +7,7 @@ const { RetrySyncTaskButton } = require('./shared/RetrySyncTaskButton.js');
 const { SyncChunkDetails } = require('./SyncChunkDetails.js');
 const { t, hasLocaleKey } = require('../locale.js');
 const { syncActivityText, syncErrorText, syncPhaseLabel } = require('../utils/syncFeedback.js');
+const { localizeMessage } = require('../utils/serverMessage.js');
 const css = require('./SyncSteps.module.css').default;
 const h = React.createElement;
 
@@ -344,7 +345,7 @@ function SyncStepList({ steps = [], generatedFiles = [], onViewFile, task, onRet
                       ),
                     ),
                   ),
-                step.text && h('p', { className: css.hint }, step.text),
+                step.text && h('p', { className: css.hint }, localizeMessage(step.text)),
                 h('p', { className: css.hint }, t('sync.budget.notice')),
               ),
             step.log &&

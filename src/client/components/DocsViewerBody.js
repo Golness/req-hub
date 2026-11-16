@@ -24,6 +24,7 @@ const { TopBar } = require('./TopBar.js');
 const { CreateDirForm } = require('./CreateDirForm.js');
 const { FilePreview } = require('./FilePreview.js');
 const { FileKnowledgeAction } = require('./FileKnowledgeAction.js');
+const { LarkFileSyncAction } = require('./LarkFileSyncAction.js');
 const { DocumentAssist } = require('./ContextAssist.js');
 const { SyncPanel } = require('./SyncPanel.js');
 const { SyncStatusBar } = require('./SyncStatusBar.js');
@@ -69,7 +70,8 @@ function DocsViewerBody({
 }) {
   const [activePanel, setActivePanel] = useState(initialLocation?.createBranch ? 'create' : null);
   const [knowledgeTab, setKnowledgeTab] = useState('wiki');
-  const [settingsTab, setSettingsTab] = useState('model');
+  const [knowledgeRevision, setKnowledgeRevision] = useState(0);
+  const [settingsTab, setSettingsTab] = useState('general');
   const [fileRevision, setFileRevision] = useState(0);
   const [fileDirty, setFileDirty] = useState(false);
   const writingMounted = useRef(false);
@@ -930,6 +932,7 @@ function DocsViewerBody({
         workspaceId: workspace.id,
         onClose: handlePanelClose,
         initialTab: settingsTab,
+        onKnowledgeChanged: () => setKnowledgeRevision((value) => value + 1),
       });
     }
     return null;
@@ -1238,6 +1241,15 @@ function DocsViewerBody({
                         revision: fileRevision,
                         dirty: fileDirty,
                       }),
+                    filePreviewBreadcrumb &&
+                      /\.(md|markdown|txt|text|html?)$/i.test(selectedFile.name) &&
+                      h(LarkFileSyncAction, {
+                        key: `lark:${selectedFile.workspaceId || workspace.id}:${selectedFile.path}`,
+                        workspaceId: selectedFile.workspaceId || workspace.id,
+                        path: selectedFile.path,
+                        name: selectedFile.name,
+                        dirty: fileDirty,
+                      }),
                     activePanel === 'writing' &&
                       h('div', { className: css.writingToolbarSlot, ref: setWritingToolbarTarget }),
                     filePreviewBreadcrumb &&
@@ -1270,6 +1282,7 @@ function DocsViewerBody({
                     tab: knowledgeTab,
                     onTabChange: setKnowledgeTab,
                     active: activePanel === 'knowledge',
+                    refreshSignal: knowledgeRevision,
                     docsDir,
                     initialSourceId:
                       focusedKnowledge?.workspaceId === workspace.id

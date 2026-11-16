@@ -1,4 +1,5 @@
 'use strict';
+const { localizeMessage } = require('../utils/serverMessage.js');
 const { showToast } = require('./shared/ToastContainer.js');
 const { t } = require('../locale.js');
 const { Button } = require('./shared/Button.js');
@@ -98,7 +99,7 @@ function TopBar({
         showToast({ tone: 'error', text: data.error || t('TopBar.message001') });
       }
     } catch (e) {
-      showToast({ tone: 'error', text: t('TopBar.message002') + e.message });
+      showToast({ tone: 'error', text: t('TopBar.message002') + localizeMessage(e.message) });
     }
   };
 

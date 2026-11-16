@@ -1,3 +1,4 @@
+import { msg, messageDescriptor } from './messages.js';
 import { open, realpath } from 'node:fs/promises';
 import { resolve, relative, isAbsolute, extname } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -18,14 +19,22 @@ export const MAX_BUILD_FILES = 200;
 /** Hash input for stable content identity. */
 export const hash = (value) => createHash('sha256').update(value).digest('hex');
 
-/** Create a source error with its HTTP status. */
-export const knowledgeError = (message, status = 400) =>
-  Object.assign(new Error(message), { status });
+/** Create a source error with its HTTP status, preserving message params. */
+export const knowledgeError = (message, status = 400) => {
+  const descriptor = messageDescriptor(message);
+  const code = typeof descriptor === 'string' ? descriptor : descriptor.code;
+  const error = new Error(code);
+  error.messageCode = code;
+  if (typeof descriptor === 'object') {
+    error.params = descriptor.params;
+  }
+  return Object.assign(error, { status });
+};
 
 /** Validate and normalize a relative requirement-document path. */
 export function normalizeSourcePath(value) {
   if (typeof value !== 'string' || !value || /[\x00-\x1f]/.test(value)) {
-    throw knowledgeError('文件路径无效');
+    throw knowledgeError('DOC_SOURCE_PATH_INVALID');
   }
   const path = value.replaceAll('\\', '/');
   const parts = path.split('/');
@@ -34,7 +43,7 @@ export function normalizeSourcePath(value) {
     /^[a-z]:/i.test(path) ||
     parts.some((p) => !p || p === '.' || p === '..' || p.includes(':'))
   ) {
-    throw knowledgeError('文件路径越界');
+    throw knowledgeError('DOC_SOURCE_PATH_OUT_OF_BOUNDS');
   }
   if (
     parts.length < 3 ||
@@ -42,10 +51,10 @@ export function normalizeSourcePath(value) {
     !/^\d{4}-\d{2}-\d{2}-.+/.test(parts[1]) ||
     parts.slice(2, -1).some((p) => p.startsWith('.'))
   ) {
-    throw knowledgeError('文件不属于有效需求目录');
+    throw knowledgeError('DOC_SOURCE_NOT_IN_REQUIREMENT_DIR');
   }
   if (!SUPPORTED_EXTENSIONS.has(extname(path).toLowerCase())) {
-    throw knowledgeError('不支持的文件类型');
+    throw knowledgeError('DOC_SOURCE_UNSUPPORTED_FILE_TYPE');
   }
   return path;
 }
@@ -68,17 +77,18 @@ export async function readSource(docsRoot, input, { metadataOnly = false, signal
   const extension = extname(relativePath).toLowerCase();
   const binary = BINARY_EXTENSIONS.has(extension);
   const limit = binary ? MAX_BINARY_BYTES : MAX_FILE_BYTES;
-  const oversized = () => knowledgeError(`文件超过 ${binary ? 20 : 2} MiB 限制`, 413);
+  const oversized = () =>
+    knowledgeError(msg('DOC_SOURCE_FILE_TOO_LARGE', { v0: binary ? 20 : 2 }), 413);
   const root = await realpath(docsRoot);
   const path = await realpath(resolve(root, relativePath));
   if (!inside(root, path)) {
-    throw knowledgeError('文件路径越界');
+    throw knowledgeError('DOC_SOURCE_PATH_OUT_OF_BOUNDS');
   }
   const file = await open(path, 'r');
   try {
     const stat = await file.stat();
     if (!stat.isFile()) {
-      throw knowledgeError('所选项不是文件');
+      throw knowledgeError('DOC_SOURCE_NOT_A_FILE');
     }
     if (stat.size > limit) {
       throw oversized();
@@ -96,7 +106,7 @@ export async function readSource(docsRoot, input, { metadataOnly = false, signal
       throw oversized();
     }
     if (offset === buffer.length) {
-      throw knowledgeError('读取期间文件大小已改变，请重试', 409);
+      throw knowledgeError('DOC_SOURCE_SIZE_CHANGED_DURING_READ', 409);
     }
     const bytes = buffer.subarray(0, offset);
     const metadata = { relativePath, contentHash: hash(bytes), mtime: stat.mtime.toISOString() };
@@ -107,7 +117,7 @@ export async function readSource(docsRoot, input, { metadataOnly = false, signal
       return { ...metadata, ...(await parseBinary(bytes, extension, { signal })) };
     }
     if (bytes.includes(0)) {
-      throw knowledgeError('文件包含二进制内容');
+      throw knowledgeError('DOC_SOURCE_BINARY_CONTENT');
     }
     const raw = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
     let text = raw;

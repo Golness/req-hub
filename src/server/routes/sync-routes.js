@@ -1,3 +1,4 @@
+import { msg } from '../messages.js';
 import { freezeKnowledgeContext } from '../knowledge/enhancements/knowledge-context.js';
 import { matchesWorkspacePath } from '../conversations/workspace-path.js';
 import {
@@ -207,7 +208,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
       ) {
         continue;
       }
-      await recoverSyncTask(task, 'SYNC_OWNER_MISSING: 同步任务已无执行者，已回收残留状态');
+      await recoverSyncTask(task, 'SYNC_OWNER_MISSING');
       syncSupervisor.remember(task);
     }
   };
@@ -215,7 +216,9 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
     storage.heartbeat();
     void syncSupervisor
       .check()
-      .catch((error) => log.sync.error('任务监管恢复失败：' + error.message));
+      .catch((error) =>
+        log.sync.error(msg('LOG_TASK_SUPERVISOR_RECOVER_FAILED', { v0: error.message })),
+      );
   }, 15000);
   watchdog.unref?.();
   const routes = [
@@ -294,7 +297,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
             return json(res, { success: true });
           }
           if (input.snapshotDir !== task.snapshotDir) {
-            return json(res, { error: '同步任务已切换，请刷新状态' }, 409);
+            return json(res, { error: 'SYNC_TASK_SWITCHED_REFRESH_STATUS' }, 409);
           }
           const deleted = await removeSyncTask(task, { wholeTask: input.scope === 'task' });
           for (const execution of deleted) {
@@ -316,7 +319,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
           }
           json(res, { success: true });
         } catch (error) {
-          log.sync.error('删除同步任务失败：' + error.message);
+          log.sync.error(msg('LOG_DELETE_SYNC_TASK_FAILED', { v0: error.message }));
           json(res, { error: error.message }, error.statusCode || 500);
         }
       },
@@ -578,9 +581,9 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
           json(res, {
             targetBranch,
             baseBranch,
-            baseBranchHint: baseBranch ? null : '未找到 main 或 master 分支，请手动填写基准分支。',
+            baseBranchHint: baseBranch ? null : 'SYNC_DEFAULT_BRANCH_NOT_FOUND',
             targetBranchError,
-            currentBranch: targetBranch || '未找到',
+            currentBranch: targetBranch || 'STATUS_NOT_FOUND',
           });
         } catch (e) {
           json(res, { error: e.message });
@@ -615,7 +618,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
             url.searchParams.get('baseBranch')?.trim() ||
             (await defaultSyncBaseBranch(workspace.path));
           if (!baseBranch) {
-            return json(res, { error: '未找到 main 或 master 分支，请手动填写基准分支。' }, 400);
+            return json(res, { error: 'SYNC_DEFAULT_BRANCH_NOT_FOUND' }, 400);
           }
           return json(res, await listSyncCommits(workspace.path, targetBranch, baseBranch));
         } catch (error) {
@@ -661,7 +664,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
             .slice(0, Math.max(0, Math.min(limit || 20, 200)));
           json(res, { sessions: sessionsList });
         } catch (e) {
-          log.sync.error(`获取会话列表失败: ${e.message}`);
+          log.sync.error(msg('LOG_GET_SESSION_LIST_FAILED', { v0: e.message }));
           json(res, { error: e.message }, 500);
         }
       },
@@ -695,7 +698,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
                 json(res, {
                   session: {
                     id: header.id,
-                    title: titleObservation.title?.title || '(无标题)',
+                    title: titleObservation.title?.title || 'STATUS_UNTITLED',
                     cwd: header.cwd || '',
                     createdAt: header.createdAt,
                     parentSession: header.parentSession || null,
@@ -705,37 +708,37 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
               }
             } catch (e) {
               // Fall back to the live session service when the persisted query fails.
-              log.sync.debug(`sessionQuery 获取会话失败: ${e.message}，尝试 sessions 服务`);
+              log.sync.debug(msg('LOG_SESSION_QUERY_GET_SESSION_FAILED', { v0: e.message }));
             }
           }
 
           if (!sessions) {
-            log.sync.error('sessions 和 sessionQuery 服务都不可用');
-            json(res, { error: '会话服务不可用' }, 500);
+            log.sync.error('SESSION_SERVICES_UNAVAILABLE');
+            json(res, { error: 'SESSION_SERVICE_UNAVAILABLE' }, 500);
             return;
           }
 
           const session = sessions.get(sessionId);
           if (!session) {
-            log.sync.error(`会话不存在或已关闭: ${sessionId}`);
-            json(res, { error: '会话不存在或已关闭', sessionId }, 404);
+            log.sync.error(msg('ERR_SESSION_NOT_FOUND_OR_CLOSED_DETAIL', { v0: sessionId }));
+            json(res, { error: 'ERR_SESSION_NOT_FOUND_OR_CLOSED', sessionId }, 404);
             return;
           }
 
           const header = session.header;
-          log.sync.debug(`获取到活跃会话`, { sessionId, cwd: header.cwd });
+          log.sync.debug('LOG_ACTIVE_SESSION_FOUND', { sessionId, cwd: header.cwd });
 
           json(res, {
             session: {
               id: header.id,
-              title: '(当前会话)',
+              title: 'STATUS_CURRENT_SESSION',
               cwd: header.cwd || '',
               createdAt: header.createdAt,
               parentSession: header.parentSession || null,
             },
           });
         } catch (e) {
-          log.sync.error(`获取会话详情失败: ${e.message}`);
+          log.sync.error(msg('LOG_GET_SESSION_DETAIL_FAILED', { v0: e.message }));
           json(res, { error: e.message }, 500);
         }
       },
@@ -757,7 +760,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
               const allRecords = await sessionQuery.listSessions();
 
               if (!allRecords || allRecords.length === 0) {
-                json(res, { session: null, debug: { message: '没有找到任何会话' } });
+                json(res, { session: null, debug: { message: 'SESSION_NONE_FOUND' } });
                 return;
               }
 
@@ -767,17 +770,17 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
                 .sort((a, b) => (b.header.createdAt || 0) - (a.header.createdAt || 0));
 
               if (mainRecords.length === 0) {
-                json(res, { session: null, debug: { message: '没有找到主会话' } });
+                json(res, { session: null, debug: { message: 'SESSION_NO_MAIN_FOUND' } });
                 return;
               }
 
               const latest = mainRecords[0];
               const header = latest.header;
 
-              let title = '(无标题)';
+              let title = 'STATUS_UNTITLED';
               try {
                 const titleSnapshot = await sessionQuery.readTitle(header.id);
-                title = titleSnapshot?.title || '(无标题)';
+                title = titleSnapshot?.title || 'STATUS_UNTITLED';
               } catch (e) {
                 // Keep the fallback title when the optional title snapshot cannot be read.
               }
@@ -794,19 +797,19 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
               });
               return;
             } catch (e) {
-              log.sync.debug(`sessionQuery 获取当前会话失败: ${e.message}，尝试 sessions 服务`);
+              log.sync.debug(msg('LOG_SESSION_QUERY_GET_CURRENT_FAILED', { v0: e.message }));
             }
           }
 
           if (!sessions) {
-            json(res, { error: 'sessions 和 sessionQuery 服务都不可用' }, 500);
+            json(res, { error: 'SESSION_SERVICES_UNAVAILABLE' }, 500);
             return;
           }
 
           const allSessions = sessions.list();
 
           if (!allSessions || allSessions.length === 0) {
-            json(res, { session: null, debug: { message: '没有找到任何活跃会话' } });
+            json(res, { session: null, debug: { message: 'SESSION_NO_ACTIVE_FOUND' } });
             return;
           }
 
@@ -818,7 +821,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
             json(res, {
               session: null,
               debug: {
-                message: '没有找到主会话',
+                message: 'SESSION_NO_MAIN_FOUND',
                 totalSessions: allSessions.length,
               },
             });
@@ -831,14 +834,14 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
           json(res, {
             session: {
               id: header.id,
-              title: '(当前会话)',
+              title: 'STATUS_CURRENT_SESSION',
               cwd: header.cwd || '',
               createdAt: header.createdAt,
               parentSession: header.parentSession || null,
             },
           });
         } catch (e) {
-          log.sync.error(`获取当前会话失败: ${e.message}`);
+          log.sync.error(msg('LOG_GET_CURRENT_SESSION_FAILED', { v0: e.message }));
           json(res, { error: e.message }, 500);
         }
       },
@@ -871,15 +874,11 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
             ? await codex.snapshot(sessionId, workspaceId)
             : await dshSnapshot(workspaceId, sessionId);
           if (url.searchParams.get('version') !== snapshot.version) {
-            return json(
-              res,
-              { success: false, error: 'SESSION_CHANGED: 会话已变化，请刷新会话列表后重新选择' },
-              409,
-            );
+            return json(res, { success: false, error: 'SESSION_CHANGED' }, 409);
           }
           json(res, { success: true, ...snapshot });
         } catch (e) {
-          log.sync.error(`获取会话轮次失败: ${e.message}`);
+          log.sync.error(msg('LOG_GET_SESSION_TURNS_FAILED', { v0: e.message }));
           json(res, { success: false, error: e.message }, e.statusCode || 500);
         }
       },
@@ -1009,7 +1008,8 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
                   workspaceId,
                   requirementId,
                   docType,
-                  docTypeName: docType === 'requirement' ? '需求文档' : '技术方案',
+                  docTypeName:
+                    docType === 'requirement' ? 'DOC_REQUIREMENT' : 'DOC_TECHNICAL_DESIGN',
                 },
                 requestController,
               );
@@ -1019,7 +1019,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
                   {
                     active: true,
                     sync: syncSupervisor.snapshot().active,
-                    message: '已有同步任务正在运行，需求文档与技术方案共用一个执行名额',
+                    message: 'SYNC_TASK_ALREADY_RUNNING',
                   },
                   409,
                 );
@@ -1091,7 +1091,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
                   sessionIds.some((id) => typeof id !== 'string') ||
                   new Set(sessionIds).size !== sessionIds.length
                 ) {
-                  return json(res, { error: 'SESSION_SELECTION_INVALID: 会话选择无效' }, 400);
+                  return json(res, { error: 'SESSION_SELECTION_INVALID' }, 400);
                 }
                 onPreparation({ stage: 'sessions' });
                 const codexIds = sessionIds.filter((id) => id.startsWith('codex:'));
@@ -1144,21 +1144,18 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
                   }));
                 for (const snapshot of sessionInput.snapshots) {
                   if (input.sessionVersions?.[snapshot.sessionId] !== snapshot.version) {
-                    return json(
-                      res,
-                      { error: 'SESSION_CHANGED: 会话已变化，请刷新会话列表后重新选择' },
-                      409,
-                    );
+                    return json(res, { error: 'SESSION_CHANGED' }, 409);
                   }
                   if (!snapshot.syncTurnCount) {
                     return json(
                       res,
-                      { error: `SESSION_EMPTY: ${snapshot.sessionId} 没有可同步的完整轮次` },
+                      { error: msg('SESSION_EMPTY', { v0: snapshot.sessionId }) },
                       400,
                     );
                   }
                 }
-                const docTypeName = docType === 'requirement' ? '需求文档' : '技术方案';
+                const docTypeName =
+                  docType === 'requirement' ? 'DOC_REQUIREMENT' : 'DOC_TECHNICAL_DESIGN';
 
                 let designReference = retryFrozen?.designReference;
                 if (docType === 'design' && !designReference) {
@@ -1224,16 +1221,13 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
                 };
 
                 if (closed) {
-                  throw new Error('插件正在卸载，无法启动同步');
+                  throw new Error('SYNC_PLUGIN_UNLOADING');
                 }
                 syncSupervisor.assert(lease);
                 await loadState(workspaceId, requirementId, reqDir);
                 const orphan = await getActiveSync(workspaceId, requirementId);
                 if (orphan) {
-                  await recoverSyncTask(
-                    orphan,
-                    'SYNC_OWNER_MISSING: 原同步任务已无执行者，已回收残留状态',
-                  );
+                  await recoverSyncTask(orphan, 'SYNC_OWNER_MISSING_ORIGINAL');
                 }
                 const staleController = getAbortController(workspaceId, requirementId);
                 if (staleController) {
@@ -1252,10 +1246,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
                 });
                 syncSupervisor.assert(lease);
                 if (prepared.active) {
-                  await recoverSyncTask(
-                    prepared.sync,
-                    'SYNC_OWNER_MISSING: 原同步任务已无执行者，已回收残留状态',
-                  );
+                  await recoverSyncTask(prepared.sync, 'SYNC_OWNER_MISSING_ORIGINAL');
                   prepared = await beginCommitSync(workspace.path, reqDir, fields, {
                     signal: abortController.signal,
                     onProgress: onPreparation,
@@ -1336,7 +1327,9 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
                       })}\n\n`,
                     );
                   } catch (error) {
-                    log.sync.debug('同步连接已断开，任务继续持久化执行：' + error.message);
+                    log.sync.debug(
+                      msg('SYNC_CONNECTION_LOST_TASK_PERSISTING', { v0: error.message }),
+                    );
                   }
                 };
                 lifecycle = new SyncLifecycle(syncTask, sendEvent);
@@ -1347,7 +1340,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
                 sendEvent({ type: 'sync_started', syncId, commitHash: syncTask.commitHash });
                 await updateStep('init', {
                   status: 'running',
-                  text: '读取已冻结的需求分支提交...',
+                  text: 'SYNC_READING_FROZEN_COMMITS',
                 });
 
                 // Read current document
@@ -1363,27 +1356,29 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
                 const currentDoc = originalVersion.bytes.toString('utf8');
                 const isNewDoc = !originalVersion.exists;
 
-                let initText = '';
+                const initText = [];
                 if (commits && commits.length > 0) {
-                  initText = `${commits.length} 个提交`;
+                  initText.push(msg('SYNC_COMMIT_COUNT', { v0: commits.length }));
                 } else {
-                  initText = '无提交记录';
+                  initText.push('SYNC_NO_COMMITS');
                 }
                 if (uncommittedChanges.hasChanges) {
                   const parts = [];
                   if (uncommittedChanges.staged) {
-                    parts.push('已暂存');
+                    parts.push('STATUS_STAGED');
                   }
                   if (uncommittedChanges.unstaged) {
-                    parts.push('未暂存');
+                    parts.push('STATUS_UNSTAGED');
                   }
                   if (uncommittedChanges.untracked.length > 0) {
-                    parts.push(`${uncommittedChanges.untracked.length} 个新文件`);
+                    parts.push(
+                      msg('SYNC_NEW_FILE_COUNT', { v0: uncommittedChanges.untracked.length }),
+                    );
                   }
-                  initText += `，未提交变更: ${parts.join('、')}`;
+                  initText.push(msg('SYNC_UNCOMMITTED_CHANGES', { v0: parts }));
                 }
                 if (isNewDoc) {
-                  initText += '，新建文档';
+                  initText.push('SYNC_NEW_DOCUMENT');
                 }
 
                 // ─── Step 2: Session Extract ──────────────────────────
@@ -1391,17 +1386,17 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
                 if (sessionIds.length > 0) {
                   await updateStep('init', {
                     status: 'running',
-                    text: `提取 ${sessionIds.length} 个会话内容...`,
+                    text: msg('SYNC_EXTRACT_SESSION_CONTENT', { v0: sessionIds.length }),
                   });
 
                   try {
                     await updateStep('init', {
                       status: 'running',
-                      text: `${sessionTurns.length} 个轮次已提取，正在检查分块输入预算...`,
+                      text: msg('SYNC_TURNS_EXTRACTED_CHECK_BUDGET', { v0: sessionTurns.length }),
                     });
                   } catch (e) {
-                    log.sync.warn(`提取会话内容失败: ${e.message}`);
-                    throw new Error(`会话提取失败: ${e.message}`);
+                    log.sync.warn(msg('SYNC_EXTRACT_SESSION_CONTENT_FAILED', { v0: e.message }));
+                    throw msg('SYNC_SESSION_EXTRACTION_FAILED', { v0: e.message });
                   }
                 }
 
@@ -1409,13 +1404,16 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
 
                 const syncDir = storage.attemptRoot(syncTask, true);
 
-                const parentAgent = agents?.get(sessionId);
+                // Scheduled runs delegate through a dedicated background agent.
+                // Prefer that owned agent: looking it up in the live session
+                // registry would fail for workspaces without an active session.
+                const parentAgent = req.operationExec?.agent || agents?.get(sessionId);
                 if (!parentAgent) {
-                  throw new Error('会话不存在或已结束，请在活跃的 DSH 会话中调用此功能');
+                  throw new Error('SESSION_NOT_ACTIVE');
                 }
 
                 if (abortController.signal.aborted) {
-                  throw new Error('同步已终止');
+                  throw new Error('SYNC_TERMINATED');
                 }
 
                 const engine = new PhasedSyncEngine({
@@ -1437,7 +1435,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
 
                 await updateStep('init', {
                   status: 'running',
-                  text: '根据子代理模型容量检查文档与必读证据，计算分块预算...',
+                  text: 'SYNC_CALCULATE_CHUNK_BUDGET',
                 });
                 const knowledgeContext =
                   retryFrozen?.knowledgeContext ||
@@ -1523,9 +1521,13 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
                 }
                 await updateStep('init', {
                   status: 'completed',
-                  text:
-                    initText +
-                    `，代码 ${preparedChunks.code.length} 块、会话 ${preparedChunks.discussion.length} 块，输入预算检查通过`,
+                  text: [
+                    ...initText,
+                    msg('SYNC_CHUNK_BUDGET_CHECK_PASSED', {
+                      v0: preparedChunks.code.length,
+                      v1: preparedChunks.discussion.length,
+                    }),
+                  ],
                   inputBudget: preparedChunks.budget,
                   sourceTokens: estimateTextTokens(codeDiff),
                   hasUncommitted: uncommittedChanges.hasChanges,
@@ -1552,11 +1554,12 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
                 });
 
                 if (result.aborted || abortController.signal.aborted) {
-                  throw new Error('同步已终止');
+                  throw new Error('SYNC_TERMINATED');
                 }
                 if (result.errors?.length || typeof result.mergedDoc !== 'string') {
                   const failure = new Error(
-                    result.errors?.map((item) => item.error).join('；') || '未生成有效文档快照',
+                    result.errors?.map((item) => item.error).join('；') ||
+                      'SYNC_NO_VALID_DOC_SNAPSHOT',
                   );
                   failure.phase = result.errors?.[0]?.phase;
                   throw failure;
@@ -1579,7 +1582,10 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
                   candidateHash: result.validation.candidateHash,
                   publishState: 'prepared',
                 });
-                await updateStep('publish', { status: 'running', text: '检查文档版本并发布...' });
+                await updateStep('publish', {
+                  status: 'running',
+                  text: 'SYNC_CHECK_VERSION_AND_PUBLISH',
+                });
                 syncSupervisor.assert(lease);
                 await publishDocument({
                   docPath,
@@ -1609,7 +1615,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
                 }
                 await updateStep('publish', {
                   status: 'completed',
-                  text: '正式文档与成功快照一致',
+                  text: 'SYNC_PUBLISHED_DOC_MATCHES_SNAPSHOT',
                 });
                 await addFile('merge', docFileName);
 
@@ -1628,12 +1634,14 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
                     },
                   );
                 } catch (error) {
-                  log.sync.warn('发布日志收尾失败，可在重启时核验: ' + error.message);
+                  log.sync.warn(msg('SYNC_PUBLISH_JOURNAL_FINALIZE_FAILED', { v0: error.message }));
                 }
 
                 abortController.signal.throwIfAborted();
                 await lifecycle.finish();
-                log.sync.info(`${docTypeName}分阶段同步结束：${syncTask.status}`);
+                log.sync.info(
+                  msg('SYNC_PHASED_SYNC_FINISHED', { v0: docTypeName, v1: syncTask.status }),
+                );
 
                 if (lease.quickSync) {
                   lease.quickSync.documents.push({
@@ -1690,7 +1698,8 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
                       workspaceId,
                       requirementId,
                       docType,
-                      docTypeName: docType === 'design' ? '技术方案' : '需求文档',
+                      docTypeName:
+                        docType === 'design' ? 'DOC_TECHNICAL_DESIGN' : 'DOC_REQUIREMENT',
                       taskId: 'preparing-' + docType,
                       startedAt: lease.startedAt,
                       status: 'running',
@@ -1706,7 +1715,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
                   log.sync.error('SYNC_PREPARATION_STATE_FAILED: ' + error.message);
                 }
               }
-              log.sync.error(`分阶段同步失败: ${e.message}`);
+              log.sync.error(msg('SYNC_PHASED_SYNC_FAILED', { v0: e.message }));
               syncSupervisor.finishQuick(
                 lease,
                 abortController?.signal.aborted ? 'aborted' : 'failed',
@@ -1722,7 +1731,9 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
                     phase: e.phase,
                   });
                 } catch (persistError) {
-                  log.sync.error('同步终态持久化失败：' + persistError.message);
+                  log.sync.error(
+                    msg('SYNC_PERSIST_FINAL_STATE_FAILED', { v0: persistError.message }),
+                  );
                 }
               }
 
@@ -1780,7 +1791,9 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
               if (lease?.deleted) {
                 await lease
                   .cleanup?.()
-                  .catch((error) => log.sync.debug('删除任务收尾清理：' + error.message));
+                  .catch((error) =>
+                    log.sync.debug(msg('SYNC_DELETE_TASK_CLEANUP', { v0: error.message })),
+                  );
               }
             }
           });
@@ -1831,7 +1844,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
           if (snapshotDir) {
             const task = await getSyncById(syncId, workspaceId, requirementId);
             if (!task || task.snapshotDir !== snapshotDir) {
-              return json(res, { success: false, error: '同步任务已切换，请刷新状态' }, 409);
+              return json(res, { success: false, error: 'SYNC_TASK_SWITCHED_REFRESH_STATUS' }, 409);
             }
           }
 
@@ -1865,7 +1878,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
           const result = await abortSync(syncId, workspaceId, requirementId, ctx, parentAgent);
           json(res, result, result.success ? 200 : 400);
         } catch (e) {
-          log.sync.error(`终止同步任务失败: ${e.message}`);
+          log.sync.error(msg('SYNC_ABORT_TASK_FAILED', { v0: e.message }));
           json(res, { success: false, error: e.message }, 500);
         }
       },
@@ -1917,7 +1930,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
               : null);
           json(res, { active: !!activeSync, sync: activeSync });
         } catch (e) {
-          log.sync.error(`获取活动同步失败: ${e.message}`);
+          log.sync.error(msg('SYNC_GET_ACTIVE_FAILED', { v0: e.message }));
           json(res, { active: false, sync: null });
         }
       },
@@ -1966,7 +1979,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
               : null);
           json(res, { history, activeSync, timeline: buildSyncTimeline(history) });
         } catch (e) {
-          log.sync.error(`获取同步历史失败: ${e.message}`);
+          log.sync.error(msg('SYNC_GET_HISTORY_FAILED', { v0: e.message }));
           json(res, { error: e.message }, e.statusCode || 500);
         }
       },
@@ -2123,10 +2136,10 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
             ),
           );
         } catch (e) {
-          log.sync.error(`版本对比失败: ${e.message}`);
+          log.sync.error(msg('SYNC_VERSION_COMPARE_FAILED', { v0: e.message }));
           json(
             res,
-            { error: e.code === 'ENOENT' ? '成功版本快照缺失，无法对比' : e.message },
+            { error: e.code === 'ENOENT' ? 'SYNC_SUCCESS_SNAPSHOT_MISSING' : e.message },
             e.statusCode || (e.code === 'ENOENT' ? 404 : 500),
           );
         }
@@ -2149,7 +2162,7 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
       const grace = setTimeout(() => {
         if (owner) {
           void syncSupervisor
-            .expire(owner, 'SYNC_SHUTDOWN_TIMEOUT: 插件退出时同步未能正常收尾，已回收')
+            .expire(owner, 'SYNC_SHUTDOWN_TIMEOUT')
             .catch((error) => log.sync.error(error.message));
         }
       }, syncSupervisor.limits.cancelling);

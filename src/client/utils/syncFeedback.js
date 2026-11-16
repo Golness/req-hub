@@ -1,5 +1,6 @@
 'use strict';
 const { t, hasLocaleKey } = require('../locale.js');
+const { localizeMessage } = require('./serverMessage.js');
 
 /** Keep Host diagnostics readable when a newer error code has no Client translation. */
 function errorLabel(code, namespace = 'sync.error') {
@@ -36,7 +37,10 @@ function syncActivityText(activity) {
  * @returns The user-facing error text.
  */
 function syncErrorText(value) {
-  const text = typeof value === 'string' ? value : '';
+  if (typeof value !== 'string') {
+    return localizeMessage(value);
+  }
+  const text = value;
   return [...new Set(text.split('；'))]
     .map((part) => {
       const retryError =
@@ -77,6 +81,6 @@ function syncErrorText(value) {
  */
 function syncPhaseLabel(step) {
   const key = `sync.step.${step?.phase}.title`;
-  return hasLocaleKey(key) ? t(key) : step?.label || t('sync.activity.preparing');
+  return hasLocaleKey(key) ? t(key) : localizeMessage(step?.label) || t('sync.activity.preparing');
 }
 module.exports = { syncActivityText, syncErrorText, syncPhaseLabel };

@@ -1,4 +1,5 @@
 'use strict';
+const { localizeMessage } = require('../utils/serverMessage.js');
 const { Disclosure } = require('./shared/Disclosure.js');
 const React = require('react');
 const { createPortal } = require('react-dom');
@@ -32,6 +33,7 @@ function DshSessionsSection({
   onManage,
   embedded = false,
   active = true,
+  compact = false,
   toolbarTarget,
 }) {
   const [sessions, setSessions] = React.useState([]);
@@ -105,7 +107,7 @@ function DshSessionsSection({
       callbacks.current.onChanged?.();
     } catch (error) {
       if (!abort.signal.aborted && owner.current === generation) {
-        setError(error.message);
+        setError(localizeMessage(error.message));
         setSessions([]);
         callbacks.current.onSelectionChange?.(EMPTY);
       }
@@ -195,11 +197,12 @@ function DshSessionsSection({
             ),
           actions,
         ),
-    h(
-      'p',
-      { className: 'rh-sync-hint' },
-      t(acquireOnly ? 'conversationSources.dshHint' : 'SyncPanel.message089'),
-    ),
+    !compact &&
+      h(
+        'p',
+        { className: 'rh-sync-hint' },
+        t(acquireOnly ? 'conversationSources.dshHint' : 'SyncPanel.message089'),
+      ),
     error && h('p', { className: 'rh-error', role: 'alert' }, error),
     warnings.length > 0 &&
       h(

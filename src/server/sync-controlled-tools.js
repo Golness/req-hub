@@ -1,3 +1,4 @@
+import { msg } from './messages.js';
 import { runtimeForRequest } from './delegation-context.js';
 import { randomUUID } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -114,7 +115,7 @@ export function installSyncTools(ctx) {
         if (SYNC_TOOLS.includes(exec.name) && !runtime.closed) {
           return runtime.stageToolError(exec.name);
         }
-        return '同步 v2 禁止旁路工具';
+        return 'SYNC_V2_BYPASS_TOOLS_FORBIDDEN';
       }
       return undefined;
     }),
@@ -342,34 +343,32 @@ export function assertSyncCapabilities(ctx, config = {}, parentAgent) {
   const provider = ctx?.subagents?.getProvider?.(name);
   const missing = [];
   if (!provider) {
-    missing.push(`子代理 provider「${name}」未注册`);
+    missing.push(msg('SYNC_SUBAGENT_PROVIDER_NOT_REGISTERED', { v0: name }));
   } else {
     if (!provider.capabilities?.toolFilter) {
-      missing.push(`provider「${name}」不支持工具隔离 toolFilter`);
+      missing.push(msg('SYNC_PROVIDER_TOOL_FILTER_UNSUPPORTED', { v0: name }));
     }
     if (provider.inheritsParentContext !== false) {
-      missing.push(`provider「${name}」未声明零父上下文（inheritsParentContext=false）`);
+      missing.push(msg('SYNC_PROVIDER_PARENT_CONTEXT_NOT_DECLARED', { v0: name }));
     }
   }
   const nativeEditor = resolveSyncEditor(ctx, parentAgent);
   if (!nativeEditor) {
-    missing.push(
-      '当前会话缺少原生文件工具：需要 str_replace_editor 或 read + edit + write，请在 Agent 预设中启用对应文件工具',
-    );
+    missing.push('SYNC_NATIVE_FILE_TOOLS_MISSING');
   }
   for (const method of ['register', 'guard']) {
     if (typeof ctx?.tools?.[method] !== 'function') {
-      missing.push(`宿主缺少 tools.${method}，无法安装受控工具`);
+      missing.push(msg('SYNC_HOST_TOOL_MISSING', { v0: method }));
     }
   }
   if (typeof ctx?.on !== 'function') {
-    missing.push('宿主缺少事件接口，无法校验子代理上下文');
+    missing.push('SYNC_HOST_EVENT_API_MISSING');
   }
   if (missing.length) {
-    throw new Error(`CAPABILITY_UNSUPPORTED: ${missing.join('；')}`);
+    throw msg('CAPABILITY_UNSUPPORTED', { v0: missing });
   }
   if (!installSyncTools(ctx)) {
-    throw new Error('CAPABILITY_UNSUPPORTED: 同步受控工具安装失败');
+    throw new Error('CAPABILITY_UNSUPPORTED');
   }
   return nativeEditor;
 }

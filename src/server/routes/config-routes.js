@@ -1,3 +1,4 @@
+import { msg } from '../messages.js';
 /**
  * Configuration routes module.
  * Handles configuration-related HTTP endpoints.
@@ -58,7 +59,7 @@ export function createConfigRoutes(registry, llm, ctx = {}, options = {}) {
             });
             res.end(JSON.stringify(config));
           } catch (e) {
-            log.config.error(`GET /config 失败: ${e.message}`);
+            log.config.error(msg('LOG_GET_CONFIG_FAILED', { v0: e.message }));
             json(res, { error: e.message }, 500);
           }
           return;
@@ -137,10 +138,10 @@ export function createConfigRoutes(registry, llm, ctx = {}, options = {}) {
             await saveConfig(merged);
             configureSubagentScheduler(ctx.subagents, merged);
             await options.onSaved?.(merged, existing);
-            log.config.info('配置已更新');
+            log.config.info('CONFIG_UPDATED');
             json(res, merged);
           } catch (e) {
-            log.config.error(`POST /config 失败: ${e.message}`);
+            log.config.error(msg('LOG_POST_CONFIG_FAILED', { v0: e.message }));
             json(res, { error: e.message }, e.status || 500);
           }
           return;
@@ -179,7 +180,7 @@ export function createConfigRoutes(registry, llm, ctx = {}, options = {}) {
               models = modelList.map((m) => m.id || m.name || m);
             }
           } catch (e) {
-            log.config.warn(`获取模型列表失败: ${e.message}`);
+            log.config.warn(msg('LOG_GET_MODELS_FAILED', { v0: e.message }));
           }
 
           json(res, {
@@ -188,7 +189,7 @@ export function createConfigRoutes(registry, llm, ctx = {}, options = {}) {
             models: models,
           });
         } catch (e) {
-          log.config.error(`获取 LLM 配置失败: ${e.message}`);
+          log.config.error(msg('LOG_GET_LLM_CONFIG_FAILED', { v0: e.message }));
           json(res, { error: e.message }, 500);
         }
       },
@@ -209,7 +210,7 @@ export function createConfigRoutes(registry, llm, ctx = {}, options = {}) {
           const ai = config.ai || {};
 
           // Get real provider/model info from DSH global config
-          let providerName = '(未配置)';
+          let providerName = 'CONFIG_NOT_CONFIGURED';
           let selectedModel = ai.selectedModel || null;
 
           if (llm) {
@@ -227,7 +228,7 @@ export function createConfigRoutes(registry, llm, ctx = {}, options = {}) {
           json(res, {
             enabled: ai.enabled !== false,
             provider: providerName,
-            model: selectedModel || '(未选择)',
+            model: selectedModel || 'CONFIG_NOT_SELECTED',
             hasCustomPrompt: Object.keys(PROMPT_REGISTRY).some(
               (key) =>
                 !!(
@@ -236,7 +237,7 @@ export function createConfigRoutes(registry, llm, ctx = {}, options = {}) {
             ),
           });
         } catch (e) {
-          log.config.error(`GET /ai-config 失败: ${e.message}`);
+          log.config.error(msg('LOG_GET_AI_CONFIG_FAILED', { v0: e.message }));
           json(res, { error: e.message }, 500);
         }
       },
@@ -276,7 +277,7 @@ export function createConfigRoutes(registry, llm, ctx = {}, options = {}) {
 
           json(res, result);
         } catch (e) {
-          log.config.error(`获取 Prompt 注册表失败: ${e.message}`);
+          log.config.error(msg('LOG_GET_PROMPT_REGISTRY_FAILED', { v0: e.message }));
           json(res, { error: e.message }, 500);
         }
       },
@@ -301,14 +302,14 @@ export function createConfigRoutes(registry, llm, ctx = {}, options = {}) {
             const { promptKey, template } = JSON.parse(body);
 
             if (!promptKey || !template) {
-              json(res, { error: '缺少 promptKey 或 template' }, 400);
+              json(res, { error: 'ERR_MISSING_PROMPT_KEY_OR_TEMPLATE' }, 400);
               return;
             }
 
             const result = validatePromptTemplate(promptKey, template);
             json(res, result);
           } catch (e) {
-            log.config.error(`验证 prompt 失败: ${e.message}`);
+            log.config.error(msg('LOG_VALIDATE_PROMPT_FAILED', { v0: e.message }));
             json(res, { error: e.message }, 500);
           }
         });
@@ -329,19 +330,19 @@ export function createConfigRoutes(registry, llm, ctx = {}, options = {}) {
         const promptKey = url.searchParams.get('key');
 
         if (!promptKey) {
-          json(res, { error: '缺少 key 参数' }, 400);
+          json(res, { error: 'ERR_MISSING_KEY_PARAM' }, 400);
           return;
         }
 
         try {
           const meta = getPromptMeta(promptKey);
           if (!meta) {
-            json(res, { error: `未找到 promptKey: ${promptKey}` }, 404);
+            json(res, { error: msg('ERR_PROMPT_KEY_NOT_FOUND', { v0: promptKey }) }, 404);
             return;
           }
           json(res, meta);
         } catch (e) {
-          log.config.error(`获取 prompt 元信息失败: ${e.message}`);
+          log.config.error(msg('LOG_GET_PROMPT_META_FAILED', { v0: e.message }));
           json(res, { error: e.message }, 500);
         }
       },

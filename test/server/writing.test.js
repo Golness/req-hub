@@ -18,12 +18,12 @@ it('requires selected-scope search and full paginated evidence before submission
   expect(() => runtime.search({ scopeId: 'other', query: '订单' })).toThrow();
   expect(() => runtime.read({ id: 'one' })).toThrow();
   runtime.search({ scopeId: 'a', query: '订单' }); runtime.read({ id: 'one' });
-  expect(() => runtime.submit({ content: '# 订单', evidenceIds: ['one'] })).toThrow('必须检索');
+  expect(() => runtime.submit({ content: '# 订单', evidenceIds: ['one'] })).toThrow('WRITING_MUST_SEARCH_EACH_KB');
   runtime.search({ scopeId: 'b', query: '订单' }); runtime.read({ id: 'two' });
-  expect(() => runtime.submit({ content: '# 订单', evidenceIds: ['one', 'two'] })).toThrow('完整读取');
+  expect(() => runtime.submit({ content: '# 订单', evidenceIds: ['one', 'two'] })).toThrow('WRITING_CITATION_FULL_READ_REQUIRED');
   expect(() => runtime.read({ id: 'one', offset: 9999 })).toThrow();
   while ((runtime.coverage.get('one') || 0) < runtime.documents[0].body.length) runtime.read({ id: 'one', offset: runtime.coverage.get('one') });
-  expect(() => runtime.submit({ content: '# 订单', evidenceIds: ['one'] })).toThrow('至少需要');
+  expect(() => runtime.submit({ content: '# 订单', evidenceIds: ['one'] })).toThrow('WRITING_EACH_KB_NEEDS_CITATION');
   runtime.submit({ content: '# 订单', evidenceIds: ['one', 'two'] });
   expect(runtime.result.evidence).toHaveLength(2);
   expect(runtime.result.evidence[0].body).toBeUndefined();
@@ -45,8 +45,8 @@ it('isolates runtime tools to the child session and denies calls after close', a
   bindOwnedSession(runtime, 'child');
   for await (const _ of hook({ sessionId: 'child', messages: [{ content: `REQHUB_WRITING=${runtime.id}` }], tools: [{ name: 'child_session_helper' }] }, next)) {}
   expect(search.execute({ scopeId: 'a', query: '订单' }, { agent: { session: { id: 'child' } } }).hits[0].id).toBe('one');
-  expect(guard({ name: 'shell', agent: { session: { id: 'child' } } })).toContain('仅允许');
-  expect(guard({ name: 'child_session_helper', parent: Symbol('run_code'), agent: { session: { id: 'child' } } })).toContain('仅允许');
+  expect(guard({ name: 'shell', agent: { session: { id: 'child' } } })).toBe('WRITING_READ_SCOPE_RESTRICTED');
+  expect(guard({ name: 'child_session_helper', parent: Symbol('run_code'), agent: { session: { id: 'child' } } })).toBe('WRITING_READ_SCOPE_RESTRICTED');
   installation.close(runtime);
   expect(() => search.execute({ scopeId: 'a', query: '订单' }, { agent: { session: { id: 'child' } } })).toThrow('DENIED');
   installation.dispose();

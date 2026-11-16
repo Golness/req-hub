@@ -1,9 +1,55 @@
+import { contentTemplates } from '../content-templates.js';
 import { digest, fail, now, LIMITS } from './contracts.js';
 
 export const SESSION_EXPORT_VERSION = 'kb-session-v1';
 
 /**
+ * Normalize a frozen turn into readable messages for the read-only preview.
+ * Native turns carry labelled messages; legacy snapshots only expose
+ * userInput/summary, and tool-only turns may carry no text at all.
+ * @param turn - One projected conversation turn.
+ * @returns [{role, kind, label, text}] with non-empty text only.
+ */
+export function sessionMessages(turn) {
+  const normalize = (source) =>
+    source
+      .map((message, index) => {
+        const role = message?.role === 'user' ? 'user' : 'assistant';
+        const raw =
+          typeof message?.text === 'string'
+            ? message.text
+            : typeof message?.content === 'string'
+              ? message.content
+              : '';
+        return {
+          role,
+          kind:
+            message?.kind ||
+            (role === 'user' ? 'input' : index === source.length - 1 ? 'final' : 'intermediate'),
+          label:
+            message?.label ||
+            (role === 'user'
+              ? contentTemplates().session.labels.userInput
+              : contentTemplates().session.labels.assistantReply),
+          text: raw,
+        };
+      })
+      .filter((message) => message.text.trim());
+  const stored = Array.isArray(turn?.messages) ? turn.messages : [];
+  const normalized = normalize(stored);
+  if (normalized.length || !(turn?.userInput || turn?.summary)) {
+    return normalized;
+  }
+  const labels = contentTemplates().session.labels;
+  return normalize([
+    { role: 'user', kind: 'input', label: labels.userInput, text: turn.userInput || '' },
+    { role: 'assistant', kind: 'final', label: labels.assistantFinal, text: turn.summary || '' },
+  ]);
+}
+
+/**
  * Native turn IDs survive appends/reordering; older exports use guarded ordinals.
+ * The original message array stays in hashes so existing imports keep their state.
  * @param snapshot - A frozen conversation snapshot.
  * @returns Turn selection metadata and content hashes.
  */
@@ -17,15 +63,16 @@ export function describeTurns(snapshot) {
       fail('KB_TURN_IDENTITY_CONFLICT', 409);
     }
     seen.add(key);
+    const messages = Array.isArray(turn.messages) ? turn.messages : [];
     return {
       key,
       position,
       number: turn.turnNumber ?? position + 1,
       turn,
-      anchor: digest(turn.messages.find((message) => message.role === 'user')?.text || ''),
-      hash: digest(
-        JSON.stringify({ messages: turn.messages, status: turn.status, syncable: turn.syncable }),
+      anchor: digest(
+        messages.find((message) => message.role === 'user')?.text || turn.userInput || '',
       ),
+      hash: digest(JSON.stringify({ messages, status: turn.status, syncable: turn.syncable })),
     };
   });
 }
@@ -102,15 +149,16 @@ export function mergeSessionTurns(prior, selected, { source, mode }) {
 }
 
 function renderTurn(item) {
+  const session = contentTemplates().session;
   const status =
     item.turn.status === 'completed'
       ? ''
       : item.turn.status === 'running'
-        ? '（进行中）'
+        ? session.pending
         : `（${item.turn.status || 'unknown'}）`;
   return (
-    `## 第 ${item.number} 轮${status}\n\n` +
-    (item.turn.messages || [])
+    session.turnHeading(item.number, status) +
+    (item.turn.messages?.length ? item.turn.messages : sessionMessages(item.turn))
       .map((message) => `### ${message.label}\n\n${message.text}\n`)
       .join('\n')
   );
@@ -122,10 +170,11 @@ function renderTurn(item) {
  * @returns {markdown, turns} where turns carry startLine/endLine provenance.
  */
 export function buildSessionDocument({ title, origin, snapshotVersion, turns }) {
+  const session = contentTemplates().session;
   let text =
     `# ${title}\n\n` +
-    `来源：${origin.provider}；会话 ID：${origin.sessionId}；快照：${snapshotVersion}\n` +
-    `说明：下列内容是会话记录；未完成回复不表示已确认事实。\n\n`;
+    session.provenance(origin.provider, origin.sessionId, snapshotVersion) +
+    session.notice;
   const records = [];
   for (const item of turns) {
     const startLine = text.split('\n').length;

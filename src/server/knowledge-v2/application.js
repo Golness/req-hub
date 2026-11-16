@@ -32,6 +32,7 @@ import {
   matchingTurn,
   mergeSessionTurns,
   buildSessionDocument,
+  sessionMessages,
   SESSION_EXPORT_VERSION,
 } from './session-export.js';
 import { KnowledgeQueue } from './queue.js';
@@ -51,7 +52,7 @@ const JOB_KINDS = ['ingest', 'rebuild', 'lint'];
  */
 export class KnowledgeApplication {
   /**
-   * @param options - {ctx, registry, profileDir}; ctx is the injected Host context.
+   * @param options - {ctx, registry, profileDir, lark}; ctx is the injected Host context.
    */
   constructor({
     ctx,
@@ -59,6 +60,7 @@ export class KnowledgeApplication {
     profileDir,
     configLoader = loadConfig,
     configSaver = saveConfig,
+    lark = null,
     onSyncError,
   }) {
     this.ctx = ctx;
@@ -78,6 +80,7 @@ export class KnowledgeApplication {
       application: this,
       configLoader,
       configSaver,
+      lark,
       onError: onSyncError,
     });
     this.context = new KnowledgeContext(this);
@@ -272,7 +275,8 @@ export class KnowledgeApplication {
    * Describe selectable turns and their state against the prior session import.
    * @param store - The owning scope store.
    * @param input - {id, version?}; id is the library conversation ID.
-   * @returns {entry, version, versions, turns} with importable flags.
+   * @returns {entry, version, versions, turns} with importable flags and the
+   *   normalized frozen messages of each turn for the read-only preview.
    */
   async sessionDetail(store, { id, version }) {
     const workspace = this.registry.list().find((item) => item.id === store.scope.workspaceId);
@@ -326,6 +330,7 @@ export class KnowledgeApplication {
         syncable: item.turn.syncable,
         importable: !conflict,
         knowledgeState,
+        messages: sessionMessages(item.turn),
       };
     });
     return {
@@ -382,7 +387,7 @@ export class KnowledgeApplication {
         );
         if (
           turns.length !== selected.turnKeys.length ||
-          turns.some((item) => !item.turn.messages.length)
+          turns.some((item) => !sessionMessages(item.turn).length)
         ) {
           fail('KB_SELECTION_INVALID', 400);
         }

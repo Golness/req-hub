@@ -4,7 +4,21 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { assertSyncCapabilities, installSyncTools } from '../../src/server/sync-controlled-tools.js';
 import { PhasedSyncEngine } from '../../src/server/phased-sync-engine.js';
+import { messageDescriptor, messageCode } from '../../src/server/messages.js';
 import { createSyncHarness } from './sync-v2-harness.js';
+
+// The server emits a CAPABILITY_UNSUPPORTED descriptor; the individual
+// missing-capability codes live in params.v0 (some are nested descriptors).
+function missingCapabilities(fn) {
+  try {
+    fn();
+  } catch (error) {
+    const descriptor = messageDescriptor(error);
+    expect(descriptor.code).toBe('CAPABILITY_UNSUPPORTED');
+    return descriptor.params.v0.map(messageCode);
+  }
+  throw new Error('expected assertSyncCapabilities to throw');
+}
 
 // Match the host registry: native tools live in the parent scope, not globally,
 // and the child's filtered view does not advertise those file tools.
@@ -34,7 +48,9 @@ describe('host native editor capability compatibility', () => {
   it('resolves the native editor from the active parent agent scope', () => {
     const h = createSyncHarness(), native = h.definitions.get('str_replace_editor');
     h.ctx.tools.get = (_name, agent) => agent === h.parentAgent ? native : undefined;
-    expect(() => assertSyncCapabilities(h.ctx)).toThrow('当前会话缺少原生文件工具');
+    expect(missingCapabilities(() => assertSyncCapabilities(h.ctx))).toContain(
+      'SYNC_NATIVE_FILE_TOOLS_MISSING',
+    );
     expect(assertSyncCapabilities(h.ctx, {}, h.parentAgent).kind).toBe('str_replace_editor');
   });
   it.each(['existing', 'empty'])('completes %s document sync using scoped native read/edit/write', async mode => {
@@ -59,8 +75,12 @@ describe('host native editor capability compatibility', () => {
   it('rejects non-isolated or inherited-context providers with the exact missing capability', () => {
     const h = createSyncHarness();
     h.ctx.subagents.getProvider = () => ({ capabilities: { toolFilter: false }, inheritsParentContext: true });
-    expect(() => assertSyncCapabilities(h.ctx)).toThrow('不支持工具隔离 toolFilter');
-    expect(() => assertSyncCapabilities(h.ctx)).toThrow('未声明零父上下文');
+    expect(missingCapabilities(() => assertSyncCapabilities(h.ctx))).toContain(
+      'SYNC_PROVIDER_TOOL_FILTER_UNSUPPORTED',
+    );
+    expect(missingCapabilities(() => assertSyncCapabilities(h.ctx))).toContain(
+      'SYNC_PROVIDER_PARENT_CONTEXT_NOT_DECLARED',
+    );
     expect(h.requests).toHaveLength(0);
   });
   it('rolls back native edit output that changes content outside the authorized block', async () => {
@@ -81,10 +101,22 @@ describe('host native editor capability compatibility', () => {
   });
   it('reports missing providers, host guards and native read support instead of claiming all capabilities are missing', () => {
     const h = scopedHarness(); h.tools.delete('read');
-    expect(() => assertSyncCapabilities(h.ctx, {}, h.parentAgent)).toThrow('read + edit + write');
+    expect(
+      missingCapabilities(() => assertSyncCapabilities(h.ctx, {}, h.parentAgent)),
+    ).toContain('SYNC_NATIVE_FILE_TOOLS_MISSING');
     h.ctx.subagents.getProvider = () => null;
-    expect(() => assertSyncCapabilities(h.ctx, { ai: { delegation: { provider: 'custom' } } }, h.parentAgent)).toThrow('provider「custom」未注册');
+    expect(
+      missingCapabilities(() =>
+        assertSyncCapabilities(
+          h.ctx,
+          { ai: { delegation: { provider: 'custom' } } },
+          h.parentAgent,
+        ),
+      ),
+    ).toContain('SYNC_SUBAGENT_PROVIDER_NOT_REGISTERED');
     h.ctx.tools.guard = undefined;
-    expect(() => assertSyncCapabilities(h.ctx, {}, h.parentAgent)).toThrow('tools.guard');
+    expect(
+      missingCapabilities(() => assertSyncCapabilities(h.ctx, {}, h.parentAgent)),
+    ).toContain('SYNC_HOST_TOOL_MISSING');
   });
 });

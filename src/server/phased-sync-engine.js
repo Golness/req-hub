@@ -1,3 +1,4 @@
+import { msg } from './messages.js';
 /** Sync v2: immutable references → analysis → isolated edit → deterministic diff. */
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -89,7 +90,7 @@ export async function packSyncChunks(
       continue;
     }
     if (!group.splittable) {
-      throw new Error('单个会话超过同步输入预算：' + group.name);
+      throw msg('SYNC_SINGLE_SESSION_OVER_BUDGET', { v0: group.name });
     }
     for (const item of group.items) {
       if (await fits([...pending, item])) {
@@ -102,16 +103,18 @@ export async function packSyncChunks(
       }
       if (!(await fits([item]))) {
         const measured = await measure([item], chunks.length, upperTotal);
-        throw new Error(
-          '单个' +
-            (item.file ? '代码文件' : '会话轮次') +
-            '超过同步输入预算：' +
-            (item.file ||
-              (item.sessionId || item.sessionTitle || '未提供会话标识') +
-                ' · 轮次 ' +
-                (item.turnNumber ?? '未知')) +
-            `（完整输入保守估算 ${measured.tokens.toLocaleString()}，上限 ${maxTokens.toLocaleString()}，含提示词、文档和证据）`,
-        );
+        const target = item.file
+          ? item.file
+          : msg('SYNC_SESSION_ROUND_ID', {
+              v0: item.sessionId || item.sessionTitle || 'SYNC_SESSION_ID_MISSING',
+              v1: item.turnNumber ?? 'STATUS_UNKNOWN',
+            });
+        throw msg('SYNC_SINGLE_ITEM_OVER_BUDGET', {
+          v0: item.file ? 'SYNC_LABEL_CODE_FILE' : 'SYNC_LABEL_SESSION_ROUND',
+          v1: target,
+          v2: measured.tokens.toLocaleString(),
+          v3: maxTokens.toLocaleString(),
+        });
       }
       pending.push(item);
     }
@@ -122,7 +125,7 @@ export async function packSyncChunks(
   for (const [index, chunk] of chunks.entries()) {
     const measured = await measure(chunk.items, index, chunks.length);
     if (measured.tokens >= maxTokens || measured.readPages > maxReadPages) {
-      throw new Error('完整同步输入超过预算');
+      throw new Error('SYNC_FULL_INPUT_OVER_BUDGET');
     }
     Object.assign(chunk, {
       index,
@@ -199,7 +202,7 @@ export async function chunkCodeDiff(files, options) {
 export async function chunkTurns(turns, options) {
   const sessions = new Map();
   for (const turn of turns) {
-    const name = turn.sessionId || turn.sessionTitle || '未提供会话标识';
+    const name = turn.sessionId || turn.sessionTitle || 'SYNC_SESSION_ID_MISSING';
     if (!sessions.has(name)) {
       sessions.set(name, { name, items: [], splittable: true });
     }
@@ -245,7 +248,7 @@ export class PhasedSyncEngine {
       this.config.ai?.syncV2?.skillBindings?.[key] &&
       this.config.ai.syncV2.contractVersion !== 2
     ) {
-      throw new Error('SKILL_CONTRACT_UNCONFIRMED: 请按 v2 契约重新确认 Skill 绑定');
+      throw new Error('SKILL_CONTRACT_UNCONFIRMED');
     }
     if (!custom || custom === PROMPT_REGISTRY[key]?.default) {
       return this.config;
@@ -368,7 +371,7 @@ export class PhasedSyncEngine {
       if (turn.syncable === false) {
         throw new Error('SESSION_TURN_INCOMPLETE: ' + turn.sessionId);
       }
-      const key = turn.sessionId || '未提供会话标识';
+      const key = turn.sessionId || 'SYNC_SESSION_ID_MISSING';
       if (!sessionGroups.has(key)) {
         sessionGroups.set(key, []);
       }
@@ -384,7 +387,7 @@ export class PhasedSyncEngine {
     }
     for (const [i, turn] of sessionTurns.entries()) {
       const id = 'session.turn.' + i;
-      const sessionId = turn.sessionId || '未提供会话标识';
+      const sessionId = turn.sessionId || 'SYNC_SESSION_ID_MISSING';
       const file = `sessions/session-${sessionNumbers.get(sessionId)}-turn-${i + 1}.md`;
       await store.put(id, renderSessionDocument(sessionId, [turn]), file);
       sessionFiles.push('input/' + file);
@@ -433,7 +436,7 @@ export class PhasedSyncEngine {
     const fixed =
       promptTokens + REQUEST_RESERVE + 4096 + outputHistoryReserve + optionalContextTokens;
     if (fixed + commonCost * 2 >= budget.limit) {
-      throw new Error('DOCUMENT_INPUT_TOO_LARGE: 文档与固定契约超出完整读取预算');
+      throw new Error('DOCUMENT_INPUT_TOO_LARGE');
     }
     // Large files can include several full frozen source versions. Preserve every byte,
     // but give each analysis only a bounded, labelled range instead of requiring the
@@ -497,10 +500,9 @@ export class PhasedSyncEngine {
               end--;
             }
             if (end <= start) {
-              throw new Error(
-                'DOCUMENT_INPUT_TOO_LARGE: 固定输入预算不足以读取证据片段：' +
-                  (item.file || item.sessionId),
-              );
+              throw msg('DOCUMENT_INPUT_TOO_LARGE_EVIDENCE', {
+                v0: item.file || item.sessionId,
+              });
             }
             const rendered = wrap(end);
             const metadata = JSON.parse(rendered);
@@ -633,7 +635,7 @@ export class PhasedSyncEngine {
   async executeTask(key, variables, options = {}) {
     this.assertActive?.();
     if (!this.parentAgent) {
-      throw new Error('缺少父 Agent，无法执行同步');
+      throw new Error('SYNC_PARENT_AGENT_MISSING');
     }
     const result = await executeTask(this.ctx, this.llm, this.getStageConfig(key), {
       promptKey: key,
@@ -647,7 +649,9 @@ export class PhasedSyncEngine {
       syncV2: true,
       liveness: { enabled: false },
       toolFilter: { allow: options.runtime.allowedTools },
-      description: '同步 v2: ' + key,
+      // Internal task identifier, not product copy: keep it a stable token so
+      // harnesses can still correlate requests by doc type.
+      description: `sync-v2:${key}`,
       callbacks: {
         onProgress: (progress) => {
           if (progress.stage === 'executing') {
@@ -1002,7 +1006,11 @@ export class PhasedSyncEngine {
             result.stats[source === 'code' ? 'codeChunks' : 'discussionChunks'] = chunks.length;
             result.chunks[source] = chunks;
             if (!chunks.length) {
-              await progress({ phase: branchPhase, status: 'skipped', reason: '无相关变更' });
+              await progress({
+                phase: branchPhase,
+                status: 'skipped',
+                reason: 'SYNC_NO_RELEVANT_CHANGES',
+              });
               return null;
             }
             const scheduler = getSubagentScheduler(this.ctx.subagents, this.config);
@@ -1110,7 +1118,7 @@ export class PhasedSyncEngine {
       await progress({
         phase: 'merge',
         status: changes.length ? 'completed' : 'skipped',
-        reason: '无可执行变更',
+        reason: 'SYNC_NO_APPLICABLE_CHANGES',
       });
       phase = 'validate';
       this.signal?.throwIfAborted();

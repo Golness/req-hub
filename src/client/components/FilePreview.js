@@ -1,4 +1,5 @@
 'use strict';
+const { localizeMessage } = require('../utils/serverMessage.js');
 const { formatTime, useTimeZone } = require('../time.js');
 const { t } = require('../locale.js');
 const css = require('./FilePreview.module.css').default;
@@ -156,7 +157,7 @@ function FilePreview({
           return;
         }
         if (!res.ok) {
-          setError(data.error || 'read failed');
+          setError(localizeMessage(data.error) || 'read failed');
         } else {
           setText(data.text || '');
           setEditContent(data.text || '');

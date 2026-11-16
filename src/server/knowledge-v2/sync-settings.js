@@ -7,6 +7,7 @@ export const DEFAULT_SYNC_SETTINGS = Object.freeze({
   dailyUpdateEnabled: false,
   dailyImportConversations: false,
   dailyUpdateTime: '02:00',
+  larkPushEnabled: false,
 });
 
 const KEYS = Object.keys(DEFAULT_SYNC_SETTINGS);
@@ -68,7 +69,12 @@ export function validateSyncSettings(values) {
     fail('KB_SETTINGS_INVALID', 400, { reason: 'unsupported setting' });
   }
   const next = { ...DEFAULT_SYNC_SETTINGS, ...values };
-  for (const key of ['autoManage', 'dailyUpdateEnabled', 'dailyImportConversations']) {
+  for (const key of [
+    'autoManage',
+    'dailyUpdateEnabled',
+    'dailyImportConversations',
+    'larkPushEnabled',
+  ]) {
     if (typeof next[key] !== 'boolean') {
       fail('KB_SETTINGS_INVALID', 400, { field: key });
     }

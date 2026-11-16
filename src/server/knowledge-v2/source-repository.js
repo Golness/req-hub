@@ -150,6 +150,113 @@ function checkCapacity(manifest, addedBytes, addedCount) {
 }
 
 /**
+ * Recursively collect whitelisted files under the authorized docs root.
+ * Symlinks and hidden directories are skipped; a full list is reported as truncated.
+ * @param dir - Absolute directory to scan.
+ * @param base - Authorized docs root used to build relative paths.
+ * @param out - Accumulated {relativePath} entries.
+ * @param signal - Cancellation signal.
+ * @returns Whether the scan reached the candidate limit.
+ */
+async function collectCandidates(dir, base, out, signal) {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    signal?.throwIfAborted();
+    if (entry.isSymbolicLink()) {
+      continue;
+    }
+    if (out.length >= LIMITS.candidateFiles) {
+      return true;
+    }
+    const target = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (!entry.name.startsWith('.')) {
+        const truncated = await collectCandidates(target, base, out, signal);
+        if (truncated) {
+          return true;
+        }
+      }
+    } else if (entry.isFile() && SUPPORTED_EXTENSIONS.includes(extname(entry.name).toLowerCase())) {
+      out.push({ relativePath: relative(base, target).replace(/\\/g, '/') });
+    }
+  }
+  return false;
+}
+
+/**
+ * Classify one candidate against its saved snapshot; only imported files are read.
+ * @param store - Owning scope store.
+ * @param relativePath - Docs-root-relative candidate path.
+ * @param existing - Saved source record, or undefined for a new file.
+ * @returns One of new, imported, changed, oversize or unreadable.
+ */
+async function candidateState(store, relativePath, existing) {
+  try {
+    const target = await safeDocumentPath(store.scope.docsRoot, relativePath);
+    const info = await stat(target);
+    if (!info.isFile()) {
+      return 'unreadable';
+    }
+    if (info.size > LIMITS.sourceBytes) {
+      return 'oversize';
+    }
+    if (!existing) {
+      return 'new';
+    }
+    const bytes = await readFile(target);
+    return digest(decodeUtf8(bytes)) === existing.rawHash ? 'imported' : 'changed';
+  } catch {
+    // Import revalidates the path and size; an unreadable candidate stays visible, not fatal.
+    return 'unreadable';
+  }
+}
+
+/**
+ * List import candidates from the authorized docs root with their snapshot state.
+ * @param store - Owning scope store.
+ * @param input - {signal} for cancellation; the request may be aborted mid-scan.
+ * @returns {items, total, truncated, batchLimit, base}; base identifies the scan root.
+ */
+export async function listFileCandidates(store, { signal } = {}) {
+  const manifest = await store.sources();
+  const imported = new Map(
+    manifest.sources
+      .filter((source) => source.kind === 'file' && source.status !== 'excluded')
+      .map((source) => [source.id, source]),
+  );
+  const targets = [];
+  const truncated = await collectCandidates(
+    store.scope.docsRoot,
+    store.scope.docsRoot,
+    targets,
+    signal,
+  );
+  const items = [];
+  for (const entry of targets) {
+    signal?.throwIfAborted();
+    const sourceId = sourceIdentity(store.scope.scopeId, 'file', entry);
+    const state = await candidateState(store, entry.relativePath, imported.get(sourceId));
+    items.push({ relativePath: entry.relativePath, sourceId, state });
+  }
+  const scope = store.scope;
+  return {
+    items,
+    total: items.length,
+    truncated,
+    batchLimit: LIMITS.batchFiles,
+    base: {
+      workspace: scope.workspace?.title || scope.workspace?.id || scope.workspaceId,
+      path: scope.docsRoot,
+    },
+  };
+}
+
+/**
  * Import whitelisted text files as immutable snapshots, one result per item.
  * @param store - The scope store owning the write lock.
  * @param input - {files:[{relativePath}], signal}; directories expand recursively.

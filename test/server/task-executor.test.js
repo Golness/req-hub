@@ -70,16 +70,16 @@ describe('TaskResult', () => {
 
   it('should return user-friendly messages', () => {
     expect(new TaskResult({ success: true, stopReason: 'completed' }).getUserMessage()).toBe(
-      '任务执行成功',
+      'TASK_EXECUTION_SUCCEEDED',
     );
     expect(new TaskResult({ success: false, stopReason: 'aborted' }).getUserMessage()).toBe(
-      '任务被中断',
+      'TASK_INTERRUPTED',
     );
     expect(new TaskResult({ success: false, stopReason: 'max-tokens' }).getUserMessage()).toContain(
-      '长度限制',
+      'ERR_OUTPUT_LENGTH_LIMIT',
     );
     expect(new TaskResult({ success: false, stopReason: 'refusal' }).getUserMessage()).toContain(
-      '拒绝',
+      'ERR_MODEL_REFUSED_TASK',
     );
   });
 
@@ -351,7 +351,8 @@ describe('shared execution deadline', () => {
         await vi.advanceTimersByTimeAsync(1);
         await pending;
         expect(error.code).toBe(TaskExecutorErrorCode.EXECUTION_TIMEOUT);
-        expect(error.message).toContain(`${timeout}ms`);
+        expect(error.message).toBe('ERR_EXECUTION_TIMEOUT');
+        expect(error.params).toEqual({ v0: timeout });
         expect(monitor.stop).toHaveBeenCalledOnce();
         await vi.advanceTimersByTimeAsync(1000);
         expect(vi.getTimerCount()).toBe(0);

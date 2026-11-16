@@ -95,6 +95,28 @@ const targetStore = () => ({
 });
 
 describe('V2 background session synchronization', () => {
+  it('imports legacy turns that only expose userInput/summary', async () => {
+    const sessions = [{ id: 'b-1', workspaceId: 'B', cwd: workspaceB, title: 'Legacy session' }];
+    const { sync, adapter, application } = fixture(sessions);
+    adapter.snapshot.mockResolvedValue({
+      version: 'version-legacy',
+      turns: [
+        {
+          sourceTurnId: 'turn-legacy',
+          turnNumber: 1,
+          status: 'completed',
+          syncable: true,
+          userInput: '旧版用户输入',
+          summary: '旧版助手回复',
+        },
+      ],
+    });
+    const result = await sync.run(targetStore(), { signal: new AbortController().signal });
+    expect(result.failed).toBe(0);
+    expect(result.saved).toBe(1);
+    expect(application.importSessions).toHaveBeenCalledTimes(1);
+  });
+
   it('imports workspace B without reading the page or Agent session for workspace A', async () => {
     const currentPage = { workspaceId: 'A', agentSessionId: 'a-1' };
     const sessions = [

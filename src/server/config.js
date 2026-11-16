@@ -16,7 +16,12 @@ const DEFAULTS = {
   workspaceId: null,
   developerName: null,
   requirementId: null,
-  general: { timeZone: 'Asia/Shanghai', ...general.GENERAL_DEFAULTS },
+  general: {
+    timeZone: 'Asia/Shanghai',
+    uiLanguage: general.DEFAULT_UI_LANGUAGE,
+    contentLanguage: general.DEFAULT_CONTENT_LANGUAGE,
+    ...general.GENERAL_DEFAULTS,
+  },
   knowledgeV2: { ...DEFAULT_SYNC_SETTINGS },
 };
 let declared = {};
@@ -123,6 +128,10 @@ const nullableString = () => Schema.union([String, Schema.const(null)]);
 export const Config = Schema.object({
   general: Schema.object({
     timeZone: Schema.string().default('Asia/Shanghai'),
+    uiLanguage: Schema.union(general.UI_LANGUAGES).default(general.DEFAULT_UI_LANGUAGE),
+    contentLanguage: Schema.union(general.CONTENT_LANGUAGES).default(
+      general.DEFAULT_CONTENT_LANGUAGE,
+    ),
     taskTimeoutMs: Schema.natural().min(30000).max(3600000).default(1200000),
     knowledgeMaxInputBytes: Schema.natural().min(1000).max(20000000).default(2000000),
     knowledgeMaxResultBytes: Schema.natural().min(1000).max(1000000).default(250000),
@@ -193,6 +202,7 @@ export const Config = Schema.object({
     dailyUpdateTime: Schema.string()
       .pattern(/^(?:[01]\d|2[0-3]):[0-5]\d$/)
       .default(DEFAULT_SYNC_SETTINGS.dailyUpdateTime),
+    larkPushEnabled: Schema.boolean().default(DEFAULT_SYNC_SETTINGS.larkPushEnabled),
   }).default(undefined),
   enhancements: Schema.object({
     enabled: Schema.boolean().default(false),
@@ -226,6 +236,7 @@ export const Config = Schema.object({
       .pattern(/^(?:[01]\d|2[0-3]):[0-5]\d$/)
       .default('03:00'),
     dailyOffsetDays: Schema.natural().max(365).default(1),
+    larkPushEnabled: Schema.boolean().default(false),
     baseBranch: Schema.string(),
     maxAnalysisReadPages: Schema.natural().min(8).max(1024).default(undefined),
     maxCompletionReminders: Schema.natural().max(5).default(3),

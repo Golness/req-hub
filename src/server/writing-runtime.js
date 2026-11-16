@@ -44,7 +44,7 @@ export class WritingRuntime {
   charge(value) {
     const cost = estimateSubagentInputTokens(JSON.stringify(value));
     if (this.contextCost + this.exposedCost + cost + 16000 >= this.budget.limit) {
-      throw new Error('知识资料超出本轮上下文预算，请减少所选知识库或缩小优化范围');
+      throw new Error('WRITING_KB_BUDGET_EXCEEDED');
     }
     this.exposedCost += cost;
     return value;
@@ -126,7 +126,7 @@ export class WritingRuntime {
       offset > (this.coverage.get(id) || 0) ||
       offset > doc.body.length
     ) {
-      throw new Error('无效的读取位置');
+      throw new Error('WRITING_INVALID_READ_POSITION');
     }
     if (offset < doc.body.length && /[\uDC00-\uDFFF]/.test(doc.body[offset])) {
       throw new Error('WRITING_READ_SURROGATE');
@@ -181,7 +181,7 @@ export class WritingRuntime {
       throw this.failure;
     }
     if (this.scopes.some((s) => !this.searched.has(s.id))) {
-      throw new Error('必须检索每个所选知识库');
+      throw new Error('WRITING_MUST_SEARCH_EACH_KB');
     }
     if (
       typeof content !== 'string' ||
@@ -189,7 +189,7 @@ export class WritingRuntime {
       content.length > 120000 ||
       !Array.isArray(evidenceIds)
     ) {
-      throw new Error('候选文档或引用无效');
+      throw new Error('WRITING_INVALID_CANDIDATE_OR_CITATION');
     }
     const evidence = [...new Set(evidenceIds)].map((id) => {
       const doc = this.documents.find((d) => d.id === id);
@@ -199,7 +199,7 @@ export class WritingRuntime {
         !this.available.has(id) ||
         this.coverage.get(id) !== doc.body.length
       ) {
-        throw new Error('引用正文必须完整读取');
+        throw new Error('WRITING_CITATION_FULL_READ_REQUIRED');
       }
       const { body, ...source } = doc;
       return source;
@@ -217,7 +217,7 @@ export class WritingRuntime {
         this.documents.some((d) => d.scopeId === scope.id) &&
         !evidence.some((d) => d.scopeId === scope.id)
       ) {
-        throw new Error('每个非空知识库至少需要读取并引用一篇资料');
+        throw new Error('WRITING_EACH_KB_NEEDS_CITATION');
       }
     }
     if (overview !== undefined && (typeof overview !== 'string' || overview.length > 8000)) {
@@ -236,7 +236,7 @@ export class WritingRuntime {
  */
 export function installWritingTools(ctx) {
   if (!ctx?.tools?.register || !ctx.tools.guard || !ctx.on) {
-    throw new Error('写作需要 Harness 受控工具支持');
+    throw new Error('WRITING_REQUIRES_HARNESS_TOOLS');
   }
   const runtimes = new Map();
   const sessions = new Map();
@@ -329,7 +329,7 @@ export function installWritingTools(ctx) {
       sessions.has(exec.agent?.session?.id) &&
       !WRITING_TOOLS.includes(exec.name) &&
       exec.name !== 'run_code'
-        ? '写作仅允许读取所选知识库与提交候选文档'
+        ? 'WRITING_READ_SCOPE_RESTRICTED'
         : undefined,
     ),
   );
@@ -414,7 +414,7 @@ export function installWritingTools(ctx) {
           );
           runtime.exposedCost = 0;
           if (runtime.contextCost + 16000 >= runtime.budget.limit) {
-            throw new Error('写作上下文预算不足，请缩小优化范围');
+            throw new Error('WRITING_CONTEXT_BUDGET_INSUFFICIENT');
           }
         }
         for await (const chunk of next()) {

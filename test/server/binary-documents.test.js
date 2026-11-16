@@ -24,17 +24,17 @@ async function workbook() {
 it('extracts PDF pages and rejects scans, damaged files and excessive page counts', async () => {
   const result = await source('rules.PDF', pdf());
   expect(result.text).toContain('unique_pdf_tail'); expect(result.locations.map(l => l.page)).toEqual([1, 2]);
-  await expect(source('scan.pdf', pdf(['']))).rejects.toThrow('需要 OCR');
-  await expect(source('bad.pdf', Buffer.from('not a PDF'))).rejects.toThrow('PDF 文件无效');
-  await expect(source('long.pdf', pdf(Array(501).fill('rule')))).rejects.toThrow('500 页');
-  const mixed = await source('mixed.pdf', pdf(['', 'Approval'])); expect(mixed.warnings[0]).toContain('1 页');
+  await expect(source('scan.pdf', pdf(['']))).rejects.toThrow('ERR_PDF_NO_TEXT_NEEDS_OCR');
+  await expect(source('bad.pdf', Buffer.from('not a PDF'))).rejects.toThrow('ERR_PDF_INVALID');
+  await expect(source('long.pdf', pdf(Array(501).fill('rule')))).rejects.toThrow('ERR_PDF_TOO_MANY_PAGES');
+  const mixed = await source('mixed.pdf', pdf(['', 'Approval'])); expect(mixed.warnings[0]).toMatchObject({ code: 'ERR_PDF_PAGE_NO_TEXT_OCR_SKIPPED', params: { v0: 1 } });
 }, 15000);
 it('extracts Chinese Word headings, paragraphs and table cells with paragraph provenance', async () => {
   const result = await source('rules.docx', docx());
   expect(result.text).toContain('# 订单规则'); expect(result.text).toContain('审核通过后发货'); expect(result.text).toContain('状态 | 已审核');
   expect(result.locations.map(l => l.paragraph)).toEqual([1, 2, 3]);
-  await expect(source('bad.docx', Buffer.from('invalid'))).rejects.toThrow('Office 文件无效');
-  await expect(source('wrong.docx', zip({ 'xl/workbook.xml': '<test/>' }))).rejects.toThrow('扩展名不符');
+  await expect(source('bad.docx', Buffer.from('invalid'))).rejects.toThrow('ERR_OFFICE_FILE_INVALID');
+  await expect(source('wrong.docx', zip({ 'xl/workbook.xml': '<test/>' }))).rejects.toThrow('ERR_FILE_CONTENT_EXTENSION_MISMATCH');
 });
 it('extracts sheets, cell addresses, rich text and cached formulas without calculating them', async () => {
   const result = await source('rules.xlsx', await workbook());
@@ -48,11 +48,11 @@ it('bounds file size, Office expansion, extraction time and cancellation', async
   await expect(source('large.pdf', Buffer.alloc(20 * 1024 * 1024 + 1))).rejects.toMatchObject({ status: 413 });
   const oversized = zip({ 'word/document.xml': 'small' });
   const directory = oversized.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02])); oversized.writeUInt32LE(41 * 1024 * 1024, directory + 24);
-  await expect(source('large.docx', oversized)).rejects.toThrow('解压内容过大');
-  await expect(parseBinary(pdf(), '.pdf', { timeoutMs: 1 })).rejects.toThrow('解析超过');
+  await expect(source('large.docx', oversized)).rejects.toThrow('ERR_OFFICE_EXTRACTED_CONTENT_TOO_LARGE');
+  await expect(parseBinary(pdf(), '.pdf', { timeoutMs: 1 })).rejects.toThrow('ERR_DOC_PARSE_TIMEOUT');
   const controller = new AbortController(); const task = parseBinary(pdf(), '.pdf', { signal: controller.signal }); controller.abort(new Error('测试取消'));
   await expect(task).rejects.toThrow('测试取消');
-  await expect(source('old.doc', docx())).rejects.toThrow('不支持');
+  await expect(source('old.doc', docx())).rejects.toThrow('DOC_SOURCE_UNSUPPORTED_FILE_TYPE');
 });
 it('lists binary files in the shared tree and previews extracted text through the real route', async () => {
   await source('rules.pdf', pdf()); await source('rules.docx', docx()); await source('rules.xlsx', await workbook());

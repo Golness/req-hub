@@ -391,7 +391,7 @@ export async function publishDocument({
     signal?.throwIfAborted();
     const current = await readDocumentVersion(docPath);
     if (current.exists !== original.exists || !current.bytes.equals(original.bytes)) {
-      throw new Error('同步期间主文档已被修改，请基于最新文档重试');
+      throw new Error('SYNC_MAIN_DOC_CHANGED_DURING_SYNC');
     }
     const snapshot = join(syncDir, fileName);
     const journal = {

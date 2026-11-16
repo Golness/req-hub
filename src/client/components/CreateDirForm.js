@@ -1,4 +1,5 @@
 'use strict';
+const { localizeMessage, messageCode } = require('../utils/serverMessage.js');
 const { formatDate, useTimeZone } = require('../time.js');
 const { Checkbox } = require('./shared/controls.js');
 const { t } = require('../locale.js');
@@ -201,7 +202,7 @@ function CreateDirForm({
       setCheckRevision((value) => value + 1);
     } catch (error) {
       if (!controller.signal.aborted) {
-        setError(error.message);
+        setError(localizeMessage(error.message));
       }
     } finally {
       if (!controller.signal.aborted) {
@@ -270,9 +271,9 @@ function CreateDirForm({
       const data = await res.json();
       if (!res.ok) {
         setError(
-          data.error === 'CREATE_ALREADY_EXISTS'
+          messageCode(data.error) === 'CREATE_ALREADY_EXISTS'
             ? t('create.alreadyExists', { branch: data.branch, path: data.requirement.path })
-            : data.error || t('CreateDirForm.message002'),
+            : localizeMessage(data.error) || t('CreateDirForm.message002'),
         );
       } else {
         let msg = t('CreateDirForm.message003', { value0: data.path });

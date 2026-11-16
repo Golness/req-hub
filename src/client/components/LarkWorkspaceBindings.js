@@ -1,4 +1,5 @@
 'use strict';
+const { clientError } = require('../utils/serverMessage.js');
 const React = require('react');
 const { ROUTE } = require('../constants.js');
 const { t, hasLocaleKey } = require('../locale.js');
@@ -34,7 +35,7 @@ function LarkWorkspaceBindings({ revision, disabled, onRemoved, onBusyChange }) 
     });
     const data = await response.json();
     if (!response.ok || data.error || (data.code && !data.saved)) {
-      throw Object.assign(new Error(data.error || data.code || 'LARK_TARGET_FAILED'), {
+      throw Object.assign(clientError(data.error || data.code, 'LARK_TARGET_FAILED'), {
         details: data.details,
       });
     }

@@ -47,7 +47,7 @@ export async function compareSyncSnapshots(
     !['requirement', 'design'].includes(oldSync.docType) ||
     oldSync.docType !== newSync.docType
   ) {
-    const error = new Error('仅支持同类文档两个不同的成功同步版本对比');
+    const error = new Error('ERR_COMPARE_REQUIRES_TWO_SUCCESS_VERSIONS');
     error.statusCode = 400;
     throw error;
   }

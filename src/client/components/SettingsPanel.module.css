@@ -103,7 +103,8 @@
   width: 180px;
   max-width: 100%;
 }
-.timeZoneSelect {
+.timeZoneSelect,
+.languageSelect {
   width: 320px;
   max-width: 100%;
   min-width: 0;

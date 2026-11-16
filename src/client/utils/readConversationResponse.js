@@ -1,4 +1,5 @@
 'use strict';
+const { clientError } = require('./serverMessage.js');
 const { t } = require('../locale.js');
 
 /**
@@ -11,7 +12,7 @@ async function readConversationResponse(response, onProgress) {
   if (!response.ok || !response.headers?.get('content-type')?.includes('application/x-ndjson')) {
     const data = await response.json();
     if (!response.ok || data.error) {
-      throw Error(data.error || t('common.loadFailed'));
+      throw clientError(data.error, t('common.loadFailed'));
     }
     return data;
   }
@@ -25,7 +26,7 @@ async function readConversationResponse(response, onProgress) {
     }
     const event = JSON.parse(line);
     if (event.type === 'error') {
-      throw Error(event.error);
+      throw clientError(event.error);
     }
     if (event.type === 'progress') {
       onProgress?.(event);

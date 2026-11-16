@@ -11,6 +11,7 @@ export const PAGE_TYPES = ['source', 'entity', 'concept', 'topic'];
 export const LIMITS = {
   sourceBytes: 2 * 1024 * 1024,
   batchFiles: 100,
+  candidateFiles: 2000,
   scopeSources: 500,
   scopeRawBytes: 200 * 1024 * 1024,
   scopePages: 500,

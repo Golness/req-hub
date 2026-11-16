@@ -7,6 +7,8 @@
  * @module logger
  */
 
+import { messageCode } from './messages.js';
+
 /** @type {Array<LogEntry>} In-memory operation log storage */
 const operationLogs = [];
 
@@ -41,20 +43,20 @@ const LOG_LEVELS = {
  * @type {Object<string, string>}
  */
 const LOG_TAGS = {
-  startup: '启动',
-  config: '配置',
-  tree: '目录',
-  sync: '同步',
-  'sync-engine': '同步引擎',
-  'phased-sync': '分阶段同步',
-  analysis: 'AI分析',
-  'task-executor': '任务执行器',
-  session: '会话',
-  search: '搜索',
-  writing: '写作',
+  startup: 'TAG_STARTUP',
+  config: 'TAG_CONFIG',
+  tree: 'TAG_DIRECTORY',
+  sync: 'TAG_SYNC',
+  'sync-engine': 'TAG_SYNC_ENGINE',
+  'phased-sync': 'TAG_PHASED_SYNC',
+  analysis: 'TAG_AI_ANALYSIS',
+  'task-executor': 'TAG_TASK_EXECUTOR',
+  session: 'TAG_SESSION',
+  search: 'TAG_SEARCH',
+  writing: 'TAG_WRITING',
   wiki: 'Wiki',
-  doc: '文档',
-  state: '状态',
+  doc: 'TAG_DOC',
+  state: 'TAG_STATE',
 };
 
 /**
@@ -194,25 +196,25 @@ export function addLog(type, message, data = null) {
     error: 'error',
   };
 
-  // Infer a tag only for legacy callers that do not pass one.
-  let level = typeToLevel[type] || 'info';
-  let tag = 'startup';
-
-  if (message.includes('配置') || message.includes('LLM')) {
-    tag = 'config';
-  } else if (message.includes('同步') || message.includes('Sync')) {
-    tag = 'sync';
-  } else if (message.includes('分析') || message.includes('AI')) {
-    tag = 'analysis';
-  } else if (message.includes('会话') || message.includes('session')) {
-    tag = 'session';
-  } else if (message.includes('目录') || message.includes('创建')) {
-    tag = 'tree';
-  } else if (message.includes('写作')) {
-    tag = 'writing';
-  } else if (message.includes('启动') || message.includes('卸载')) {
-    tag = 'startup';
-  }
+  // Tags derive from the stable message code, never from Chinese prose.
+  const code = messageCode(message);
+  const tagByPrefix = [
+    ['CONFIG', 'config'],
+    ['LOG_CONFIG', 'config'],
+    ['SYNC', 'sync'],
+    ['LOG_SYNC', 'sync'],
+    ['SESSION', 'session'],
+    ['LOG_SESSION', 'session'],
+    ['DOC', 'tree'],
+    ['LOG_TREE', 'tree'],
+    ['WRITING', 'writing'],
+    ['LOG_WRITING', 'writing'],
+    ['KB', 'analysis'],
+    ['LOG_ANALYSIS', 'analysis'],
+  ];
+  const match = tagByPrefix.find(([prefix]) => code.startsWith(prefix));
+  const level = typeToLevel[type] || 'info';
+  const tag = match ? match[1] : 'startup';
 
   _addLog(level, tag, message, data);
 }

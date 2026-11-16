@@ -1,4 +1,5 @@
 /** Source-only inputs for both document sync modes. Unknown file types are excluded. */
+import { diffHeadingTexts } from './content-templates.js';
 import { posix } from 'node:path';
 
 const SOURCE_EXTENSIONS = new Set([
@@ -181,9 +182,11 @@ export function parseSyncCodeDiff(diff, { withRanges = false } = {}) {
   const files = [];
   let layer = '';
   let offset = 0;
-  for (const section of (diff || '').split(
-    /(?=^# (?:已提交的变更|已暂存但未提交的变更|未暂存的变更|未跟踪的新文件)$)|(?=^diff --git )/m,
-  )) {
+  const headings = diffHeadingTexts()
+    .map((heading) => heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|');
+  const sectionPattern = new RegExp(`(?=^# (?:${headings})$)|(?=^diff --git )`, 'm');
+  for (const section of (diff || '').split(sectionPattern)) {
     const start = offset;
     offset += section.length;
     if (section.startsWith('# ')) {

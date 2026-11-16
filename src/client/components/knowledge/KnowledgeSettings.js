@@ -8,16 +8,21 @@ const { Checkbox, HoverCard } = require('../shared/controls.js');
 const { SettingsActionBar } = require('../shared/SettingsActionBar.js');
 const { showToast } = require('../shared/ToastContainer.js');
 const { showConfirm } = require('../shared/ConfirmDialog.js');
-const {
-  knowledgeV2Request,
-  knowledgeV2ErrorText,
-} = require('../../hooks/useKnowledgeV2.js');
+const { knowledgeV2Request, knowledgeV2ErrorText } = require('../../hooks/useKnowledgeV2.js');
 const css = require('../shared/SettingsForm.module.css').default;
 const kCss = require('./KnowledgeWorkspace.module.css').default;
 const h = React.createElement;
 const { IconInfo } = require('../../icons.js').createIconComponents(h);
 
-/** Edit V2 synchronization, compile rules and scoped reset with independent saves. */
+/**
+ * Settings tab for V2 synchronization, compile rules and scoped reset.
+ * Each section owns its save action; the owning panel keeps this tab mounted so
+ * unsaved edits survive tab switches.
+ * @param props - Workspace identity and notification for changed knowledge data.
+ * @param {string} props.workspaceId - Workspace whose settings are edited.
+ * @param {Function} [props.onChanged] - Called after rules are saved or the base is cleared.
+ * @returns The rendered component content.
+ */
 function KnowledgeSettings({ workspaceId, onChanged }) {
   const [data, setData] = React.useState(null);
   const [error, setError] = React.useState(null);
@@ -171,13 +176,9 @@ function KnowledgeSettings({ workspaceId, onChanged }) {
         content: t(`kb.settings.${key}Help`),
       }),
     );
+  const sectionTitle = (id, text) => h('h3', { id }, text);
   const field = (key, control) =>
-    h(
-      'div',
-      { className: css.field },
-      title(key, t(`kb.settings.${key}`)),
-      control,
-    );
+    h('div', { className: css.field }, title(key, t(`kb.settings.${key}`)), control);
   const toggle = (key, disabled = false) =>
     h(
       'div',
@@ -190,6 +191,7 @@ function KnowledgeSettings({ workspaceId, onChanged }) {
       }),
       h('p', { className: css.muted }, t(`kb.settings.${key}Help`)),
     );
+  const status = (text) => h('span', { role: 'status', className: css.saveNotice }, text || '');
   return h(
     'section',
     { className: css.panel, 'aria-label': t('kb.settings.title') },
@@ -197,15 +199,23 @@ function KnowledgeSettings({ workspaceId, onChanged }) {
     error && h('p', { role: 'alert', className: css.error }, knowledgeV2ErrorText(error)),
     error &&
       !data &&
-      h(Button, { onClick: () => setReload((value) => value + 1) }, t('common.retry')),
+      h(
+        Button,
+        {
+          variant: 'outline',
+          tone: 'business',
+          onClick: () => setReload((value) => value + 1),
+        },
+        t('common.retry'),
+      ),
     data &&
       h(
         React.Fragment,
         null,
         h(
           'section',
-          { className: css.section, 'aria-label': t('kb.settings.syncTitle') },
-          h('h3', null, t('kb.settings.syncTitle')),
+          { className: css.section, 'aria-labelledby': `${formId}-sync` },
+          sectionTitle(`${formId}-sync`, t('kb.settings.syncTitle')),
           toggle('autoManage'),
           field(
             'autoManageDelayMs',
@@ -233,6 +243,7 @@ function KnowledgeSettings({ workspaceId, onChanged }) {
             }),
           ),
           toggle('dailyImportConversations', !data.sync.dailyUpdateEnabled),
+          toggle('larkPushEnabled'),
           h(
             'p',
             { className: css.muted, role: 'status' },
@@ -241,18 +252,23 @@ function KnowledgeSettings({ workspaceId, onChanged }) {
           ),
           h(
             SettingsActionBar,
-            { placement: 'section' },
-            h('span', { role: 'status', className: css.saveNotice }, syncNotice || ''),
+            { placement: 'section', status: status(syncNotice) },
             h(
               Button,
-              { type: 'button', variant: 'primary', disabled: busy || syncBusy, onClick: saveSync },
-              t('common.save'),
+              {
+                type: 'button',
+                variant: 'primary',
+                disabled: busy || syncBusy,
+                onClick: saveSync,
+              },
+              syncBusy ? t('kb.settings.saving') : t('common.save'),
             ),
           ),
         ),
         h(
           'section',
-          { className: css.section, 'aria-label': t('kb.settings.title') },
+          { className: css.section, 'aria-labelledby': `${formId}-rules` },
+          sectionTitle(`${formId}-rules`, t('kb.settings.rulesTitle')),
           field(
             'purpose',
             h('textarea', {
@@ -291,28 +307,33 @@ function KnowledgeSettings({ workspaceId, onChanged }) {
           h('p', { className: css.muted }, t('kb.settings.rebuildHint')),
           h(
             SettingsActionBar,
-            { placement: 'section' },
-            h('span', { role: 'status', className: css.saveNotice }, notice || ''),
+            { placement: 'section', status: status(notice) },
             h(
               Button,
               { type: 'button', variant: 'primary', disabled: busy || syncBusy, onClick: save },
-              t('common.save'),
+              busy ? t('kb.settings.saving') : t('common.save'),
             ),
           ),
         ),
         h(
           'section',
-          { className: css.section, 'aria-label': t('kb.settings.reset') },
-          h('p', { className: css.muted }, t('kb.settings.resetHint')),
-          h(
-            'div',
-            null,
-            h(
+          { className: css.section, 'aria-labelledby': `${formId}-reset` },
+          sectionTitle(`${formId}-reset`, t('kb.settings.resetTitle')),
+          h(SettingsActionBar, {
+            placement: 'section',
+            leading: h(
               Button,
-              { variant: 'outline', disabled: busy || syncBusy, onClick: reset },
+              {
+                type: 'button',
+                variant: 'outline',
+                tone: 'danger',
+                disabled: busy || syncBusy,
+                onClick: reset,
+              },
               t('kb.settings.reset'),
             ),
-          ),
+            status: h('span', { className: css.muted }, t('kb.settings.resetHint')),
+          }),
         ),
       ),
   );

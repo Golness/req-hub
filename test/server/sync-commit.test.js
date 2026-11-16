@@ -66,7 +66,7 @@ describe('commit-based sync', () => {
   it('rejects uncommitted changes belonging to a different checked-out branch', async () => {
     git('switch', 'main');
     await writeFile(join(repo, 'code.js'), 'OTHER_BRANCH');
-    await expect(prepareCommitSync(repo, requirementId, 'requirement', [])).rejects.toThrow('切换到需求分支');
+    await expect(prepareCommitSync(repo, requirementId, 'requirement', [])).rejects.toThrow('SYNC_WORKING_BRANCH_HAS_UNCOMMITTED_CHANGES');
   });
   it.each(['requirement', 'design'])('skips equal and older %s commits', async docType => {
     expect((await prepareCommitSync(repo, requirementId, docType, [success(second, docType)])).skipped).toBe(true);
@@ -79,8 +79,8 @@ describe('commit-based sync', () => {
   });
   it('rejects divergent or unavailable historical commits', async () => {
     git('reset', '--hard', base); await commit('diverged');
-    await expect(prepareCommitSync(repo, requirementId, 'requirement', [success(second)])).rejects.toThrow('分叉');
-    await expect(prepareCommitSync(repo, requirementId, 'requirement', [success('a'.repeat(40))])).rejects.toThrow('不可用');
+    await expect(prepareCommitSync(repo, requirementId, 'requirement', [success(second)])).rejects.toThrow('SYNC_COMMIT_DIVERGED');
+    await expect(prepareCommitSync(repo, requirementId, 'requirement', [success('a'.repeat(40))])).rejects.toThrow('SYNC_HISTORY_COMMIT_UNAVAILABLE');
   });
   it('reads the requirement branch even when another branch is checked out', async () => {
     git('switch', 'main');
@@ -115,7 +115,7 @@ describe('commit-based sync', () => {
     const firstRun = await beginCommitSync(repo, reqDir, fields);
     setAbortController(fields.workspaceId, requirementId, new AbortController(), firstRun.sync.id);
     await abortSync(firstRun.sync.id, fields.workspaceId, requirementId);
-    await expect(beginCommitSync(repo, reqDir, fields)).rejects.toThrow('正在终止');
+    await expect(beginCommitSync(repo, reqDir, fields)).rejects.toThrow('SYNC_PREVIOUS_TASK_STOPPING');
     await completeSync(firstRun.sync.id, fields.workspaceId, requirementId, firstRun.sync.snapshotDir);
     deleteAbortController(fields.workspaceId, requirementId);
     const retry = await beginCommitSync(repo, reqDir, fields);
@@ -161,7 +161,7 @@ it('honors an explicitly selected requirement branch when matching branches are 
   const other = `feature/other/${requirementId}`;
   git('branch', other, first);
   git('switch', 'main');
-  await expect(prepareCommitSync(repo, requirementId, 'requirement')).rejects.toThrow('多个需求分支');
+  await expect(prepareCommitSync(repo, requirementId, 'requirement')).rejects.toThrow('SYNC_MULTIPLE_REQUIREMENT_BRANCHES');
   const result = await prepareCommitSync(repo, requirementId, 'requirement', [], {
     targetBranch: other,
     includeWorkingChanges: false,

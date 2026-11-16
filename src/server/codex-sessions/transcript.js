@@ -1,5 +1,6 @@
 // JSONL text extraction and mirrored-message handling adapted from dsh-codex-migrate (MIT).
 // See NOTICE.md. Tool results, hidden reasoning and injected context are not conversation text.
+import { contentTemplates } from '../content-templates.js';
 import { createHash } from 'node:crypto';
 import { calculateTurnsTokens, renderSessionDocument } from '../session-utils.js';
 
@@ -81,6 +82,7 @@ export function createCodexTranscript(sessionId) {
       turn.messages.some((message) => message.role === 'user');
     let users = 0;
     let intermediate = 0;
+    const sessionLabels = contentTemplates().session.labels;
     if (turn.messages.length) {
       turns.push({
         sessionId,
@@ -94,13 +96,13 @@ export function createCodexTranscript(sessionId) {
           if (message.role === 'user') {
             users++;
             kind = users === 1 ? 'input' : 'followup';
-            label = users === 1 ? '用户输入' : '用户补充输入';
+            label = users === 1 ? sessionLabels.userInput : sessionLabels.userFollowUp;
           } else if (syncable && index === turn.messages.length - 1) {
             kind = 'final';
-            label = '助手最终回复';
+            label = sessionLabels.assistantFinal;
           } else {
             kind = 'intermediate';
-            label = `助手中间回复 ${++intermediate}`;
+            label = sessionLabels.assistantIntermediate(++intermediate);
           }
           return { role: message.role, kind, label, text: message.text };
         }),

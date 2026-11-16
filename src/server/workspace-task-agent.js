@@ -14,7 +14,9 @@ export async function createWorkspaceTaskAgent(ctx, workspace, signal) {
   const cwd = await realpath(workspace.path);
   signal.throwIfAborted();
   const preset = await ctx.agentPresets.resolve();
-  const selection = ctx.agentDefaultModel.currentSelection();
+  // The default-model service follows the focused user session. A background
+  // batch may start when no session is active, so an absent selection is valid.
+  const selection = ctx.agentDefaultModel?.currentSelection?.() || {};
   const handle = await ctx.agents.create({
     sessionId: `reqhub-background-${randomUUID()}`,
     signal,

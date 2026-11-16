@@ -14,7 +14,8 @@ vi.mock('node:fs/promises', () => ({
   readFile: (...args) => mockReadFile(...args),
   writeFile: (...args) => mockWriteFile(...args),
   readdir: (...args) => mockReaddir(...args),
-  mkdir: vi.fn(), rename: vi.fn(),
+  mkdir: vi.fn(),
+  rename: vi.fn(),
 }));
 
 vi.mock('node:fs', () => ({
@@ -33,7 +34,7 @@ it.each([
   { taskTimeoutMs: 3600001 },
   { knowledgeMaxInputBytes: 999 },
   { knowledgeMaxResultBytes: 1000001 },
-])('rejects invalid general execution policy %j', async general => {
+])('rejects invalid general execution policy %j', async (general) => {
   await expect(saveConfig({ general })).rejects.toThrow('INVALID_CONFIG');
 });
 
@@ -47,10 +48,19 @@ describe('loadConfig', () => {
   it('validates workspace publication bindings independently of CLI connection settings', async () => {
     mockExistsSync.mockReturnValue(true);
     const binding = {
-      workspaceRoot: 'C:/projects/alpha', kind: 'wiki', token: 'WikABC',
-      url: 'https://team.feishu.cn/wiki/WikABC', title: 'Parent', spaceId: '123',
-      objToken: 'DocABC', objType: 'docx', appId: 'cli_test', accountId: 'ou_user',
-      profile: '', identity: 'user', checkedAt: '2026-11-05T00:00:00.000Z',
+      workspaceRoot: 'C:/projects/alpha',
+      kind: 'wiki',
+      token: 'WikABC',
+      url: 'https://team.feishu.cn/wiki/WikABC',
+      title: 'Parent',
+      spaceId: '123',
+      objToken: 'DocABC',
+      objType: 'docx',
+      appId: 'cli_test',
+      accountId: 'ou_user',
+      profile: '',
+      identity: 'user',
+      checkedAt: '2026-11-05T00:00:00.000Z',
     };
     mockReadFile.mockResolvedValue(JSON.stringify({ larkTargets: { alpha: binding } }));
     expect((await loadConfig()).larkTargets.alpha).toEqual(binding);
@@ -67,10 +77,19 @@ describe('loadConfig', () => {
     mockExistsSync.mockReturnValue(true);
     mockReadFile.mockResolvedValue(JSON.stringify({ lark: {} }));
     expect((await loadConfig()).lark).toEqual({
-      executable: 'lark-cli', profile: '', identity: 'user', timeoutMs: 30000,
+      executable: 'lark-cli',
+      profile: '',
+      identity: 'user',
+      timeoutMs: 30000,
     });
-    for (const lark of [null, { appSecret: 'private' }, { executable: 'lark-cli --help' },
-      { identity: 'auto' }, { timeoutMs: 120001 }, { profile: 'bad profile' }]) {
+    for (const lark of [
+      null,
+      { appSecret: 'private' },
+      { executable: 'lark-cli --help' },
+      { identity: 'auto' },
+      { timeoutMs: 120001 },
+      { profile: 'bad profile' },
+    ]) {
       mockReadFile.mockResolvedValue(JSON.stringify({ lark }));
       await expect(loadConfig()).rejects.toThrow('INVALID_CONFIG');
     }
@@ -116,28 +135,62 @@ describe('loadConfig', () => {
     );
     expect((await loadConfig()).wiki).toBeUndefined();
   });
-  it('retains explicit empty skill bindings in both prompt protocols',async()=>{
-    mockExistsSync.mockReturnValue(true);mockReadFile.mockResolvedValue(JSON.stringify({ai:{skillBindings:{writing:null},syncV2:{contractVersion:2,skillBindings:{'phased-merge-design':null}}}}));
-    const config=await loadConfig();expect(config.ai.skillBindings.writing).toBeNull();expect(config.ai.syncV2.skillBindings['phased-merge-design']).toBeNull();
+  it('retains explicit empty skill bindings in both prompt protocols', async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFile.mockResolvedValue(
+      JSON.stringify({
+        ai: {
+          skillBindings: { writing: null },
+          syncV2: { contractVersion: 2, skillBindings: { 'phased-merge-design': null } },
+        },
+      }),
+    );
+    const config = await loadConfig();
+    expect(config.ai.skillBindings.writing).toBeNull();
+    expect(config.ai.syncV2.skillBindings['phased-merge-design']).toBeNull();
   });
   it('leaves the analysis page limit automatic unless explicitly configured', async () => {
-    mockExistsSync.mockReturnValue(true);mockReadFile.mockResolvedValue(JSON.stringify({sync:{baseBranch:'main'}}));
+    mockExistsSync.mockReturnValue(true);
+    mockReadFile.mockResolvedValue(JSON.stringify({ sync: { baseBranch: 'main' } }));
     expect((await loadConfig()).sync.maxAnalysisReadPages).toBeUndefined();
-    mockReadFile.mockResolvedValue(JSON.stringify({sync:{maxAnalysisReadPages:24}}));
+    mockReadFile.mockResolvedValue(JSON.stringify({ sync: { maxAnalysisReadPages: 24 } }));
     expect((await loadConfig()).sync.maxAnalysisReadPages).toBe(24);
   });
-  it.each([{ maxAnalysisReadPages: 0 }, { maxAnalysisReadPages: 1025 }, { maxCompletionReminders: 6 }, {maxInvalidOutputWrites:0}, {maxInvalidOutputWrites:21}])('rejects invalid sync execution limits %j', async sync => {
-    mockExistsSync.mockReturnValue(true); mockReadFile.mockResolvedValue(JSON.stringify({ sync }));
+  it.each([
+    { maxAnalysisReadPages: 0 },
+    { maxAnalysisReadPages: 1025 },
+    { maxCompletionReminders: 6 },
+    { maxInvalidOutputWrites: 0 },
+    { maxInvalidOutputWrites: 21 },
+  ])('rejects invalid sync execution limits %j', async (sync) => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFile.mockResolvedValue(JSON.stringify({ sync }));
     await expect(loadConfig()).rejects.toThrow('INVALID_CONFIG');
   });
-  it.each([{retainedVersions:0},{versionRetentionDays:0},{missingRetentionDays:-1},{retainedJobs:0},{jobRetentionDays:0},{graceHours:-1}])('rejects invalid conversation cleanup policy %j',async conversations=>{
-    mockExistsSync.mockReturnValue(true);mockReadFile.mockResolvedValue(JSON.stringify({conversations}));await expect(loadConfig()).rejects.toThrow('INVALID_CONFIG');
+  it.each([
+    { retainedVersions: 0 },
+    { versionRetentionDays: 0 },
+    { missingRetentionDays: -1 },
+    { retainedJobs: 0 },
+    { jobRetentionDays: 0 },
+    { graceHours: -1 },
+  ])('rejects invalid conversation cleanup policy %j', async (conversations) => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFile.mockResolvedValue(JSON.stringify({ conversations }));
+    await expect(loadConfig()).rejects.toThrow('INVALID_CONFIG');
   });
   it('should return default config when file does not exist', async () => {
     mockExistsSync.mockReturnValue(false);
     const config = await loadConfig();
     expect(config).toEqual({
-      general: { timeZone: 'Asia/Shanghai', taskTimeoutMs: 1200000, knowledgeMaxInputBytes: 2000000, knowledgeMaxResultBytes: 250000 },
+      general: {
+        timeZone: 'Asia/Shanghai',
+        uiLanguage: 'follow',
+        contentLanguage: 'zh',
+        taskTimeoutMs: 1200000,
+        knowledgeMaxInputBytes: 2000000,
+        knowledgeMaxResultBytes: 250000,
+      },
       docsDir: 'docs',
       workspaceId: null,
       developerName: null,
@@ -148,8 +201,27 @@ describe('loadConfig', () => {
         dailyImportConversations: false,
         dailyUpdateEnabled: false,
         dailyUpdateTime: '02:00',
+        larkPushEnabled: false,
       },
     });
+  });
+
+  it('should preserve both scheduled Lark push switches', async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFile.mockResolvedValue(
+      JSON.stringify({ sync: { larkPushEnabled: true }, knowledgeV2: { larkPushEnabled: true } }),
+    );
+    const config = await loadConfig();
+    expect(config.sync.larkPushEnabled).toBe(true);
+    expect(config.knowledgeV2.larkPushEnabled).toBe(true);
+  });
+
+  it('should preserve a forced UI language and reject unsupported preferences', async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFile.mockResolvedValue(JSON.stringify({ general: { uiLanguage: 'en' } }));
+    expect((await loadConfig()).general.uiLanguage).toBe('en');
+    mockReadFile.mockResolvedValue(JSON.stringify({ general: { uiLanguage: 'fr' } }));
+    await expect(loadConfig()).rejects.toThrow('INVALID_CONFIG');
   });
 
   it('should load config from file', async () => {
@@ -177,14 +249,19 @@ describe('loadConfig', () => {
 
   it('migrates legacy settings once into profile storage without writing the source', async () => {
     mockExistsSync.mockReturnValueOnce(false).mockReturnValueOnce(true);
-    mockReadFile.mockResolvedValue(JSON.stringify({ docsDir: 'requirements', ai: { selectedModel: 'saved-model' } }));
+    mockReadFile.mockResolvedValue(
+      JSON.stringify({ docsDir: 'requirements', ai: { selectedModel: 'saved-model' } }),
+    );
     const config = await loadConfig();
-    expect(config.docsDir).toBe('requirements'); expect(config.ai.selectedModel).toBe('saved-model');
+    expect(config.docsDir).toBe('requirements');
+    expect(config.ai.selectedModel).toBe('saved-model');
     expect(mockWriteFile).toHaveBeenCalledOnce();
-    const legacy = mockReadFile.mock.calls[0][0], migrated = mockWriteFile.mock.calls[0][0];
+    const legacy = mockReadFile.mock.calls[0][0],
+      migrated = mockWriteFile.mock.calls[0][0];
     expect(migrated).not.toBe(legacy);
     expect(migrated).toContain('req-hub');
-    mockExistsSync.mockReturnValue(true); await loadConfig();
+    mockExistsSync.mockReturnValue(true);
+    await loadConfig();
     expect(mockWriteFile).toHaveBeenCalledOnce();
   });
 });
@@ -242,13 +319,9 @@ describe('autoDefaultConfig', () => {
     const config = { docsDir: 'docs', workspaceId: 'ws1', developerName: 'alice' };
 
     // First call: list developer dirs
-    mockReaddir.mockResolvedValueOnce([
-      { name: 'alice', isDirectory: () => true },
-    ]);
+    mockReaddir.mockResolvedValueOnce([{ name: 'alice', isDirectory: () => true }]);
     // Second call: list requirement dirs
-    mockReaddir.mockResolvedValueOnce([
-      { name: '2024-01-15-feature', isDirectory: () => true },
-    ]);
+    mockReaddir.mockResolvedValueOnce([{ name: '2024-01-15-feature', isDirectory: () => true }]);
 
     const result = await autoDefaultConfig(config, registry);
     expect(result.requirementId).toBe('2024-01-15-feature');
@@ -260,9 +333,7 @@ describe('autoDefaultConfig', () => {
     };
     const config = { docsDir: 'docs', workspaceId: 'ws1', developerName: 'bob' };
 
-    mockReaddir.mockResolvedValueOnce([
-      { name: 'alice', isDirectory: () => true },
-    ]);
+    mockReaddir.mockResolvedValueOnce([{ name: 'alice', isDirectory: () => true }]);
     mockReaddir.mockResolvedValueOnce([]);
 
     const result = await autoDefaultConfig(config, registry);
@@ -283,12 +354,15 @@ describe('autoDefaultConfig', () => {
   });
 });
 
-
 it.each([
-  { defaultUsername: '../alice' }, { defaultUsername: 'alice/bob' },
-  { defaultUsername: 'a*' }, { sync: { dailyOffsetDays: -1 } },
-  { sync: { dailyOffsetDays: 1.5 } }, { sync: { dailyOffsetDays: 366 } },
-  { sync: { dailyUpdateTime: '24:00' } }, { general: { timeZone: 'Invalid/Zone' } },
+  { defaultUsername: '../alice' },
+  { defaultUsername: 'alice/bob' },
+  { defaultUsername: 'a*' },
+  { sync: { dailyOffsetDays: -1 } },
+  { sync: { dailyOffsetDays: 1.5 } },
+  { sync: { dailyOffsetDays: 366 } },
+  { sync: { dailyUpdateTime: '24:00' } },
+  { general: { timeZone: 'Invalid/Zone' } },
   { sync: { dailyUpdateEnabled: 'yes' } },
 ])('rejects invalid daily sync configuration %j', async (value) => {
   mockExistsSync.mockReturnValue(true);

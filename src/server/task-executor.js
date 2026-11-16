@@ -1,3 +1,4 @@
+import { msg, messageDescriptor } from './messages.js';
 import { delegationContext, bindOwnedSession } from './delegation-context.js';
 import general from '../shared/general.cjs';
 import { getSubagentScheduler } from './concurrency/SubagentScheduler.js';
@@ -118,15 +119,32 @@ export const TaskExecutorConfig = {
  */
 export class TaskExecutorError extends Error {
   /**
-   * @param {string} message - Error message
+   * @param {string|{code: string, params?: object}} message - Stable code or descriptor.
    * @param {string} code - Error code from TaskExecutorErrorCode
    * @param {Object|null} [details=null] - Additional error details
    */
   constructor(message, code, details = null) {
-    super(message);
+    const descriptor = messageDescriptor(message);
+    const display = typeof descriptor === 'string' ? descriptor : descriptor.code;
+    super(display);
     this.name = 'TaskExecutorError';
     this.code = code;
     this.details = details;
+    // `.code` is the machine-level error code; `.messageCode` is the stable
+    // code the client localizes. Keep both so `describeError()` never mixes them.
+    this.messageCode = display;
+    // Preserve interpolation values so `localizeMessage()` can render the full
+    // sentence instead of a placeholder-stripped bare code.
+    if (typeof descriptor === 'object') {
+      this.params = descriptor.params;
+    }
+  }
+
+  /** Transport shape for JSON, SSE and report persistence. */
+  toJSON() {
+    return this.params
+      ? { code: this.messageCode, params: this.params }
+      : { code: this.messageCode };
   }
 }
 
@@ -189,20 +207,20 @@ export class TaskResult {
    */
   getUserMessage() {
     if (!this.isError) {
-      return '任务执行成功';
+      return 'TASK_EXECUTION_SUCCEEDED';
     }
 
     switch (this.stopReason) {
       case 'aborted':
-        return '任务被中断';
+        return 'TASK_INTERRUPTED';
       case 'max-tokens':
-        return '输出达到长度限制，请尝试增加 maxTokens 配置';
+        return 'ERR_OUTPUT_LENGTH_LIMIT';
       case 'refusal':
-        return '模型拒绝执行此任务，请检查任务描述是否合规';
+        return 'ERR_MODEL_REFUSED_TASK';
       case 'error':
-        return this.diagnostic || '执行过程中发生错误';
+        return this.diagnostic || 'ERR_EXECUTION_ERROR';
       default:
-        return this.diagnostic || '任务执行失败';
+        return this.diagnostic || 'TASK_EXECUTION_FAILED';
     }
   }
 }
@@ -292,7 +310,7 @@ export class TaskExecutor {
       return result;
     }
 
-    log.taskExecutor.info(`任务执行`, {
+    log.taskExecutor.info('TAG_TASK_EXECUTION', {
       promptKey,
       description: description || promptKey,
       hasParentAgent: !!this.parentAgent,
@@ -314,7 +332,7 @@ export class TaskExecutor {
     if (!this.ctx) {
       errors.push({
         code: TaskExecutorErrorCode.INVALID_CONTEXT,
-        message: 'Context 不可用，无法委托任务',
+        message: 'ERR_CONTEXT_UNAVAILABLE',
       });
       return errors;
     }
@@ -322,19 +340,19 @@ export class TaskExecutor {
     if (!this.ctx.subagents) {
       errors.push({
         code: TaskExecutorErrorCode.SUBAGENT_UNAVAILABLE,
-        message: 'Subagent 服务不可用',
+        message: 'ERR_SUBAGENT_SERVICE_UNAVAILABLE',
       });
       return errors;
     }
 
     if (!this.ctx.skills) {
-      this.addWarning('SKILLS_UNAVAILABLE', 'Skills 服务不可用，Skill 绑定将被忽略');
+      this.addWarning('SKILLS_UNAVAILABLE', 'ERR_SKILLS_BINDINGS_IGNORED');
     }
 
     if (!this.parentAgent) {
       errors.push({
         code: TaskExecutorErrorCode.MISSING_PARENT_AGENT,
-        message: '缺少父 Agent，无法委托任务',
+        message: 'ERR_NO_PARENT_AGENT',
       });
       return errors;
     }
@@ -343,7 +361,7 @@ export class TaskExecutor {
     if (status === 'stopped') {
       errors.push({
         code: TaskExecutorErrorCode.PARENT_AGENT_STOPPED,
-        message: `父 Agent 已停止，当前状态: ${status}`,
+        message: msg('ERR_PARENT_AGENT_STOPPED', { v0: status }),
         details: { status },
       });
       return errors;
@@ -354,14 +372,17 @@ export class TaskExecutor {
     if (!this.parentAgent.session) {
       errors.push({
         code: TaskExecutorErrorCode.PARENT_AGENT_NO_SESSION,
-        message: '父 Agent 没有 session',
+        message: 'ERR_PARENT_AGENT_NO_SESSION',
       });
       return errors;
     }
 
     if (options.promptKey && !PROMPT_REGISTRY[options.promptKey]) {
       // Custom prompt keys remain valid even when absent from the built-in registry.
-      this.addWarning('UNKNOWN_PROMPT_KEY', `promptKey "${options.promptKey}" 不在预设列表中`);
+      this.addWarning(
+        'UNKNOWN_PROMPT_KEY',
+        msg('ERR_PROMPT_KEY_NOT_PRESET', { v0: options.promptKey }),
+      );
     }
 
     const variableErrors = this.validateRequiredVariables(
@@ -378,7 +399,7 @@ export class TaskExecutor {
     if (this.signal?.aborted) {
       errors.push({
         code: TaskExecutorErrorCode.TASK_CANCELLED,
-        message: '任务已被取消',
+        message: 'TASK_CANCELLED',
       });
       return errors;
     }
@@ -389,7 +410,7 @@ export class TaskExecutor {
       } catch (e) {
         errors.push({
           code: TaskExecutorErrorCode.INVALID_CWD,
-          message: `工作目录不存在: ${this.cwd}`,
+          message: msg('ERR_WORKDIR_NOT_FOUND', { v0: this.cwd }),
           details: { cwd: this.cwd, error: e.message },
         });
         return errors;
@@ -398,7 +419,7 @@ export class TaskExecutor {
 
     const delegationConfig = this.config?.ai?.delegation;
     if (!delegationConfig) {
-      this.addWarning('NO_DELEGATION_CONFIG', '未配置 delegation，使用默认值');
+      this.addWarning('NO_DELEGATION_CONFIG', 'CONFIG_DELEGATION_DEFAULT');
     }
 
     if (options.agentOptions) {
@@ -406,7 +427,7 @@ export class TaskExecutor {
       if (maxTokens !== undefined && (typeof maxTokens !== 'number' || maxTokens <= 0)) {
         errors.push({
           code: TaskExecutorErrorCode.INVALID_AGENT_OPTIONS,
-          message: 'agentOptions.maxTokens 必须是正数',
+          message: 'ERR_MAXTOKENS_NOT_POSITIVE',
           details: { maxTokens },
         });
       }
@@ -453,7 +474,7 @@ export class TaskExecutor {
         : 0;
       result.promptTemplate = promptTemplate;
 
-      log.taskExecutor.debug(`加载 prompt`, {
+      log.taskExecutor.debug('LOG_LOADING_PROMPT', {
         promptKey,
         hasTemplate: !!promptTemplate,
         templateLength: promptTemplate?.length || 0,
@@ -468,8 +489,8 @@ export class TaskExecutor {
       });
     } catch (e) {
       this.signal?.throwIfAborted();
-      this.addWarning('SKILL_LOAD_FAILED', `Skill 加载失败: ${e.message}`);
-      log.taskExecutor.warn(`Skill/Prompt 加载失败: ${e.message}`);
+      this.addWarning('SKILL_LOAD_FAILED', msg('ERR_SKILL_LOAD_FAILED', { v0: e.message }));
+      log.taskExecutor.warn(msg('ERR_SKILL_PROMPT_LOAD_FAILED', { v0: e.message }));
     }
 
     let fullPrompt = '';
@@ -480,9 +501,9 @@ export class TaskExecutor {
         if (variableErrors.length > 0) {
           this.addWarning(
             'TEMPLATE_VARIABLE_MISSING',
-            `模板变量缺失: ${variableErrors.join(', ')}`,
+            msg('ERR_TEMPLATE_VAR_MISSING', { v0: variableErrors.join(', ') }),
           );
-          log.taskExecutor.warn(`模板变量缺失: ${variableErrors.join(', ')}`);
+          log.taskExecutor.warn(msg('ERR_TEMPLATE_VAR_MISSING', { v0: variableErrors.join(', ') }));
         }
 
         fullPrompt = buildFullPrompt({
@@ -491,17 +512,20 @@ export class TaskExecutor {
           variables,
         });
 
-        log.taskExecutor.debug(`构建 prompt 完成`, {
+        log.taskExecutor.debug('LOG_PROMPT_BUILT', {
           promptKey,
           fullPromptLength: fullPrompt.length,
           fullPromptTokens: estimateTextTokens(fullPrompt),
         });
       } catch (e) {
-        this.addWarning('TEMPLATE_RENDER_FAILED', `模板渲染失败: ${e.message}`);
-        log.taskExecutor.error(`模板渲染失败: ${e.message}`);
+        this.addWarning(
+          'TEMPLATE_RENDER_FAILED',
+          msg('ERR_TEMPLATE_RENDER_FAILED', { v0: e.message }),
+        );
+        log.taskExecutor.error(msg('ERR_TEMPLATE_RENDER_FAILED', { v0: e.message }));
       }
     } else {
-      const errorMsg = `promptKey "${promptKey}" 没有对应的模板`;
+      const errorMsg = msg('ERR_PROMPT_KEY_NO_TEMPLATE', { v0: promptKey });
       this.addWarning('NO_TEMPLATE', errorMsg);
       log.taskExecutor.error(errorMsg);
     }
@@ -513,13 +537,13 @@ export class TaskExecutor {
     }
 
     if (!fullPrompt || fullPrompt.trim().length === 0) {
-      log.taskExecutor.error(`构建的 prompt 为空`, { promptKey, variables });
+      log.taskExecutor.error('ERR_PROMPT_EMPTY', { promptKey, variables });
     }
 
     if (estimateTextTokens(fullPrompt) > TaskExecutorConfig.maxPromptTokens) {
       this.addWarning(
         'PROMPT_TOO_LARGE',
-        `Prompt 过长 (约 ${formatTokens(estimateTextTokens(fullPrompt))} tokens)`,
+        msg('ERR_PROMPT_TOO_LONG', { v0: formatTokens(estimateTextTokens(fullPrompt)) }),
       );
     }
 
@@ -572,7 +596,7 @@ export class TaskExecutor {
         ) {
           errors.push({
             code: 'MISSING_REQUIRED_VARIABLE',
-            message: `缺少必需变量: ${varDef.name} (${varDef.description})`,
+            message: msg('ERR_REQUIRED_VAR_MISSING', { v0: varDef.name, v1: varDef.description }),
             details: { variable: varDef.name, description: varDef.description },
           });
         }
@@ -597,7 +621,7 @@ export class TaskExecutor {
       (options.promptKey?.startsWith('phased-') ? MAX_SYNC_INPUT_TOKENS : null);
     if (inputLimit && estimatePreparedPromptTokens(promptData) >= inputLimit) {
       throw new TaskExecutorError(
-        `同步输入超过预算（须小于 ${inputLimit} tokens），请减少固定 prompt 或拆分输入`,
+        msg('ERR_INPUT_OVER_BUDGET', { v0: inputLimit }),
         'PROMPT_TOO_LARGE',
       );
     }
@@ -608,7 +632,10 @@ export class TaskExecutor {
     if (!providerInstance) {
       const availableProviders = this.ctx.subagents.list() || [];
       throw new TaskExecutorError(
-        `Subagent provider "${provider}" 未注册，可用: ${availableProviders.join(', ') || '(无)'}`,
+        msg('ERR_SUBAGENT_PROVIDER_NOT_REGISTERED', {
+          v0: provider,
+          v1: availableProviders.join(', ') || 'STATUS_NONE',
+        }),
         TaskExecutorErrorCode.PROVIDER_NOT_FOUND,
         { availableProviders },
       );
@@ -618,7 +645,7 @@ export class TaskExecutor {
 
     if (agentOptions && !capabilities.agentOptions) {
       throw new TaskExecutorError(
-        `Provider "${provider}" 不支持 agentOptions`,
+        msg('ERR_PROVIDER_NO_AGENT_OPTIONS', { v0: provider }),
         TaskExecutorErrorCode.PROVIDER_CAPABILITY_MISSING,
         { capability: 'agentOptions', available: Object.keys(capabilities) },
       );
@@ -627,19 +654,26 @@ export class TaskExecutor {
     if (options.outputSchema && !capabilities.outputSchema) {
       this.addWarning(
         'OUTPUT_SCHEMA_UNSUPPORTED',
-        `Provider "${provider}" 不支持 outputSchema，将被忽略`,
+        msg('ERR_PROVIDER_NO_OUTPUT_SCHEMA', { v0: provider }),
       );
     }
 
     if (options.toolFilter && !capabilities.toolFilter) {
-      throw new TaskExecutorError(`Provider ${provider} 不支持工具隔离`, 'CAPABILITY_UNSUPPORTED');
+      throw new TaskExecutorError(
+        msg('ERR_PROVIDER_NO_TOOL_ISOLATION', { v0: provider }),
+        'CAPABILITY_UNSUPPORTED',
+      );
     }
 
     const maxDepth = this.config?.ai?.delegation?.maxDepth;
     if (maxDepth !== undefined && maxDepth <= 0) {
-      throw new TaskExecutorError('已达到最大委托深度', TaskExecutorErrorCode.MAX_DEPTH_REACHED, {
-        maxDepth,
-      });
+      throw new TaskExecutorError(
+        'ERR_MAX_DELEGATION_DEPTH',
+        TaskExecutorErrorCode.MAX_DEPTH_REACHED,
+        {
+          maxDepth,
+        },
+      );
     }
 
     this.callbacks.onProgress?.({
@@ -647,7 +681,7 @@ export class TaskExecutor {
       provider,
     });
 
-    log.taskExecutor.info(`启动 Subagent`, {
+    log.taskExecutor.info('LOG_STARTING_SUBAGENT', {
       provider,
       description: description || promptKey,
       skillUsed,
@@ -710,7 +744,7 @@ export class TaskExecutor {
         () =>
           reject(
             new TaskExecutorError(
-              `Subagent 启动超时 (${startTimeoutMs}ms)`,
+              msg('ERR_SUBAGENT_START_TIMEOUT', { v0: startTimeoutMs }),
               TaskExecutorErrorCode.START_TIMEOUT,
             ),
           ),
@@ -743,7 +777,7 @@ export class TaskExecutor {
 
       if (e.message?.includes('pool') || e.message?.includes('maxActiveSubagents')) {
         throw new TaskExecutorError(
-          'Subagent 池已满，无法创建新的子代理',
+          'ERR_SUBAGENT_POOL_FULL',
           TaskExecutorErrorCode.SUBAGENT_POOL_FULL,
           { originalError: e.message },
         );
@@ -770,7 +804,7 @@ export class TaskExecutor {
       sessionId,
     });
 
-    log.taskExecutor.debug(`Subagent 已启动`, { sessionId });
+    log.taskExecutor.debug('LOG_SUBAGENT_STARTED', { sessionId });
 
     const timeoutMs = Math.min(
       Math.max(timeout || TaskExecutorConfig.defaultTimeout, TaskExecutorConfig.minTimeout),
@@ -785,7 +819,7 @@ export class TaskExecutor {
         () =>
           reject(
             new TaskExecutorError(
-              `执行超时 (${timeoutMs}ms)`,
+              msg('ERR_EXECUTION_TIMEOUT', { v0: timeoutMs }),
               TaskExecutorErrorCode.EXECUTION_TIMEOUT,
             ),
           ),
@@ -840,7 +874,7 @@ export class TaskExecutor {
       } else {
         outputLength = 0;
       }
-      log.taskExecutor.info(`Subagent 原始结果`, {
+      log.taskExecutor.info('TAG_SUBAGENT_RAW_RESULT', {
         stopReason: result.stopReason,
         hasOutput: !!result.output,
         outputType: outputType,
@@ -880,7 +914,7 @@ export class TaskExecutor {
 
     let staleCount = 0;
     let lastActivityTime = startTime;
-    let lastActivityDesc = '启动中';
+    let lastActivityDesc = 'STATUS_STARTING';
     let warned = false;
     let stopped = false;
     let staleError = null;
@@ -924,22 +958,22 @@ export class TaskExecutor {
     const describeEvent = (event) => {
       const type = event.type || '';
       if (type === 'turn/start') {
-        return 'AI 思考中';
+        return 'STATUS_AI_THINKING';
       }
       if (type === 'turn/end') {
-        return '轮次完成';
+        return 'STATUS_TURN_COMPLETED';
       }
       if (type === 'user/message') {
-        return '收到用户输入';
+        return 'STATUS_USER_INPUT_RECEIVED';
       }
       if (type === 'assistant/message') {
-        return 'AI 回复中';
+        return 'STATUS_AI_REPLYING';
       }
       if (type.includes('tool')) {
-        return '调用工具中';
+        return 'STATUS_CALLING_TOOLS';
       }
       if (type.includes('deliverable')) {
-        return '生成交付物';
+        return 'STATUS_GENERATING_DELIVERABLES';
       }
       return type;
     };
@@ -955,7 +989,7 @@ export class TaskExecutor {
 
         try {
           if (!this.ctx?.sessionQuery) {
-            log.taskExecutor.debug('sessionQuery 不可用，跳过活跃度检测');
+            log.taskExecutor.debug('LOG_SESSION_QUERY_UNAVAILABLE_ACTIVITY');
             continue;
           }
 
@@ -1003,7 +1037,9 @@ export class TaskExecutor {
 
           if (hasActiveTurn) {
             lastActivityTime = latestActiveTime || Date.now();
-            lastActivityDesc = latestActiveEvent ? describeEvent(latestActiveEvent) : 'AI 工作中';
+            lastActivityDesc = latestActiveEvent
+              ? describeEvent(latestActiveEvent)
+              : 'STATUS_AI_WORKING';
             staleCount = 0;
 
             this.callbacks.onProgress?.({
@@ -1017,7 +1053,9 @@ export class TaskExecutor {
 
           if (latestActiveTime > lastActivityTime) {
             lastActivityTime = latestActiveTime;
-            lastActivityDesc = latestActiveEvent ? describeEvent(latestActiveEvent) : '活跃';
+            lastActivityDesc = latestActiveEvent
+              ? describeEvent(latestActiveEvent)
+              : 'STATUS_ACTIVE';
             staleCount = 0;
 
             this.callbacks.onProgress?.({
@@ -1032,7 +1070,7 @@ export class TaskExecutor {
           staleCount++;
           const stalenessDuration = Date.now() - lastActivityTime;
 
-          log.taskExecutor.debug('Subagent 无新活动', {
+          log.taskExecutor.debug('LOG_SUBAGENT_NO_NEW_ACTIVITY', {
             sessionId,
             staleCount,
             stalenessDuration: `${Math.round(stalenessDuration / 1000)}s`,
@@ -1050,13 +1088,18 @@ export class TaskExecutor {
 
           if (staleCount >= warnAfterStaleCount && !warned) {
             warned = true;
-            const msg = `Subagent 可能已卡住: ${Math.round(stalenessDuration / 1000)}s 无活动（最后活动: ${lastActivityDesc}）`;
+            const msg = msg('LOG_SUBAGENT_MAYBE_STUCK', {
+              v0: Math.round(stalenessDuration / 1000),
+              v1: lastActivityDesc,
+            });
             this.addWarning('SUBAGENT_STALE', msg);
             log.taskExecutor.warn(msg, { sessionId, staleCount });
           }
 
           if (staleCount >= interruptAfterStaleCount && autoInterrupt) {
-            const msg = `Subagent 检测到无响应: ${Math.round(stalenessDuration / 1000)}s 无活动，自动中断`;
+            const msg = msg('LOG_SUBAGENT_NO_RESPONSE', {
+              v0: Math.round(stalenessDuration / 1000),
+            });
             log.taskExecutor.error(msg, { sessionId, staleCount });
 
             // One-shot runs are cancelled through AbortSignal; interrupt() only owns continuable residents.
@@ -1072,7 +1115,7 @@ export class TaskExecutor {
           if (e.code === TaskExecutorErrorCode.EXECUTION_STALE) {
             throw e;
           }
-          log.taskExecutor.warn(`活跃度检测失败: ${e.message}`);
+          log.taskExecutor.warn(msg('ERR_ACTIVITY_CHECK_FAILED', { v0: e.message }));
         }
       }
     })();
@@ -1129,7 +1172,7 @@ export class TaskExecutor {
       } else {
         outputType = 'null';
       }
-      log.taskExecutor.debug(`Subagent 执行结果`, {
+      log.taskExecutor.debug('TAG_SUBAGENT_RESULT', {
         stopReason: result.stopReason,
         outputLength: output.length,
         hasDiagnostic: !!result.diagnostic,
@@ -1158,7 +1201,7 @@ export class TaskExecutor {
       }
       const elapsed = Date.now() - startTime;
 
-      log.taskExecutor.info(`Subagent 完成`, {
+      log.taskExecutor.info('LOG_SUBAGENT_COMPLETED', {
         sessionId,
         stopReason: result.stopReason,
         elapsed,
@@ -1199,7 +1242,7 @@ export class TaskExecutor {
         errorCode = e.code;
       }
 
-      log.taskExecutor.error(`Subagent 执行失败: ${e.message}`, {
+      log.taskExecutor.error(msg('ERR_SUBAGENT_EXECUTION_FAILED', { v0: e.message }), {
         code: errorCode,
         stack: e.stack,
         elapsed,
@@ -1291,9 +1334,9 @@ export class TaskExecutor {
 
     try {
       await run.dispose();
-      log.taskExecutor.debug(`Subagent 资源已释放`);
+      log.taskExecutor.debug('LOG_SUBAGENT_RESOURCES_RELEASED');
     } catch (disposeError) {
-      log.taskExecutor.warn(`资源释放失败: ${disposeError.message}`);
+      log.taskExecutor.warn(msg('ERR_RESOURCE_RELEASE_FAILED', { v0: disposeError.message }));
       if (strict) {
         throw disposeError;
       }
@@ -1328,7 +1371,7 @@ export class TaskExecutor {
    */
   extractOutput(outputBlocks) {
     if (!Array.isArray(outputBlocks) || outputBlocks.length === 0) {
-      log.taskExecutor.warn(`Subagent 输出为空`);
+      log.taskExecutor.warn('ERR_SUBAGENT_EMPTY_OUTPUT');
       return '';
     }
 
@@ -1339,7 +1382,7 @@ export class TaskExecutor {
 
     const nonTextBlocks = outputBlocks.filter((block) => block.type !== 'text');
     if (nonTextBlocks.length > 0) {
-      log.taskExecutor.debug(`Subagent 输出包含非文本块`, {
+      log.taskExecutor.debug('ERR_SUBAGENT_NON_TEXT_OUTPUT', {
         types: nonTextBlocks.map((b) => b.type),
       });
     }
@@ -1382,7 +1425,7 @@ ${userPrompt}`;
     const deliverables = [];
 
     if (!this.ctx?.sessionQuery) {
-      log.taskExecutor.debug(`sessionQuery 不可用，跳过交付物收集`);
+      log.taskExecutor.debug('LOG_SESSION_QUERY_UNAVAILABLE_DELIVERABLES');
       return deliverables;
     }
 
@@ -1390,7 +1433,7 @@ ${userPrompt}`;
     try {
       observation = await this.ctx.sessionQuery.observeSession(sessionId);
       if (!observation) {
-        log.taskExecutor.warn(`无法观察 session: ${sessionId}`);
+        log.taskExecutor.warn(msg('ERR_CANNOT_OBSERVE_SESSION', { v0: sessionId }));
         return deliverables;
       }
 
@@ -1399,12 +1442,12 @@ ${userPrompt}`;
           if (event.type === 'deliverables/presented') {
             const files = event.data?.files || [];
             deliverables.push(...files);
-            log.taskExecutor.debug(`发现交付物`, { count: files.length });
+            log.taskExecutor.debug('LOG_DELIVERABLES_FOUND', { count: files.length });
           }
         }
       }
     } catch (e) {
-      log.taskExecutor.warn(`收集交付物失败: ${e.message}`);
+      log.taskExecutor.warn(msg('ERR_DELIVERABLE_COLLECTION_FAILED', { v0: e.message }));
     } finally {
       observation?.[Symbol.dispose]?.();
     }
@@ -1433,7 +1476,7 @@ ${userPrompt}`;
       warningsCount: result.warnings?.length || 0,
     };
 
-    log.taskExecutor.info(`任务指标`, metrics);
+    log.taskExecutor.info('TAG_TASK_METRICS', metrics);
 
     // this.callbacks.onMetrics?.(metrics);
   }

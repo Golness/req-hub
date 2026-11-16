@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { fail, now, publicError, LIMITS } from './contracts.js';
 
+const TERMINAL = new Set(['completed', 'skipped', 'failed', 'cancelled', 'interrupted']);
+
 /**
  * Persistent per-scope job manifests with one global serial model runner.
  * Restarted running jobs become interrupted; restored queued jobs wait for an
@@ -93,6 +95,26 @@ export class KnowledgeQueue {
       this.pump();
     }
     return job;
+  }
+  /**
+   * Wait until a queued compile reaches a terminal state, bounded so a slow
+   * model job cannot block the daily batch indefinitely.
+   * @param store - Owning scope store.
+   * @param jobId - Job identity.
+   * @param options - {signal, timeoutMs}.
+   * @returns The latest job record, or null when it is no longer persisted.
+   */
+  async waitFor(store, jobId, { signal, timeoutMs = 120000 } = {}) {
+    const deadline = Date.now() + Math.max(0, timeoutMs);
+    for (;;) {
+      signal?.throwIfAborted();
+      const manifest = await store.jobs();
+      const job = manifest.jobs.find((item) => item.id === jobId);
+      if (!job || TERMINAL.has(job.status) || Date.now() >= deadline) {
+        return job || null;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
   }
   pump() {
     this.pending = this.pending

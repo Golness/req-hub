@@ -78,7 +78,7 @@ export class SyncSupervisor {
     owner.quickSync.stage = docType;
     Object.assign(owner.fields, {
       docType,
-      docTypeName: docType === 'design' ? '技术方案' : '需求文档',
+      docTypeName: docType === 'design' ? 'DOC_TECHNICAL_DESIGN' : 'DOC_REQUIREMENT',
     });
     this.preparing(owner, { stage: 'preparing' });
   }
@@ -121,7 +121,7 @@ export class SyncSupervisor {
     }
     owner.controller.signal.throwIfAborted();
     if (this.owner !== owner) {
-      throw new Error('SYNC_LEASE_EXPIRED: 同步任务执行权已失效');
+      throw new Error('SYNC_LEASE_EXPIRED');
     }
   }
   touch(owner) {
@@ -140,13 +140,13 @@ export class SyncSupervisor {
     }
     const now = this.now();
     if (owner.cancelledAt != null && now - owner.cancelledAt >= this.limits.cancelling) {
-      return 'SYNC_CANCEL_TIMEOUT: 取消收尾超时，已回收任务';
+      return 'SYNC_CANCEL_TIMEOUT';
     }
     if (now - owner.startedAt >= this.limits.total) {
-      return 'SYNC_TOTAL_TIMEOUT: 同步任务超过总执行时限';
+      return 'SYNC_TOTAL_TIMEOUT';
     }
     if (now - owner.lastProgressAt >= (owner.task ? this.limits.idle : this.limits.preparing)) {
-      return 'SYNC_PROGRESS_TIMEOUT: 同步执行长时间无进展，已回收任务';
+      return 'SYNC_PROGRESS_TIMEOUT';
     }
     return null;
   }

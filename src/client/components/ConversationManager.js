@@ -1,4 +1,5 @@
 'use strict';
+const { localizeMessage, messageCode } = require('../utils/serverMessage.js');
 const { formatDateTime, useTimeZone } = require('../time.js');
 const { PagedList } = require('./shared/PagedList.js');
 const React = require('react');
@@ -76,7 +77,7 @@ function ConversationManager({ workspaceId, onClose, onChanged }) {
       );
       const data = await response.json();
       if (!response.ok || data.error) {
-        throw Error(errorText(data.error));
+        throw Error(errorText(messageCode(data.error)));
       }
       return data;
     } finally {
@@ -101,7 +102,7 @@ function ConversationManager({ workspaceId, onClose, onChanged }) {
       }
     } catch (error) {
       if (id === owner.current) {
-        setError(error.message);
+        setError(localizeMessage(error.message));
       }
     }
   };
@@ -136,7 +137,7 @@ function ConversationManager({ workspaceId, onClose, onChanged }) {
       }
     } catch (error) {
       if (generation === detailsOwner.current) {
-        setError(error.message);
+        setError(localizeMessage(error.message));
       }
     } finally {
       if (generation === detailsOwner.current) {
@@ -157,7 +158,7 @@ function ConversationManager({ workspaceId, onClose, onChanged }) {
       }
     } catch (error) {
       if (alive.current) {
-        setError(error.message);
+        setError(localizeMessage(error.message));
         setDeleting(null);
       }
     } finally {
@@ -178,7 +179,7 @@ function ConversationManager({ workspaceId, onClose, onChanged }) {
       }
     } catch (error) {
       if (alive.current) {
-        setError(error.message);
+        setError(localizeMessage(error.message));
       }
     } finally {
       if (alive.current) {
@@ -354,7 +355,7 @@ function ConversationManager({ workspaceId, onClose, onChanged }) {
                     await request('cancel', {});
                     await load();
                   } catch (error) {
-                    setError(error.message);
+                    setError(localizeMessage(error.message));
                   }
                 },
               },

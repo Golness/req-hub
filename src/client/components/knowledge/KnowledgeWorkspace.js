@@ -8,10 +8,9 @@ const { SourcesPanel } = require('./SourcesPanel.js');
 const { QueryPanel } = require('./QueryPanel.js');
 const { LintPanel } = require('./LintPanel.js');
 const { TasksDrawer } = require('./TasksDrawer.js');
-const { KnowledgeSettings } = require('./KnowledgeSettings.js');
 const css = require('./KnowledgeWorkspace.module.css').default;
 const h = React.createElement;
-const { IconSettings, IconHourglass } = require('../../icons.js').createIconComponents(h);
+const { IconHourglass } = require('../../icons.js').createIconComponents(h);
 
 const TABS = ['wiki', 'sources', 'query', 'lint'];
 
@@ -19,6 +18,7 @@ const TABS = ['wiki', 'sources', 'query', 'lint'];
  * Knowledge workspace over the v2 API: Wiki, sources, query and lint views.
  * Visited views stay mounted so query history and lint findings survive tab switches.
  * @param props - Workspace identity, active tab, visibility and navigation callbacks.
+ * @param {number} [props.refreshSignal] - Incremented when settings change knowledge data.
  * @returns The rendered component content.
  */
 function KnowledgeWorkspace({
@@ -30,6 +30,7 @@ function KnowledgeWorkspace({
   initialSourceId,
   onOpenFile,
   docsDir,
+  refreshSignal = 0,
 }) {
   const jobs = useKnowledgeJobs(workspaceId, active);
   const [revision, setRevision] = React.useState(0);
@@ -37,17 +38,15 @@ function KnowledgeWorkspace({
   const [pageRequest, setPageRequest] = React.useState(null);
   const [sourceRequest, setSourceRequest] = React.useState(null);
   const mounted = React.useRef(new Set());
-  const lastTab = React.useRef('wiki');
   const requestToken = React.useRef(0);
-  const view = TABS.includes(tab) ? tab : 'settings';
-  if (view !== 'settings') {
-    lastTab.current = view;
-  }
+  const view = TABS.includes(tab) ? tab : 'wiki';
   mounted.current.add(view);
   const refresh = () => {
     setRevision((value) => value + 1);
     jobs.refresh();
   };
+  // Settings writes happen outside this panel, so their signal joins the local refresh key.
+  const refreshKey = revision + refreshSignal;
   const openPage = (pageId) => {
     setPageRequest({ pageId, token: ++requestToken.current });
     onTabChange('wiki');
@@ -70,7 +69,7 @@ function KnowledgeWorkspace({
     wiki: () =>
       h(WikiBrowser, {
         workspaceId,
-        refreshKey: revision,
+        refreshKey,
         generationId,
         running: jobs.running,
         pageRequest: pageRequest || initialRequest,
@@ -81,7 +80,7 @@ function KnowledgeWorkspace({
     sources: () =>
       h(SourcesPanel, {
         workspaceId,
-        refreshKey: revision,
+        refreshKey,
         generationId,
         sourceRequest: sourceRequest || initialSourceRequest,
         onChanged: refresh,
@@ -89,10 +88,8 @@ function KnowledgeWorkspace({
         onOpenTasks: () => setTasksOpen(true),
         docsDir,
       }),
-    query: () =>
-      h(QueryPanel, { workspaceId, onOpenPage: openPage, onOpenSource: openSource }),
+    query: () => h(QueryPanel, { workspaceId, onOpenPage: openPage, onOpenSource: openSource }),
     lint: () => h(LintPanel, { workspaceId, jobs, onOpenPage: openPage }),
-    settings: () => h(KnowledgeSettings, { workspaceId, onChanged: refresh }),
   };
   return h(
     'div',
@@ -112,10 +109,12 @@ function KnowledgeWorkspace({
             'button',
             {
               key: id,
+              id: `kb-tab-${id}`,
               type: 'button',
               role: 'tab',
               className: 'rh-workbench-tab',
               'aria-selected': view === id,
+              'aria-controls': `kb-content-${id}`,
               tabIndex: view === id ? 0 : -1,
               onClick: () => onTabChange(id),
               onKeyDown: (event) => {
@@ -153,17 +152,6 @@ function KnowledgeWorkspace({
           },
           jobs.activeCount ? t('kb.tasksCount', { count: jobs.activeCount }) : t('kb.tasks'),
         ),
-        h(
-          Button,
-          {
-            variant: 'ghost',
-            size: 'sm',
-            icon: h(IconSettings, { size: 14 }),
-            'aria-label': t('kb.settings'),
-            'aria-pressed': view === 'settings',
-            onClick: () => onTabChange(view === 'settings' ? lastTab.current : 'settings'),
-          },
-        ),
       ),
     ),
     [...mounted.current].map((id) =>
@@ -171,9 +159,11 @@ function KnowledgeWorkspace({
         'div',
         {
           key: id,
-          className: `${css.pane} ${id === 'settings' ? css.settingsPane : ''}`,
+          id: `kb-content-${id}`,
+          className: css.pane,
           hidden: view !== id,
-          role: id === 'settings' ? undefined : 'tabpanel',
+          role: 'tabpanel',
+          'aria-labelledby': `kb-tab-${id}`,
         },
         panels[id](),
       ),

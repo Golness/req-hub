@@ -14,6 +14,8 @@ const { FileKnowledgeAction } = require('../../src/client/components/FileKnowled
 const {
   KnowledgeWorkspace,
 } = require('../../src/client/components/knowledge/KnowledgeWorkspace.js');
+const { ImportFilesModal } = require('../../src/client/components/knowledge/ImportFilesModal.js');
+const { KnowledgeSettings } = require('../../src/client/components/knowledge/KnowledgeSettings.js');
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -68,6 +70,12 @@ const buttonByText = (text) =>
 
 function setTextarea(element, value) {
   const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+  setter.call(element, value);
+  element.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function setInputValue(element, value) {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
   setter.call(element, value);
   element.dispatchEvent(new Event('input', { bubbles: true }));
 }
@@ -365,6 +373,7 @@ function workspaceApi() {
           dailyUpdateEnabled: false,
           dailyImportConversations: false,
           dailyUpdateTime: '02:00',
+          larkPushEnabled: false,
         },
         version: 'settings-v1',
         schedule: { state: 'idle', lastRunAt: null },
@@ -418,24 +427,19 @@ it('KnowledgeWorkspace keeps a visited query panel mounted across tab switches',
   expect(container.querySelector('textarea').value).toBe('订单状态有哪些？');
 });
 
-it('KnowledgeWorkspace toggles settings from the gear and returns to the last tab', async () => {
+it('KnowledgeWorkspace leaves settings to the settings feature and falls back to Wiki', async () => {
   workspaceApi();
   await render(React.createElement(WorkspaceHarness));
-  const gear = container.querySelector('button[aria-label="设置"]');
-  expect(gear.getAttribute('aria-pressed')).toBe('false');
-  await act(async () => gear.click());
-  expect(gear.getAttribute('aria-pressed')).toBe('true');
-  expect(container.textContent).toContain('用途说明');
-  expect(container.textContent).toContain('清空知识库');
-  await act(async () => gear.click());
-  expect(gear.getAttribute('aria-pressed')).toBe('false');
+  expect(container.querySelector('button[aria-label="设置"]')).toBeNull();
+  expect(container.textContent).not.toContain('用途说明');
+  expect(container.textContent).not.toContain('清空知识库');
+  await act(async () => changeTab('settings'));
   expect(container.querySelector('[role="tab"][aria-selected="true"]').textContent).toBe('Wiki');
 });
 
-it('KnowledgeWorkspace saves synchronization settings with their expected version', async () => {
+it('KnowledgeSettings saves synchronization settings with their expected version', async () => {
   const fetch = workspaceApi();
-  await render(React.createElement(WorkspaceHarness));
-  await act(async () => container.querySelector('button[aria-label="设置"]').click());
+  await render(React.createElement(KnowledgeSettings, { workspaceId: 'ws' }));
   const autoManage = [...container.querySelectorAll('input[type="checkbox"]')].find(
     (node) => node.parentElement.textContent === '保存后自动整理',
   );
@@ -456,7 +460,25 @@ it('KnowledgeWorkspace saves synchronization settings with their expected versio
     'dailyImportConversations',
     'dailyUpdateEnabled',
     'dailyUpdateTime',
+    'larkPushEnabled',
   ]);
+});
+
+it('KnowledgeSettings exposes the scheduled Lark push toggle with help text', async () => {
+  const fetch = workspaceApi();
+  await render(React.createElement(KnowledgeSettings, { workspaceId: 'ws' }));
+  const push = [...container.querySelectorAll('input[type="checkbox"]')].find((node) =>
+    node.parentElement.textContent.includes('推送飞书'),
+  );
+  expect(push).toBeTruthy();
+  expect(push.checked).toBe(false);
+  expect(container.textContent).toContain('每日更新产出的 Wiki 页面会推送到工作区绑定的飞书目录');
+  await act(async () => push.click());
+  await act(async () => buttonByText('保存').click());
+  const call = fetch.mock.calls.find(
+    ([url, init]) => String(url).includes('/knowledge-v2/settings') && init?.method === 'POST',
+  );
+  expect(JSON.parse(call[1].body).values.larkPushEnabled).toBe(true);
 });
 
 it('KnowledgeWorkspace opens the tasks drawer from the header', async () => {
@@ -466,4 +488,159 @@ it('KnowledgeWorkspace opens the tasks drawer from the header', async () => {
   // The drawer is a Modal rendered through a portal on document.body.
   expect(document.body.textContent).toContain('知识库任务');
   expect(document.body.textContent).toContain('暂无任务');
+});
+
+it('ImportFilesModal lists candidates, blocks imported files, and posts the selection', async () => {
+  vi.stubGlobal('crypto', { randomUUID: () => 'test-request-key' });
+  const fetch = mockApi(async (path, method) => {
+    if (path === '/sources/files/candidates') {
+      return {
+        items: [
+          { relativePath: 'alice/a.md', state: 'new' },
+          { relativePath: 'alice/b.md', state: 'imported' },
+        ],
+        total: 2,
+        truncated: false,
+        batchLimit: 100,
+      };
+    }
+    if (path === '/sources/files' && method === 'POST') {
+      return {
+        results: [{ relativePath: 'alice/a.md', status: 'saved' }],
+        saved: 1,
+        skipped: 0,
+        failed: 0,
+      };
+    }
+    return {};
+  });
+  await render(
+    React.createElement(ImportFilesModal, {
+      open: true,
+      workspaceId: 'ws',
+      docsDir: 'docs',
+      onClose: () => {},
+      onImported: () => {},
+      onOpenTasks: () => {},
+    }),
+  );
+  const dialog = document.querySelector('[data-rh-modal]');
+  expect(dialog.textContent).toContain('alice/a.md');
+  expect(dialog.textContent).toContain('未导入');
+  expect(dialog.textContent).toContain('已导入');
+  expect(dialog.querySelector('input[aria-label="alice/b.md"]').disabled).toBe(true);
+
+  const selectAll = [...dialog.querySelectorAll('button')].find(
+    (node) => node.textContent === '全选当前可导入项',
+  );
+  await act(async () => selectAll.click());
+  expect(dialog.querySelector('input[aria-label="alice/a.md"]').checked).toBe(true);
+
+  const submit = [...dialog.querySelectorAll('button')].find((node) => node.textContent === '导入');
+  await act(async () => submit.click());
+  const call = fetch.mock.calls.find(
+    ([url, init]) =>
+      String(url) === '/req-hub/knowledge-v2/sources/files' && init?.method === 'POST',
+  );
+  expect(call).toBeTruthy();
+  const body = JSON.parse(call[1].body);
+  expect(body.files).toEqual([{ relativePath: 'alice/a.md' }]);
+  expect(body.workspaceId).toBe('ws');
+  expect(body.ingest).toBe(true);
+  expect(dialog.querySelector('input[aria-label="alice/a.md"]').disabled).toBe(true);
+});
+
+it('ImportFilesModal shows the search root and filters only after submitting the search', async () => {
+  mockApi(async (path) => {
+    if (path === '/sources/files/candidates') {
+      return {
+        items: [
+          { relativePath: 'alice/a.md', state: 'new' },
+          { relativePath: 'alice/b.md', state: 'imported' },
+          { relativePath: 'bob/c.md', state: 'new' },
+          { relativePath: 'bob/d.md', state: 'changed' },
+        ],
+        total: 4,
+        truncated: false,
+        batchLimit: 100,
+        base: { workspace: 'demo-ws', path: 'D:/repo/demo/docs' },
+      };
+    }
+    return {};
+  });
+  await render(
+    React.createElement(ImportFilesModal, {
+      open: true,
+      workspaceId: 'ws',
+      docsDir: 'docs',
+      onClose: () => {},
+      onImported: () => {},
+      onOpenTasks: () => {},
+    }),
+  );
+  const dialog = document.querySelector('[data-rh-modal]');
+  const buttonByLabel = (label) =>
+    [...dialog.querySelectorAll('button')].find((node) => node.textContent === label);
+  expect(dialog.textContent).toContain('demo-ws / D:/repo/demo/docs');
+  expect(dialog.textContent).not.toContain('从 docs 中选择');
+  expect(dialog.textContent).not.toContain('仅显示 .md');
+  expect(dialog.textContent).toContain('共 4 个文件 · 可导入 3 个 · 已选 0 个');
+
+  const searchInput = dialog.querySelector('input[aria-label="搜索文件"]');
+  await act(async () => setInputValue(searchInput, 'bob'));
+  expect(dialog.textContent).toContain('共 4 个文件 · 可导入 3 个 · 已选 0 个');
+  expect(dialog.textContent).toContain('alice/a.md');
+  expect(dialog.textContent).toContain('bob/c.md');
+
+  await act(async () => buttonByLabel('搜索').click());
+  expect(dialog.textContent).toContain('共 2 个文件 · 可导入 2 个 · 已选 0 个');
+  expect(dialog.textContent).not.toContain('alice/a.md');
+  expect(dialog.textContent).toContain('bob/c.md');
+
+  await act(async () => dialog.querySelector('[aria-label="状态筛选"]').click());
+  const imported = document.body.querySelector('button[data-value="imported"]');
+  expect(imported).toBeTruthy();
+  await act(async () => imported.click());
+  expect(dialog.textContent).toContain('共 0 个文件 · 可导入 0 个 · 已选 0 个');
+  expect(dialog.textContent).toContain('无匹配文件');
+
+  await act(async () => setInputValue(searchInput, ''));
+  await act(async () => buttonByLabel('搜索').click());
+  expect(dialog.textContent).toContain('共 1 个文件 · 可导入 0 个 · 已选 0 个');
+  expect(dialog.textContent).toContain('alice/b.md');
+});
+
+it('ImportFilesModal uses the shared action bar and one toolbar control size', async () => {
+  mockApi(async (path) => {
+    if (path === '/sources/files/candidates') {
+      return {
+        items: [{ relativePath: 'alice/a.md', state: 'new' }],
+        total: 1,
+        truncated: false,
+        batchLimit: 100,
+        base: { workspace: 'demo-ws', path: 'D:/repo/demo/docs' },
+      };
+    }
+    return {};
+  });
+  await render(
+    React.createElement(ImportFilesModal, {
+      open: true,
+      workspaceId: 'ws',
+      docsDir: 'docs',
+      onClose: () => {},
+      onImported: () => {},
+      onOpenTasks: () => {},
+    }),
+  );
+  const dialog = document.querySelector('[data-rh-modal]');
+  const bar = dialog.querySelector('[data-rh-action-bar]');
+  expect(bar).toBeTruthy();
+  expect(bar.textContent).toContain('导入并整理');
+  expect(bar.textContent).toContain('导入');
+  expect(dialog.querySelector('[data-rh-paged-inset="true"]')).toBeTruthy();
+  const toolbar = dialog.querySelector('form[role="search"]').parentElement;
+  const sized = [...toolbar.querySelectorAll('[data-rh-size]')];
+  expect(sized.length).toBeGreaterThan(0);
+  expect(new Set(sized.map((node) => node.getAttribute('data-rh-size')))).toEqual(new Set(['sm']));
 });

@@ -1,3 +1,4 @@
+import { msg } from './messages.js';
 /**
  * Session selector module.
  * Responsible for listing and filtering DSH sessions related to current workspace.
@@ -75,10 +76,10 @@ export async function listRelatedSessions(sessions, workspacePath, options = {})
       const titlePromises = filtered
         .sort((a, b) => (b.header.createdAt || 0) - (a.header.createdAt || 0))
         .map(async (record) => {
-          let title = '(无标题)';
+          let title = 'STATUS_UNTITLED';
           try {
             const titleSnapshot = await sessionQuery.readTitle(record.header.id, options.signal);
-            title = titleSnapshot?.title || '(无标题)';
+            title = titleSnapshot?.title || 'STATUS_UNTITLED';
           } catch (e) {
             options.signal?.throwIfAborted();
             // Use the fallback title when its snapshot cannot be read.
@@ -99,7 +100,7 @@ export async function listRelatedSessions(sessions, workspacePath, options = {})
 
       sessionsWithDetails.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-      log.session.info(`找到 ${sessionsWithDetails.length} 个相关会话（使用 sessionQuery）`);
+      log.session.info(msg('SESSION_FOUND_RELATED_VIA_QUERY', { v0: sessionsWithDetails.length }));
       return Promise.all(
         sessionsWithDetails
           .filter((session) => !query || session.title.toLowerCase().includes(query.toLowerCase()))
@@ -114,12 +115,12 @@ export async function listRelatedSessions(sessions, workspacePath, options = {})
       if (options.strict) {
         throw e;
       }
-      log.session.error(`sessionQuery 列出会话失败: ${e.message}`);
+      log.session.error(msg('SESSION_QUERY_LIST_FAILED', { v0: e.message }));
     }
   }
 
   if (!sessions) {
-    log.session.warn('sessions 和 sessionQuery 服务都不可用，无法列出会话');
+    log.session.warn('SESSION_SERVICES_UNAVAILABLE_LIST');
     return [];
   }
 
@@ -147,7 +148,7 @@ export async function listRelatedSessions(sessions, workspacePath, options = {})
         .slice(0, limit)
         .map(async (s) => ({
           id: s.header.id,
-          title: '(活跃会话)',
+          title: 'SESSION_ACTIVE_LABEL',
           createdAt: s.header.createdAt,
           ...(options.metadataOnly ? {} : await syncDetails(null, s.header.id, sessions)),
           cwd: s.header.cwd || '',
@@ -159,7 +160,7 @@ export async function listRelatedSessions(sessions, workspacePath, options = {})
 
     sessionsWithDetails.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-    log.session.info(`找到 ${sessionsWithDetails.length} 个相关活跃会话（使用 sessions 服务）`);
+    log.session.info(msg('SESSION_FOUND_ACTIVE_VIA_SERVICE', { v0: sessionsWithDetails.length }));
     return sessionsWithDetails
       .filter((session) => !query || session.title.toLowerCase().includes(query.toLowerCase()))
       .slice(0, limit);
@@ -167,7 +168,7 @@ export async function listRelatedSessions(sessions, workspacePath, options = {})
     if (options.strict) {
       throw e;
     }
-    log.session.error(`列出会话失败: ${e.message}`);
+    log.session.error(msg('SESSION_LIST_FAILED', { v0: e.message }));
     return [];
   }
 }

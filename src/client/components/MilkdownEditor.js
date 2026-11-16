@@ -1,4 +1,5 @@
 'use strict';
+const { localizeMessage } = require('../utils/serverMessage.js');
 const { t } = require('../locale.js');
 const css = require('./MilkdownEditor.module.css').default;
 
@@ -121,7 +122,7 @@ function MilkdownEditor({
         }
         console.error('Failed to load Milkdown:', e);
         if (!cancelled) {
-          setError(e.message);
+          setError(localizeMessage(e.message));
           setLoading(false);
         }
       }
