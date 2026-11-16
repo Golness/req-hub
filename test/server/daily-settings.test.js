@@ -8,6 +8,11 @@ import { getSubagentScheduler } from '../../src/server/concurrency/SubagentSched
 vi.mock('../../src/server/config.js', () => ({
   loadConfig: vi.fn(),
   saveConfig: vi.fn(),
+  updateConfig: vi.fn(async (updater) => {
+    const next = await updater(await loadConfig());
+    await saveConfig(next);
+    return next;
+  }),
   autoDefaultConfig: vi.fn(),
 }));
 

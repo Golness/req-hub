@@ -42,3 +42,54 @@ export async function disposeAll(disposers) {
     throw new AggregateError(errors, 'ReqHub resource cleanup failed');
   }
 }
+
+/**
+ * Own acquisitions before initialization starts. Stop admission first, cancel all producers,
+ * then release resources in reverse acquisition order, awaiting every cleanup even on failure.
+ * @returns An owner whose close method is idempotent, including failed initialization.
+ */
+export function createLifecycle() {
+  const admissions = [];
+  const resources = [];
+  const stoppers = [];
+  const pending = new Set();
+  let closing;
+  let closed = false;
+  return {
+    get closed() {
+      return closed;
+    },
+    own(dispose, stop) {
+      resources.push(dispose);
+      if (stop) {
+        stoppers.push(stop);
+      }
+    },
+    admit(dispose) {
+      admissions.push(dispose);
+    },
+    run(callback) {
+      if (closed) {
+        return Promise.reject(new Error('REQ_HUB_CLOSED'));
+      }
+      const work = Promise.resolve().then(() => {
+        if (closed) {
+          throw new Error('REQ_HUB_CLOSED');
+        }
+        return callback();
+      });
+      pending.add(work);
+      return work.finally(() => pending.delete(work));
+    },
+    close() {
+      closed = true;
+      closing ||= disposeAll([
+        ...admissions.toReversed(),
+        ...stoppers.toReversed(),
+        ...resources.toReversed(),
+        () => Promise.allSettled([...pending]),
+      ]);
+      return closing;
+    },
+  };
+}

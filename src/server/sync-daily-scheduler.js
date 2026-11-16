@@ -59,7 +59,7 @@ export function matchesScheduledBranch(branch, day, username) {
 }
 
 /**
- * Invoke the quick-sync handler and consume events without retaining its entire stream.
+ * Invoke the shared quick-sync use case without HTTP or stream emulation.
  * @param routes - Existing Host sync route definitions.
  * @param input - Authorized workspace, requirement and target branch.
  * @param parent - Same-workspace Host agent used for delegation.
@@ -68,58 +68,21 @@ export function matchesScheduledBranch(branch, day, username) {
  * @returns Terminal response and the latest snapshot of each document task.
  */
 export async function runScheduledQuickSync(routes, input, parent, signal, onEvent) {
-  const listeners = {};
-  const req = {
-    method: 'POST',
-    headers: { 'x-session-id': parent.session.id },
-    operationExec: { agent: parent, signal },
-    on(name, callback) {
-      listeners[name] = callback;
-    },
-    destroy() {},
-  };
-  let value;
   const tasks = new Map();
-  const eventReceived = (event) => {
-    if (event.sync?.id) {
-      tasks.set(event.sync.id, event.sync);
-    }
-    onEvent(event);
-  };
-  const res = {
-    statusCode: 200,
-    headersSent: false,
-    writableEnded: false,
-    writeHead(status, headers) {
-      this.statusCode = status;
-      this.headersSent = true;
-      this.headers = headers;
-    },
-    write(text) {
-      for (const line of String(text).split('\n')) {
-        if (line.startsWith('data: ')) {
-          const event = JSON.parse(line.slice(6));
-          eventReceived(event);
-          value = event;
-        }
-      }
-    },
-    end(text) {
-      if (text) {
-        value = JSON.parse(String(text));
-        if (value.sync) {
-          eventReceived({ type: 'state', sync: value.sync, quickSync: value.quickSync });
-        }
-      }
-      this.writableEnded = true;
-    },
-  };
-  signal.throwIfAborted();
-  await routes.find((route) => route.path === '/req-hub/phased-sync').handler(req, res);
-  if (listeners.data) {
-    listeners.data(JSON.stringify({ ...input, quick: true, requestId: randomUUID() }));
-    await listeners.end();
+  const application = routes.application;
+  if (!application) {
+    throw new Error('SYNC_APPLICATION_UNAVAILABLE');
   }
+  const { status, value } = await application.execute(
+    { ...input, quick: true, requestId: randomUUID() },
+    { agent: parent, signal },
+    (event) => {
+      if (event.sync?.id) {
+        tasks.set(event.sync.id, event.sync);
+      }
+      onEvent(event);
+    },
+  );
   signal.throwIfAborted();
   if (value?.skipped) {
     const history = await getSyncHistory(input.workspaceId, input.requirementId);
@@ -135,7 +98,7 @@ export async function runScheduledQuickSync(routes, input, parent, signal, onEve
       }
     }
   }
-  return { status: res.statusCode, value, tasks: [...tasks.values()] };
+  return { status, value, tasks: [...tasks.values()] };
 }
 
 /** Own one abortable daily batch, processing registered workspaces and branches in sequence. */

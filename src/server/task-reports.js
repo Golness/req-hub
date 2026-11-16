@@ -18,22 +18,32 @@ export class TaskReports {
     this.owner = digest(ownerKey);
     mkdirSync(directory, { recursive: true });
     this.db = new DatabaseSync(join(directory, 'task-reports.sqlite'));
-    this.db.exec(`
+    try {
+      this.db.exec(`
       CREATE TABLE IF NOT EXISTS reqhub_reports(id TEXT PRIMARY KEY,owner TEXT NOT NULL,kind TEXT NOT NULL,day TEXT NOT NULL,payload TEXT NOT NULL,UNIQUE(owner,kind,day));
       CREATE TABLE IF NOT EXISTS reqhub_report_items(report_id TEXT NOT NULL,workspace_id TEXT NOT NULL,item_key TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(report_id,workspace_id,item_key));
       CREATE TABLE IF NOT EXISTS reqhub_report_sources(report_id TEXT NOT NULL,scope_id TEXT NOT NULL,document_id TEXT NOT NULL,version INTEGER NOT NULL,workspace_id TEXT NOT NULL,PRIMARY KEY(report_id,scope_id,document_id,version));
       CREATE TABLE IF NOT EXISTS reqhub_sync_daily_control(owner TEXT PRIMARY KEY,config_hash TEXT NOT NULL,activated_at TEXT NOT NULL);
     `);
-    for (const row of this.db
-      .prepare('SELECT payload FROM reqhub_reports WHERE owner=?')
-      .all(this.owner)) {
-      const report = JSON.parse(row.payload);
-      if (report.status === 'running') {
-        report.status = 'interrupted';
-        report.completedAt = new Date().toISOString();
-        this.stopItems(report.id, 'interrupted');
-        this.save(report);
+      for (const row of this.db
+        .prepare('SELECT payload FROM reqhub_reports WHERE owner=?')
+        .all(this.owner)) {
+        const report = JSON.parse(row.payload);
+        if (report.status === 'running') {
+          report.status = 'interrupted';
+          report.completedAt = new Date().toISOString();
+          this.stopItems(report.id, 'interrupted');
+          this.save(report);
+        }
       }
+    } catch (cause) {
+      // A failed constructor never reaches the plugin owner; release its native handle here.
+      try {
+        this.db.close();
+      } catch (error) {
+        throw new AggregateError([cause, error], 'ReqHub report initialization failed');
+      }
+      throw cause;
     }
   }
   save(report) {

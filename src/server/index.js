@@ -1,7 +1,7 @@
 import { msg } from './messages.js';
 import { createOperations, installOperationTool } from './operations.js';
-import { authenticatedRoute, disposeAll } from './plugin-boundaries.js';
-import { configureStorage, Config } from './config.js';
+import { authenticatedRoute, createLifecycle } from './plugin-boundaries.js';
+import { createConfigRepository, Config } from './config.js';
 import { join } from 'node:path';
 import { installSubagentScheduler } from './concurrency/SubagentScheduler.js';
 export { Config };
@@ -74,529 +74,576 @@ export const inject = [
  * @param {Object} ctx.sessionQuery - Session query service
  * @param {Object} ctx.subagents - Subagents service
  * @param {Object} ctx.sessionProjections - Session projections service
- * @returns {Function} Disposer function that cleans up all registered routes
+ * @returns {Promise<Function>} Disposer after initialization; failures await rollback.
  */
-export function apply(ctx, config = {}) {
+export async function apply(ctx, config = {}) {
   // ctx.get is Cordis' optional-service lookup; profile launchers provide this
   // before activating bundles. Shell environment variables are only a fallback.
   const profile = ctx.get?.('profileContext');
-  const releaseConfig = configureStorage(config, {
+  const repository = createConfigRepository(config, {
     filePath: profile?.dir ? join(profile.dir, 'req-hub', 'config.json') : undefined,
   });
-  setContentLanguage(config?.general?.contentLanguage);
-  const {
-    workspaceRegistry,
-    webServer,
-    llm,
-    sessions,
-    skills,
-    agents,
-    agentPresets,
-    sessionQuery,
-    subagents,
-    sessionProjections,
-  } = ctx;
+  return repository.run(async () => {
+    const lifecycle = createLifecycle();
+    lifecycle.own(() => repository.close());
+    const cleanup = () => lifecycle.close();
+    ctx.effect(() => cleanup, 'req-hub: lifecycle');
+    try {
+      setContentLanguage(config?.general?.contentLanguage);
+      const {
+        workspaceRegistry,
+        webServer,
+        llm,
+        sessions,
+        skills,
+        agents,
+        agentPresets,
+        sessionQuery,
+        subagents,
+        sessionProjections,
+      } = ctx;
 
-  setSkillsService(skills);
-  const subagentScheduler = installSubagentScheduler(subagents);
+      setSkillsService(skills);
+      const subagentScheduler = installSubagentScheduler(subagents);
+      lifecycle.own(
+        () => subagentScheduler.close(),
+        () => subagentScheduler.beginClose(),
+      );
 
-  log.startup.info("LOG_PLUGIN_STARTED");
-  log.startup.debug("LOG_AVAILABLE_SERVICES", {
-    hasSessions: !!sessions,
-    hasSkills: !!skills,
-    hasLlm: !!llm,
-    hasAgents: !!agents,
-    hasAgentPresets: !!agentPresets,
-    hasSessionQuery: !!sessionQuery,
-    hasSubagents: !!subagents,
-    hasSessionProjections: !!sessionProjections,
-  });
+      log.startup.info('LOG_PLUGIN_STARTED');
+      log.startup.debug('LOG_AVAILABLE_SERVICES', {
+        hasSessions: !!sessions,
+        hasSkills: !!skills,
+        hasLlm: !!llm,
+        hasAgents: !!agents,
+        hasAgentPresets: !!agentPresets,
+        hasSessionQuery: !!sessionQuery,
+        hasSubagents: !!subagents,
+        hasSessionProjections: !!sessionProjections,
+      });
 
-  const disposers = [releaseConfig];
-  const lark = createLarkCliRoutes(workspaceRegistry);
-  disposers.push(() => lark.dispose());
-  const knowledgeV2 = createKnowledgeApplication({
-    ctx,
-    registry: workspaceRegistry,
-    profileDir: profile?.dir,
-    lark,
-    onSyncError: (error) => log.startup.warn('KNOWLEDGE_SYNC_FAILED: ' + error.message),
-  });
-  disposers.push(() => knowledgeV2.close());
-  const reports = new TaskReports(workspaceRegistry);
-  disposers.push(() => reports.close());
-  knowledgeV2.reports = reports;
-  knowledgeV2.onJobChange = (job) => reports.knowledgeJob(job);
-  const enhancements = createEnhancementRoutes(knowledgeV2.context, ctx);
-  disposers.push(() => enhancements.dispose());
-  const writing = createWritingRoutes(workspaceRegistry, llm, agents, ctx, knowledgeV2.context);
-  const creation = createCreationRoutes(workspaceRegistry);
-  disposers.push(() => creation.dispose());
-  disposers.push(() => writing.dispose());
-  const syncTools = installSyncTools(ctx);
-  if (syncTools) {
-    disposers.push(() => syncTools.dispose());
-  }
+      const lark = createLarkCliRoutes(workspaceRegistry);
+      lifecycle.own(() => lark.dispose());
+      const reports = new TaskReports(workspaceRegistry);
+      lifecycle.own(() => reports.close());
+      const knowledgeV2 = createKnowledgeApplication({
+        ctx,
+        registry: workspaceRegistry,
+        profileDir: profile?.dir,
+        lark,
+        onSyncError: (error) => log.startup.warn('KNOWLEDGE_SYNC_FAILED: ' + error.message),
+      });
+      lifecycle.own(
+        () => knowledgeV2.close(),
+        () => knowledgeV2.beginClose(),
+      );
+      knowledgeV2.reports = reports;
+      knowledgeV2.onJobChange = (job) => reports.knowledgeJob(job);
+      const enhancements = createEnhancementRoutes(knowledgeV2.context, ctx);
+      lifecycle.own(
+        () => enhancements.dispose(),
+        () => enhancements.service.beginClose(),
+      );
+      const writing = createWritingRoutes(workspaceRegistry, llm, agents, ctx, knowledgeV2.context);
+      lifecycle.own(
+        () => writing.dispose(),
+        () => writing.beginClose(),
+      );
+      const creation = createCreationRoutes(workspaceRegistry);
+      lifecycle.own(() => creation.dispose());
+      const syncTools = installSyncTools(ctx);
+      if (syncTools) {
+        lifecycle.own(() => syncTools.dispose());
+      }
 
-  const syncRoutes = createSyncRoutes(workspaceRegistry, llm, sessions, agents, ctx, {
-    knowledgeV2,
-  });
-  const scheduledSync = new SyncDailyScheduler({
-    registry: workspaceRegistry,
-    knowledge: knowledgeV2,
-    reports,
-    routes: syncRoutes,
-    lark,
-  });
+      const syncRoutes = createSyncRoutes(workspaceRegistry, llm, sessions, agents, ctx, {
+        knowledgeV2,
+      });
+      lifecycle.own(
+        () => syncRoutes.dispose(),
+        () => syncRoutes.beginClose(),
+      );
+      const scheduledSync = new SyncDailyScheduler({
+        registry: workspaceRegistry,
+        knowledge: knowledgeV2,
+        reports,
+        routes: syncRoutes,
+        lark,
+      });
 
-  const routes = [
-    ...createKnowledgeV2Routes(knowledgeV2),
-    ...enhancements.routes,
+      lifecycle.own(
+        () => scheduledSync.close(),
+        () => scheduledSync.beginClose(),
+      );
 
-    ...createConfigRoutes(workspaceRegistry, llm, ctx, {
-      onSaved: (config, previous) => {
-        setContentLanguage(config.general?.contentLanguage);
-        const zoneChanged = config.general?.timeZone !== previous.general?.timeZone;
-        const keys = ['dailyUpdateEnabled', 'dailyUpdateTime', 'dailyOffsetDays'];
-        if (
-          config.defaultUsername !== previous.defaultUsername ||
-          zoneChanged ||
-          keys.some((key) => config.sync?.[key] !== previous.sync?.[key])
-        ) {
-          void scheduledSync.refresh().catch((error) => {
-            log.startup.warn('SYNC_SCHEDULE_REFRESH_FAILED: ' + error.message);
-          });
-        }
-        const knowledgeKeys = [
-          'autoManage',
-          'autoManageDelayMs',
-          'dailyUpdateEnabled',
-          'dailyImportConversations',
-          'dailyUpdateTime',
-        ];
-        if (
-          zoneChanged ||
-          knowledgeKeys.some((key) => config.knowledgeV2?.[key] !== previous.knowledgeV2?.[key])
-        ) {
-          void knowledgeV2.sync.refresh().catch((error) => {
-            log.startup.warn('KNOWLEDGE_SYNC_REFRESH_FAILED: ' + error.message);
-          });
-        }
-      },
-    }),
-    ...lark.routes,
-    ...reports.routes(),
+      const routes = [
+        ...createKnowledgeV2Routes(knowledgeV2),
+        ...enhancements.routes,
 
-    ...createTreeRoutes(workspaceRegistry, { knowledgeService: knowledgeV2 }),
-    ...creation.routes,
-
-    ...syncRoutes,
-
-    ...writing.routes,
-
-    {
-      kind: 'exact',
-      path: '/req-hub/logs',
-      handler(req, res) {
-        if (req.method !== 'GET') {
-          res.writeHead(405);
-          res.end();
-          return;
-        }
-        json(res, { logs: getLogs() });
-      },
-    },
-    {
-      kind: 'exact',
-      path: '/req-hub/logs/clear',
-      handler(req, res) {
-        if (req.method !== 'POST') {
-          res.writeHead(405);
-          res.end();
-          return;
-        }
-        clearLogs();
-        log.startup.info("LOG_CLEARED");
-        json(res, { success: true });
-      },
-    },
-
-    {
-      kind: 'exact',
-      path: '/req-hub/logs/meta',
-      handler(req, res) {
-        if (req.method !== 'GET') {
-          res.writeHead(405);
-          res.end();
-          return;
-        }
-        json(res, {
-          levels: getLogLevels(),
-          tags: getLogTags(),
-        });
-      },
-    },
-
-    {
-      kind: 'exact',
-      path: '/req-hub/diagnose-subagent',
-      async handler(req, res) {
-        if (req.method !== 'GET') {
-          res.writeHead(405);
-          res.end();
-          return;
-        }
-
-        const url = new URL(req.url, 'http://localhost');
-        const titleQuery = url.searchParams.get('title') || '';
-
-        if (!titleQuery) {
-          json(res, { error: 'missing title parameter' }, 400);
-          return;
-        }
-
-        if (!sessionQuery || !subagents || !agents) {
-          json(res, { error: 'DSH services not available' }, 500);
-          return;
-        }
-
-        try {
-          const searchResult = await sessionQuery.searchSessions({ query: titleQuery });
-          const hits = searchResult?.items || [];
-
-          const matchedSessions = [];
-          for (const hit of hits) {
-            let title = '';
-            try {
-              const titleObs = await sessionQuery.readTitle(hit.header.id);
-              title = titleObs?.title || '';
-            } catch (error) {
-              // An unreadable title cannot match this optional diagnostic query.
+        ...createConfigRoutes(workspaceRegistry, llm, ctx, {
+          onSaved: async (config, previous) => {
+            const pending = [];
+            setContentLanguage(config.general?.contentLanguage);
+            const zoneChanged = config.general?.timeZone !== previous.general?.timeZone;
+            const keys = ['dailyUpdateEnabled', 'dailyUpdateTime', 'dailyOffsetDays'];
+            if (
+              config.defaultUsername !== previous.defaultUsername ||
+              zoneChanged ||
+              keys.some((key) => config.sync?.[key] !== previous.sync?.[key])
+            ) {
+              pending.push(scheduledSync.refresh());
             }
-
-            if (title.includes(titleQuery)) {
-              matchedSessions.push({
-                id: hit.header.id,
-                title,
-                cwd: hit.header.cwd || '',
-                createdAt: hit.header.createdAt,
-              });
+            const knowledgeKeys = [
+              'autoManage',
+              'autoManageDelayMs',
+              'dailyUpdateEnabled',
+              'dailyImportConversations',
+              'dailyUpdateTime',
+            ];
+            if (
+              zoneChanged ||
+              knowledgeKeys.some((key) => config.knowledgeV2?.[key] !== previous.knowledgeV2?.[key])
+            ) {
+              pending.push(knowledgeV2.sync.refresh());
             }
-          }
-
-          if (matchedSessions.length === 0) {
-            json(res, { error: msg("SESSION_NOT_FOUND_BY_TITLE", { v0: titleQuery }), sessions: [] });
-            return;
-          }
-
-          matchedSessions.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-          const targetSession = matchedSessions[0];
-
-          let descendants = [];
-          try {
-            descendants = await subagents.listDescendants(targetSession.id);
-          } catch (e) {
-            descendants = [];
-          }
-
-          const subagentDetails = [];
-          for (const desc of descendants) {
-            if (desc.kind !== 'child') {
-              continue;
+            const results = await Promise.allSettled(pending);
+            const failures = results.filter((result) => result.status === 'rejected');
+            if (failures.length) {
+              throw new AggregateError(
+                failures.map((result) => result.reason),
+                'ReqHub configuration application failed',
+              );
             }
+          },
+        }),
+        ...lark.routes,
+        ...reports.routes(),
 
-            let lastEventTime = null;
-            let lastEventType = null;
-            let hasActiveTurn = false;
-            let eventCount = 0;
+        ...createTreeRoutes(workspaceRegistry, { knowledgeService: knowledgeV2 }),
+        ...creation.routes,
 
-            try {
-              const observation = await sessionQuery.observeSession(desc.id);
-              const events = observation?.events || [];
-              eventCount = events.length;
+        ...syncRoutes,
 
-              if (events.length > 0) {
-                let foundStart = false;
-                for (let i = events.length - 1; i >= 0; i--) {
-                  const e = events[i];
-                  if (e.type === 'turn/end' && foundStart) {
-                    foundStart = false;
-                  } else if (e.type === 'turn/start') {
-                    foundStart = true;
-                    break;
-                  }
-                }
-                hasActiveTurn = foundStart;
+        ...writing.routes,
 
-                const latest = events[events.length - 1];
-                lastEventTime = latest.time || null;
-                lastEventType = latest.type || null;
-              }
-            } catch (error) {
-              // Keep diagnostic fields unset when the session events cannot be read.
+        {
+          kind: 'exact',
+          path: '/req-hub/logs',
+          handler(req, res) {
+            if (req.method !== 'GET') {
+              res.writeHead(405);
+              res.end();
+              return;
             }
+            json(res, { logs: getLogs() });
+          },
+        },
+        {
+          kind: 'exact',
+          path: '/req-hub/logs/clear',
+          handler(req, res) {
+            if (req.method !== 'POST') {
+              res.writeHead(405);
+              res.end();
+              return;
+            }
+            clearLogs();
+            log.startup.info('LOG_CLEARED');
+            json(res, { success: true });
+          },
+        },
 
-            const agent = agents.get(desc.id);
-            const agentStatus = agent?.status || 'unknown';
-            const isActive = hasActiveTurn || agentStatus === 'running';
-
-            subagentDetails.push({
-              id: desc.id,
-              label: desc.label || "STATUS_NO_TAG",
-              status: desc.status || 'unknown',
-              agentStatus,
-              isActive,
-              hasActiveTurn,
-              lastEventTime,
-              lastEventType,
-              eventCount,
-              depth: desc.depth,
+        {
+          kind: 'exact',
+          path: '/req-hub/logs/meta',
+          handler(req, res) {
+            if (req.method !== 'GET') {
+              res.writeHead(405);
+              res.end();
+              return;
+            }
+            json(res, {
+              levels: getLogLevels(),
+              tags: getLogTags(),
             });
-          }
+          },
+        },
 
-          subagentDetails.sort((a, b) => (b.depth || 0) - (a.depth || 0));
-
-          json(res, {
-            targetSession,
-            totalSubagents: subagentDetails.length,
-            subagents: subagentDetails,
-            latestSubagent: subagentDetails[0] || null,
-          });
-        } catch (e) {
-          json(res, { error: e.message }, 500);
-        }
-      },
-    },
-
-    {
-      kind: 'exact',
-      path: '/req-hub/skills',
-      async handler(req, res) {
-        if (req.method !== 'GET') {
-          res.writeHead(405);
-          res.end();
-          return;
-        }
-
-        const url = new URL(req.url, 'http://localhost');
-        const workspaceId = url.searchParams.get('workspaceId');
-        const sessionId = url.searchParams.get('sessionId');
-
-        if (!skills) {
-          json(res, { skills: [], error: "ERR_SKILLS_SERVICE_UNAVAILABLE" });
-          return;
-        }
-
-        let scopeLease;
-        try {
-          let cwd = undefined;
-          if (workspaceId) {
-            const workspaces = workspaceRegistry.list();
-            const workspace = workspaces.find((w) => w.id === workspaceId);
-            if (workspace) {
-              cwd = workspace.path;
+        {
+          kind: 'exact',
+          path: '/req-hub/diagnose-subagent',
+          async handler(req, res) {
+            if (req.method !== 'GET') {
+              res.writeHead(405);
+              res.end();
+              return;
             }
-          }
 
-          let skillRegistry = skills;
-          let scope = undefined;
+            const url = new URL(req.url, 'http://localhost');
+            const titleQuery = url.searchParams.get('title') || '';
 
-          if (sessionId && sessionQuery && agents && agentPresets) {
+            if (!titleQuery) {
+              json(res, { error: 'missing title parameter' }, 400);
+              return;
+            }
+
+            if (!sessionQuery || !subagents || !agents) {
+              json(res, { error: 'DSH services not available' }, 500);
+              return;
+            }
+
             try {
-              const observation = await sessionQuery.observeSession(sessionId);
-              if (observation?.projections) {
-                if (!cwd) {
-                  cwd = observation.header.cwd;
+              const searchResult = await sessionQuery.searchSessions({ query: titleQuery });
+              const hits = searchResult?.items || [];
+
+              const matchedSessions = [];
+              for (const hit of hits) {
+                let title = '';
+                try {
+                  const titleObs = await sessionQuery.readTitle(hit.header.id);
+                  title = titleObs?.title || '';
+                } catch (error) {
+                  // An unreadable title cannot match this optional diagnostic query.
                 }
 
-                const agentPreset = observation.projections.values.agentPreset ?? undefined;
-
-                const live = agents.get(sessionId);
-                let scoped = live ? agentPresets.serviceFor(live, 'skills') : undefined;
-
-                if (!scoped && agentPreset) {
-                  try {
-                    const lease = (scopeLease = await agentPresets.acquireScope(agentPreset));
-                    if (lease) {
-                      scope = lease.key;
-                      // Release the acquired preset scope in the surrounding finally block.
-                    }
-                  } catch (e) {
-                    // Use the global skill catalog when a preset scope is unavailable.
-                  }
-                } else if (scoped) {
-                  skillRegistry = scoped;
-                  scope = live;
+                if (title.includes(titleQuery)) {
+                  matchedSessions.push({
+                    id: hit.header.id,
+                    title,
+                    cwd: hit.header.cwd || '',
+                    createdAt: hit.header.createdAt,
+                  });
                 }
               }
-            } catch (e) {
-              log.startup.warn(`Failed to get session skills: ${e.message}`);
-            }
-          }
 
-          log.startup.debug(`Fetching skills list`, {
-            cwd,
-            sessionId,
-            scoped: skillRegistry !== skills,
-          });
+              if (matchedSessions.length === 0) {
+                json(res, {
+                  error: msg('SESSION_NOT_FOUND_BY_TITLE', { v0: titleQuery }),
+                  sessions: [],
+                });
+                return;
+              }
 
-          const skillsList = await skillRegistry.list(cwd ? { cwd, scope } : { scope });
+              matchedSessions.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+              const targetSession = matchedSessions[0];
 
-          const userSkills = skillsList.filter((s) => s.invocation.userInvocable);
+              let descendants = [];
+              try {
+                descendants = await subagents.listDescendants(targetSession.id);
+              } catch (e) {
+                descendants = [];
+              }
 
-          log.startup.debug(`Skills list result`, {
-            count: userSkills.length,
-          });
-
-          json(res, {
-            skills: userSkills.map((s) => ({
-              name: s.name,
-              description: s.description,
-              whenToUse: s.whenToUse,
-              source: s.source,
-              modelInvocable: s.invocation.modelInvocable,
-              userInvocable: s.invocation.userInvocable,
-            })),
-            debug: {
-              cwd,
-              workspaceId,
-              sessionId,
-              scoped: skillRegistry !== skills,
-            },
-          });
-        } catch (e) {
-          log.startup.error(msg("ERR_FETCH_SKILLS_FAILED", { v0: e.message }), { stack: e.stack });
-          json(res, { skills: [], error: e.message }, 500);
-        } finally {
-          await scopeLease?.[Symbol.asyncDispose]();
-        }
-      },
-    },
-
-    {
-      kind: 'exact',
-      path: '/req-hub/skill-content',
-      async handler(req, res) {
-        if (req.method !== 'GET') {
-          res.writeHead(405);
-          res.end();
-          return;
-        }
-
-        const url = new URL(req.url, 'http://localhost');
-        const skillName = url.searchParams.get('name');
-        const workspaceId = url.searchParams.get('workspaceId');
-        const sessionId = url.searchParams.get('sessionId');
-
-        if (!skillName) {
-          json(res, { error: 'missing skill name' }, 400);
-          return;
-        }
-
-        if (!skills) {
-          json(res, { error: "ERR_SKILLS_SERVICE_UNAVAILABLE" }, 500);
-          return;
-        }
-
-        let scopeLease;
-        try {
-          let cwd = undefined;
-          if (workspaceId) {
-            const workspaces = workspaceRegistry.list();
-            const workspace = workspaces.find((w) => w.id === workspaceId);
-            if (workspace) {
-              cwd = workspace.path;
-            }
-          }
-
-          let skillRegistry = skills;
-          let scope = undefined;
-
-          if (sessionId && sessionQuery && agents && agentPresets) {
-            try {
-              const observation = await sessionQuery.observeSession(sessionId);
-              if (observation?.projections) {
-                if (!cwd) {
-                  cwd = observation.header.cwd;
+              const subagentDetails = [];
+              for (const desc of descendants) {
+                if (desc.kind !== 'child') {
+                  continue;
                 }
 
-                const agentPreset = observation.projections.values.agentPreset ?? undefined;
+                let lastEventTime = null;
+                let lastEventType = null;
+                let hasActiveTurn = false;
+                let eventCount = 0;
 
-                const live = agents.get(sessionId);
-                let scoped = live ? agentPresets.serviceFor(live, 'skills') : undefined;
+                try {
+                  const observation = await sessionQuery.observeSession(desc.id);
+                  const events = observation?.events || [];
+                  eventCount = events.length;
 
-                if (!scoped && agentPreset) {
-                  try {
-                    const lease = (scopeLease = await agentPresets.acquireScope(agentPreset));
-                    if (lease) {
-                      scope = lease.key;
+                  if (events.length > 0) {
+                    let foundStart = false;
+                    for (let i = events.length - 1; i >= 0; i--) {
+                      const e = events[i];
+                      if (e.type === 'turn/end' && foundStart) {
+                        foundStart = false;
+                      } else if (e.type === 'turn/start') {
+                        foundStart = true;
+                        break;
+                      }
                     }
-                  } catch (e) {
-                    // Use the global skill catalog when a preset scope is unavailable.
+                    hasActiveTurn = foundStart;
+
+                    const latest = events[events.length - 1];
+                    lastEventTime = latest.time || null;
+                    lastEventType = latest.type || null;
                   }
-                } else if (scoped) {
-                  skillRegistry = scoped;
-                  scope = live;
+                } catch (error) {
+                  // Keep diagnostic fields unset when the session events cannot be read.
+                }
+
+                const agent = agents.get(desc.id);
+                const agentStatus = agent?.status || 'unknown';
+                const isActive = hasActiveTurn || agentStatus === 'running';
+
+                subagentDetails.push({
+                  id: desc.id,
+                  label: desc.label || 'STATUS_NO_TAG',
+                  status: desc.status || 'unknown',
+                  agentStatus,
+                  isActive,
+                  hasActiveTurn,
+                  lastEventTime,
+                  lastEventType,
+                  eventCount,
+                  depth: desc.depth,
+                });
+              }
+
+              subagentDetails.sort((a, b) => (b.depth || 0) - (a.depth || 0));
+
+              json(res, {
+                targetSession,
+                totalSubagents: subagentDetails.length,
+                subagents: subagentDetails,
+                latestSubagent: subagentDetails[0] || null,
+              });
+            } catch (e) {
+              json(res, { error: e.message }, 500);
+            }
+          },
+        },
+
+        {
+          kind: 'exact',
+          path: '/req-hub/skills',
+          async handler(req, res) {
+            if (req.method !== 'GET') {
+              res.writeHead(405);
+              res.end();
+              return;
+            }
+
+            const url = new URL(req.url, 'http://localhost');
+            const workspaceId = url.searchParams.get('workspaceId');
+            const sessionId = url.searchParams.get('sessionId');
+
+            if (!skills) {
+              json(res, { skills: [], error: 'ERR_SKILLS_SERVICE_UNAVAILABLE' });
+              return;
+            }
+
+            let scopeLease;
+            try {
+              let cwd = undefined;
+              if (workspaceId) {
+                const workspaces = workspaceRegistry.list();
+                const workspace = workspaces.find((w) => w.id === workspaceId);
+                if (workspace) {
+                  cwd = workspace.path;
                 }
               }
+
+              let skillRegistry = skills;
+              let scope = undefined;
+
+              if (sessionId && sessionQuery && agents && agentPresets) {
+                try {
+                  const observation = await sessionQuery.observeSession(sessionId);
+                  if (observation?.projections) {
+                    if (!cwd) {
+                      cwd = observation.header.cwd;
+                    }
+
+                    const agentPreset = observation.projections.values.agentPreset ?? undefined;
+
+                    const live = agents.get(sessionId);
+                    let scoped = live ? agentPresets.serviceFor(live, 'skills') : undefined;
+
+                    if (!scoped && agentPreset) {
+                      try {
+                        const lease = (scopeLease = await agentPresets.acquireScope(agentPreset));
+                        if (lease) {
+                          scope = lease.key;
+                          // Release the acquired preset scope in the surrounding finally block.
+                        }
+                      } catch (e) {
+                        // Use the global skill catalog when a preset scope is unavailable.
+                      }
+                    } else if (scoped) {
+                      skillRegistry = scoped;
+                      scope = live;
+                    }
+                  }
+                } catch (e) {
+                  log.startup.warn(`Failed to get session skills: ${e.message}`);
+                }
+              }
+
+              log.startup.debug(`Fetching skills list`, {
+                cwd,
+                sessionId,
+                scoped: skillRegistry !== skills,
+              });
+
+              const skillsList = await skillRegistry.list(cwd ? { cwd, scope } : { scope });
+
+              const userSkills = skillsList.filter((s) => s.invocation.userInvocable);
+
+              log.startup.debug(`Skills list result`, {
+                count: userSkills.length,
+              });
+
+              json(res, {
+                skills: userSkills.map((s) => ({
+                  name: s.name,
+                  description: s.description,
+                  whenToUse: s.whenToUse,
+                  source: s.source,
+                  modelInvocable: s.invocation.modelInvocable,
+                  userInvocable: s.invocation.userInvocable,
+                })),
+                debug: {
+                  cwd,
+                  workspaceId,
+                  sessionId,
+                  scoped: skillRegistry !== skills,
+                },
+              });
             } catch (e) {
-              log.startup.warn(`Failed to get session skills: ${e.message}`);
+              log.startup.error(msg('ERR_FETCH_SKILLS_FAILED', { v0: e.message }), {
+                stack: e.stack,
+              });
+              json(res, { skills: [], error: e.message }, 500);
+            } finally {
+              await scopeLease?.[Symbol.asyncDispose]();
             }
+          },
+        },
+
+        {
+          kind: 'exact',
+          path: '/req-hub/skill-content',
+          async handler(req, res) {
+            if (req.method !== 'GET') {
+              res.writeHead(405);
+              res.end();
+              return;
+            }
+
+            const url = new URL(req.url, 'http://localhost');
+            const skillName = url.searchParams.get('name');
+            const workspaceId = url.searchParams.get('workspaceId');
+            const sessionId = url.searchParams.get('sessionId');
+
+            if (!skillName) {
+              json(res, { error: 'missing skill name' }, 400);
+              return;
+            }
+
+            if (!skills) {
+              json(res, { error: 'ERR_SKILLS_SERVICE_UNAVAILABLE' }, 500);
+              return;
+            }
+
+            let scopeLease;
+            try {
+              let cwd = undefined;
+              if (workspaceId) {
+                const workspaces = workspaceRegistry.list();
+                const workspace = workspaces.find((w) => w.id === workspaceId);
+                if (workspace) {
+                  cwd = workspace.path;
+                }
+              }
+
+              let skillRegistry = skills;
+              let scope = undefined;
+
+              if (sessionId && sessionQuery && agents && agentPresets) {
+                try {
+                  const observation = await sessionQuery.observeSession(sessionId);
+                  if (observation?.projections) {
+                    if (!cwd) {
+                      cwd = observation.header.cwd;
+                    }
+
+                    const agentPreset = observation.projections.values.agentPreset ?? undefined;
+
+                    const live = agents.get(sessionId);
+                    let scoped = live ? agentPresets.serviceFor(live, 'skills') : undefined;
+
+                    if (!scoped && agentPreset) {
+                      try {
+                        const lease = (scopeLease = await agentPresets.acquireScope(agentPreset));
+                        if (lease) {
+                          scope = lease.key;
+                        }
+                      } catch (e) {
+                        // Use the global skill catalog when a preset scope is unavailable.
+                      }
+                    } else if (scoped) {
+                      skillRegistry = scoped;
+                      scope = live;
+                    }
+                  }
+                } catch (e) {
+                  log.startup.warn(`Failed to get session skills: ${e.message}`);
+                }
+              }
+
+              const skill = await skillRegistry.get(skillName, cwd ? { cwd, scope } : { scope });
+              if (!skill) {
+                json(res, { error: `skill "${skillName}" not found` }, 404);
+                return;
+              }
+
+              json(res, {
+                name: skill.name,
+                description: skill.description,
+                content: skill.content,
+                provider: skill.provider,
+              });
+            } catch (e) {
+              log.startup.error(msg('ERR_FETCH_SKILL_CONTENT_FAILED', { v0: e.message }));
+              json(res, { error: e.message }, 500);
+            } finally {
+              await scopeLease?.[Symbol.asyncDispose]();
+            }
+          },
+        },
+      ];
+
+      const operations = createOperations(routes);
+      lifecycle.admit(
+        installOperationTool(ctx, operations, (callback) => {
+          if (lifecycle.closed) {
+            throw new Error('REQ_HUB_CLOSED');
           }
-
-          const skill = await skillRegistry.get(skillName, cwd ? { cwd, scope } : { scope });
-          if (!skill) {
-            json(res, { error: `skill "${skillName}" not found` }, 404);
-            return;
-          }
-
-          json(res, {
-            name: skill.name,
-            description: skill.description,
-            content: skill.content,
-            provider: skill.provider,
-          });
-        } catch (e) {
-          log.startup.error(msg("ERR_FETCH_SKILL_CONTENT_FAILED", { v0: e.message }));
-          json(res, { error: e.message }, 500);
-        } finally {
-          await scopeLease?.[Symbol.asyncDispose]();
-        }
-      },
-    },
-  ];
-
-  const operations = createOperations(routes);
-  disposers.push(installOperationTool(ctx, operations));
-
-  let closing;
-  const cleanup = () =>
-    (closing ||= disposeAll([
-      () => {
-        scheduledSync.beginClose();
-        enhancements.service.beginClose();
-        writing.beginClose();
-        subagentScheduler.beginClose();
-      },
-      () => syncRoutes.dispose(),
-      () => scheduledSync.close(),
-      ...disposers.slice(1),
-      () => subagentScheduler.close(),
-      releaseConfig,
-    ]).then(() => {
-      log.startup.info("LOG_PLUGIN_UNLOADED");
-    }));
-  // Cordis owns effects; returning a function from apply alone is insufficient.
-  ctx.effect(() => cleanup, 'req-hub: lifecycle');
-  for (const route of operations.routes) {
-    disposers.push(webServer.register(authenticatedRoute(ctx.connection, route)));
-  }
-  void knowledgeV2.sync.start().catch((error) => {
-    log.startup.warn('KNOWLEDGE_SYNC_START_FAILED: ' + error.message);
+          return lifecycle.run(() => repository.run(callback));
+        }),
+      );
+      for (const route of operations.routes) {
+        const handler = route.handler;
+        lifecycle.admit(
+          webServer.register(
+            authenticatedRoute(ctx.connection, {
+              ...route,
+              handler: (req, res) => {
+                if (lifecycle.closed) {
+                  return json(res, { error: 'REQ_HUB_CLOSED' }, 503);
+                }
+                return lifecycle.run(() => repository.run(() => handler(req, res)));
+              },
+            }),
+          ),
+        );
+      }
+      const startup = knowledgeV2.sync.start().catch((error) => {
+        log.startup.warn('KNOWLEDGE_SYNC_START_FAILED: ' + error.message);
+      });
+      lifecycle.own(() => startup);
+      void scheduledSync.refresh().catch((error) => {
+        log.startup.warn('SYNC_SCHEDULE_REFRESH_FAILED: ' + error.message);
+      });
+      log.startup.info(msg('LOG_ROUTES_REGISTERED', { v0: routes.length }));
+      return cleanup;
+    } catch (cause) {
+      try {
+        await cleanup();
+      } catch (error) {
+        throw new AggregateError([cause, error], 'ReqHub initialization and rollback failed');
+      }
+      throw cause;
+    }
   });
-  void scheduledSync.refresh().catch((error) => {
-    log.startup.warn('SYNC_SCHEDULE_REFRESH_FAILED: ' + error.message);
-  });
-  log.startup.info(msg("LOG_ROUTES_REGISTERED", { v0: routes.length }));
-  return cleanup;
 }

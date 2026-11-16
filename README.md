@@ -2,6 +2,34 @@
 
 DeepSeek Harness 插件。
 
+## 第一阶段架构边界
+
+配置、Knowledge V2 和 phased-sync / sync-retry 已提供独立于 HTTP 的应用入口，
+位于 `src/server/application/`。UI 的认证 HTTP 入口、Agent 操作目录与每日同步调用同一实现；
+quick-sync 进度在应用层传递结构化事件，由 HTTP 适配器编码为 SSE，工具返回结构化终态。
+实际 Agent 的工作区归属在同步与知识库入口验证，不能通过请求参数选择其他会话的权限。
+其余文档树、创建、编写、增强、日志及其他旧入口暂保留 `operations.js` 的 HTTP 兼容适配，
+不代表所有路由已完成应用层迁移。原有 action 名、URL、任务 ID 与存储格式保留。
+
+每次插件激活创建独立的 `ConfigRepository`；经 `repository.run()` 绑定 HTTP、工具和后台任务，
+旧 `loadConfig` / `saveConfig` 调用沿用当前异步作用域，生产激活不再修改模块级 profile 配置。
+所有写入口进入同一实例队列：新更新从最新值合并，旧快照保存合并未冲突字段，同字段冲突返回
+`CONFIG_CONFLICT`。GET /config 提供 `_revision`，提交时可携带该版本拒绝陈旧保存。
+部署配置覆盖字段在写入时拒绝被设置页覆盖，返回 `CONFIG_DEPLOYMENT_OVERRIDE`；
+配置保存后刷新失败返回 `CONFIG_APPLY_FAILED` 和 `saved: true / applied: false`，不报告已应用。
+原子写使用同目录临时文件；队列与快照并发保护限于本 Host 实例，不提供跨进程文件锁。
+
+Host 在初始化前建立生命周期所有者，失败时等待回滚；卸载先注销入口、取消全部生产者，再逆序
+等待关闭资源。被撤销的同步响应可以先结束，底层执行仍被持有并在卸载时等待，旧回调不能重新
+取得执行所有权。Client 的 CSS 在构建时收集为清单，由激活 effect 安装、引用计数及清理，
+包含懒加载视图的样式；模块工厂不再向 DOM 注入 CSS。
+
+回归使用服务边界与故障测试，构建后运行 `npm run verify:package`：该检查包含隔离安装解析、
+工厂无 DOM 副作用、激活样式完整、重叠激活及卸载清理。组合测试使用本地 DSH 包，不等于
+真实用户 profile 的安装、HMR、主题与窄面板验收；部署前仍须按实际宿主复核。
+
+## 界面约定
+
 开发界面前阅读 [UI 与布局规范](docs/ui-guidelines.md)，通过共用组件实施规则，运行 `npm run check:ui` 检查。
 
 界面说明使用简短文案，避免重复字段信息及内部流程解释；保留必要限制、失败原因和处理方法。

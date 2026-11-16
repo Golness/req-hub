@@ -4,11 +4,14 @@ import time from '../shared/time.cjs';
 import general from '../shared/general.cjs';
 import { DEFAULT_SYNC_SETTINGS } from './knowledge-v2/sync-settings.js';
 /** Profile-owned validated configuration; installation sources are read-only. */
-import { readdir, readFile, writeFile, mkdir, rename } from 'node:fs/promises';
-import { join, resolve, dirname, isAbsolute, win32 } from 'node:path';
+import { readdir } from 'node:fs/promises';
+import { join, resolve, isAbsolute, win32 } from 'node:path';
 import { homedir } from 'node:os';
-import { existsSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import {
+  ConfigRepository,
+  currentConfigRepository,
+  enterConfigRepository,
+} from './config-repository.js';
 
 const LEGACY_FILE = resolve(import.meta.dirname, '../../config.json');
 const DEFAULTS = {
@@ -24,16 +27,19 @@ const DEFAULTS = {
   },
   knowledgeV2: { ...DEFAULT_SYNC_SETTINGS },
 };
-let declared = {};
-let storageOverride;
 /**
  * Locate the profile-owned configuration file.
  * @returns The absolute configuration path.
  */
 export function configFilePath() {
-  if (storageOverride) {
-    return storageOverride;
+  const repository = currentConfigRepository();
+  if (repository) {
+    return repository.filePath();
   }
+  return defaultConfigPath();
+}
+
+function defaultConfigPath() {
   const home = process.env.DSH_HOME || join(homedir(), '.dsh');
   const profile =
     process.env.DSH_PROFILE_DIR ||
@@ -262,7 +268,7 @@ function checked(value) {
   if (initial.issues) {
     throw Object.assign(
       new Error('INVALID_CONFIG: ' + initial.issues.map((issue) => issue.message).join('; ')),
-      { status: 400 },
+      { status: 400, code: 'INVALID_CONFIG', details: { issues: initial.issues } },
     );
   }
   const native = Config['~standard'].validate(value);
@@ -270,7 +276,7 @@ function checked(value) {
   if (result.issues) {
     throw Object.assign(
       new Error('INVALID_CONFIG: ' + result.issues.map((issue) => issue.message).join('; ')),
-      { status: 400 },
+      { status: 400, code: 'INVALID_CONFIG', details: { issues: result.issues } },
     );
   }
   return result.value;
@@ -279,46 +285,55 @@ function checked(value) {
  * Validate deployment overrides and select configuration storage.
  * @param [config] - Validated plugin configuration.
  * @param [options] - Optional configuration-file override.
- * @returns A disposer that restores the previous overrides and storage path.
+ * @returns A disposer that restores the caller's previous async scope; production uses run().
  */
-export function configureStorage(config = {}, { filePath } = {}) {
-  const previous = { declared, storageOverride };
-  declared = checked(config);
-  storageOverride = filePath;
-  return () => {
-    declared = previous.declared;
-    storageOverride = previous.storageOverride;
-  };
+export function configureStorage(config = {}, options = {}) {
+  return enterConfigRepository(createConfigRepository(config, options));
 }
+
+/**
+ * Create an isolated settings owner. Only explicitly supplied deployment fields override data.
+ * @param config - Deployment overrides validated at activation.
+ * @param options - Optional profile-owned file path.
+ * @returns A repository with lifecycle-bound async scope and serialized updates.
+ */
+export function createConfigRepository(config = {}, { filePath } = {}) {
+  checked(config);
+  return new ConfigRepository({
+    filePath: filePath ? () => filePath : defaultConfigPath,
+    legacyFile: LEGACY_FILE,
+    defaults: DEFAULTS,
+    overrides: config,
+    validate: checked,
+  });
+}
+
+const standalone = createConfigRepository();
 /**
  * Load validated settings, applying declared deployment overrides last. Invalid JSON or schema values reject.
  * @returns Validated effective configuration.
  */
 export async function loadConfig() {
-  const target = configFilePath();
-  if (existsSync(target)) {
-    return { ...DEFAULTS, ...checked(JSON.parse(await readFile(target, 'utf8'))), ...declared };
-  }
-  // Migrate once without changing the old installation. A bad legacy file is an error.
-  if (existsSync(LEGACY_FILE)) {
-    const migrated = checked(JSON.parse(await readFile(LEGACY_FILE, 'utf8')));
-    await saveConfig(migrated);
-    return { ...DEFAULTS, ...migrated, ...declared };
-  }
-  return { ...DEFAULTS, ...declared };
+  return (currentConfigRepository() || standalone).read();
 }
 /**
  * Validate and atomically replace the profile-owned settings file.
  * @param config - Validated plugin configuration.
+ * @param options - Optional optimistic revision and cancellation signal.
  * @returns Completion after the replacement is saved.
  */
-export async function saveConfig(config) {
-  const value = checked(config);
-  const target = configFilePath();
-  await mkdir(dirname(target), { recursive: true });
-  const temporary = target + '.' + randomUUID() + '.tmp';
-  await writeFile(temporary, JSON.stringify(value, null, 2), 'utf8');
-  await rename(temporary, target);
+export async function saveConfig(config, options) {
+  return (currentConfigRepository() || standalone).update(config, options);
+}
+
+/**
+ * Update the latest settings inside the owner's queue, checking cancellation before commit.
+ * @param updater - Pure settings updater; must not call loadConfig/saveConfig recursively.
+ * @param options - Optional expectedRevision and signal.
+ * @returns The saved, validated snapshot.
+ */
+export async function updateConfig(updater, options) {
+  return (currentConfigRepository() || standalone).update(updater, options);
 }
 
 /**

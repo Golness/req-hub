@@ -1,3 +1,4 @@
+import { createConfigApplication } from '../application/config.js';
 import { msg } from '../messages.js';
 /**
  * Configuration routes module.
@@ -5,20 +6,10 @@ import { msg } from '../messages.js';
  * @module routes/config-routes
  */
 
-import { loadConfig, saveConfig, autoDefaultConfig } from '../config.js';
-import {
-  PROMPT_REGISTRY,
-  getPrompt,
-  getAllPromptMetas,
-  getPromptMeta,
-  validatePromptTemplate,
-  defaultSkillBindings,
-} from '../prompts.js';
+import { loadConfig } from '../config.js';
+import { PROMPT_REGISTRY, getPrompt, getPromptMeta, validatePromptTemplate } from '../prompts.js';
 import { json, readBody } from '../utils.js';
 import { log } from '../logger.js';
-import { configureSubagentScheduler } from '../concurrency/SubagentScheduler.js';
-import clock from '../../shared/time.cjs';
-import general from '../../shared/general.cjs';
 
 /**
  * Create configuration routes.
@@ -29,126 +20,47 @@ import general from '../../shared/general.cjs';
  * @returns {Array<Object>} Array of route definitions
  */
 export function createConfigRoutes(registry, llm, ctx = {}, options = {}) {
+  const application = createConfigApplication(registry, ctx, options);
   return [
-    // GET and POST share one registration because the router matches paths before methods.
     {
       kind: 'exact',
       path: '/req-hub/config',
+      operation: {
+        action: 'config',
+        methods: ['GET', 'POST'],
+        execute: (input, caller, _onEvent, method) =>
+          method === 'GET' ? application.read(input, caller) : application.save(input, caller),
+      },
       async handler(req, res) {
-        if (req.method === 'GET') {
-          try {
-            let config = await loadConfig();
-            config = await autoDefaultConfig(config, registry);
-            const sessionId = req.headers?.['x-session-id'];
-            const parent = typeof sessionId === 'string' ? ctx.agents?.get(sessionId) : undefined;
-            const scopedSkills = parent
-              ? ctx.agentPresets?.serviceFor?.(parent, 'skills') || ctx.skills
-              : ctx.skills;
-            const workspaceId = req.headers?.['x-workspace-id'] || config.workspaceId;
-            config = await defaultSkillBindings(config, scopedSkills, {
-              cwd:
-                parent?.session?.header?.cwd ||
-                registry.list().find((item) => item.id === workspaceId)?.path,
-              scope: parent,
-            });
-
-            res.writeHead(200, {
-              'Content-Type': 'application/json',
-              'Cache-Control': 'no-store, no-cache, must-revalidate',
-              Pragma: 'no-cache',
-            });
-            res.end(JSON.stringify(config));
-          } catch (e) {
-            log.config.error(msg('LOG_GET_CONFIG_FAILED', { v0: e.message }));
-            json(res, { error: e.message }, 500);
+        try {
+          const caller = {
+            kind: req.operationExec ? 'agent' : 'user',
+            agent: req.operationExec?.agent || ctx.agents?.get(req.headers?.['x-session-id']),
+            signal: req.operationExec?.signal,
+          };
+          let result;
+          if (req.method === 'GET') {
+            result = await application.read(
+              { workspaceId: req.headers?.['x-workspace-id'] },
+              caller,
+            );
+            res.setHeader?.('Cache-Control', 'no-store');
+          } else if (req.method === 'POST') {
+            result = await application.save(JSON.parse(await readBody(req)), caller);
+          } else {
+            return json(res, { error: 'METHOD_NOT_ALLOWED' }, 405);
           }
-          return;
+          return json(res, result.value, result.status);
+        } catch (error) {
+          return json(
+            res,
+            {
+              error: error.code || error.message,
+              ...(error.details ? { details: error.details } : {}),
+            },
+            error.status || 500,
+          );
         }
-
-        if (req.method === 'POST') {
-          try {
-            const body = await readBody(req);
-            const newConfig = JSON.parse(body);
-            const existing = await loadConfig();
-            const delegation = newConfig.ai?.delegation;
-
-            // Deep merge for ai object
-            const merged = general.withoutIndependentSettings({
-              ...existing,
-              ...newConfig,
-              general: { ...existing.general, ...newConfig.general },
-              sync: { ...existing.sync, ...newConfig.sync },
-              ...(newConfig.lark !== undefined
-                ? { lark: { ...existing.lark, ...newConfig.lark } }
-                : {}),
-              ai: {
-                ...existing.ai,
-                ...newConfig.ai,
-                ...(delegation && typeof delegation === 'object' && !Array.isArray(delegation)
-                  ? { delegation: { ...existing.ai?.delegation, ...delegation } }
-                  : {}),
-                prompts: {
-                  ...existing.ai?.prompts,
-                  ...newConfig.ai?.prompts,
-                },
-              },
-            });
-            if (newConfig.larkTargets !== undefined) {
-              return json(res, { error: 'LARK_USER_REQUIRED' }, 403);
-            }
-            if (newConfig.lark !== undefined) {
-              if (req.operationExec) {
-                return json(res, { error: 'LARK_USER_REQUIRED' }, 403);
-              }
-              const { validateLarkSettings } = await import('../lark-settings.js');
-              validateLarkSettings(newConfig.lark);
-              validateLarkSettings(merged.lark);
-              return json(res, { error: 'LARK_CHECK_REQUIRED' }, 400);
-            }
-            if (
-              req.operationExec &&
-              (merged.defaultUsername !== existing.defaultUsername ||
-                ['dailyUpdateEnabled', 'dailyUpdateTime', 'dailyOffsetDays'].some(
-                  (key) => merged.sync?.[key] !== existing.sync?.[key],
-                ))
-            ) {
-              return json(res, { error: 'SYNC_SCHEDULE_USER_REQUIRED' }, 403);
-            }
-            if (
-              req.operationExec &&
-              clock.configTimeZone(merged) !== clock.configTimeZone(existing)
-            ) {
-              return json(res, { error: 'TIME_ZONE_USER_REQUIRED' }, 403);
-            }
-            for (const section of ['knowledgeV2', 'sync']) {
-              if (merged[section]) {
-                merged[section] = { ...merged[section] };
-                delete merged[section].dailyUpdateTimeZone;
-              }
-            }
-
-            if (
-              req.operationExec &&
-              (merged.knowledgeV2?.dailyImportConversations ?? false) !==
-                (existing.knowledgeV2?.dailyImportConversations ?? false)
-            ) {
-              return json(res, { error: 'KNOWLEDGE_V2_USER_REQUIRED' }, 403);
-            }
-
-            await saveConfig(merged);
-            configureSubagentScheduler(ctx.subagents, merged);
-            await options.onSaved?.(merged, existing);
-            log.config.info('CONFIG_UPDATED');
-            json(res, merged);
-          } catch (e) {
-            log.config.error(msg('LOG_POST_CONFIG_FAILED', { v0: e.message }));
-            json(res, { error: e.message }, e.status || 500);
-          }
-          return;
-        }
-
-        res.writeHead(405);
-        res.end();
       },
     },
 

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, relative, isAbsolute } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { TaskReports } from '../../src/server/task-reports.js';
+import { DatabaseSync } from 'node:sqlite';
 import {
   SyncDailyScheduler,
   matchesScheduledBranch,
@@ -14,6 +15,18 @@ import { parseBranchName } from '../../src/server/utils.js';
 import { listSyncBranches } from '../../src/server/sync-branches.js';
 import { SyncSupervisor } from '../../src/server/sync-supervisor.js';
 let root, knowledge, registry, reports, scheduler, config, now, runQuick, workspaces;
+it('closes the native database when report initialization fails before ownership is acquired', async () => {
+  const directory = join(root, 'broken-reports');
+  await mkdir(directory);
+  await writeFile(join(directory, 'task-reports.sqlite'), 'invalid SQLite data');
+  const close = vi.spyOn(DatabaseSync.prototype, 'close');
+  try {
+    expect(() => new TaskReports(registry, { directory })).toThrow();
+    expect(close).toHaveBeenCalledOnce();
+  } finally {
+    close.mockRestore();
+  }
+});
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'reqhub-sync-schedule-'));
   workspaces = ['a', 'b'].map((id) => ({ id, title: id.toUpperCase(), path: join(root, id) }));

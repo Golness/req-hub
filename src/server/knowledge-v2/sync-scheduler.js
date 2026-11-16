@@ -411,7 +411,8 @@ export class KnowledgeSyncScheduler {
     return result;
   }
 
-  async close() {
+  /** Stop timers and cancel producers without waiting for sibling owners. */
+  beginClose() {
     if (this.closed) {
       return;
     }
@@ -422,6 +423,10 @@ export class KnowledgeSyncScheduler {
     }
     this.autoTimers.clear();
     this.controller.abort(Object.assign(new Error('KB_CLOSED'), { code: 'KB_CLOSED' }));
+  }
+
+  async close() {
+    this.beginClose();
     await Promise.allSettled([...this.tasks]);
   }
 }

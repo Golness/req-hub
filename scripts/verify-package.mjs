@@ -5,6 +5,7 @@ import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import assert from 'node:assert/strict';
+import { JSDOM } from 'jsdom';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const owned = join(root, '.req-hub');
@@ -71,7 +72,13 @@ try {
     'forbidden Harness Client runtime import',
   );
   let client;
+  const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>');
   runInNewContext(source, {
+    document: dom.window.document,
+    AbortController,
+    setTimeout,
+    clearTimeout,
+    fetch: async () => ({ ok: true, json: async () => ({ general: {} }) }),
     window: {
       __ModuleLoader__: {
         load(row) {
@@ -81,7 +88,59 @@ try {
     },
   });
   assert.equal(client.id, '@local/req-hub');
-  assert.equal(typeof client.factory(installedRequire).apply, 'function');
+  const entry = client.factory(installedRequire);
+  assert.equal(typeof entry.apply, 'function');
+  assert.equal(
+    dom.window.document.querySelectorAll('style').length,
+    0,
+    'Client factory must not mutate DOM',
+  );
+  const context = () => ({
+    effect: (setup) => setup(),
+    locale: { register: () => () => {}, bind: () => (key) => key },
+    slots: { inject: (_name, setup) => setup(), register: () => () => {} },
+    sidebarRightTabs: { register: () => () => {} },
+  });
+  const stop = entry.apply(context());
+  const styles = dom.window.document.querySelectorAll('style[data-req-hub-style]');
+  assert(styles.length >= 57, 'activation omitted CSS Modules or lazy view styles');
+  const count = styles.length;
+  const globalStyles = [
+    'tokens.css',
+    'base.css',
+    'layout.css',
+    'components.css',
+    'buttons.css',
+    'selects.css',
+    'markdown.css',
+    'animations.css',
+  ];
+  for (const [index, name] of globalStyles.entries()) {
+    assert(
+      styles[index].dataset.reqHubStyle.endsWith('/src/client/styles/' + name),
+      'global stylesheet cascade order changed: ' + name,
+    );
+  }
+  const stopAgain = entry.apply(context());
+  assert.equal(
+    dom.window.document.querySelectorAll('style').length,
+    count,
+    'overlapping activation duplicated CSS',
+  );
+  stop();
+  assert.equal(
+    dom.window.document.querySelectorAll('style').length,
+    count,
+    'first owner removed shared CSS',
+  );
+  stopAgain();
+  stopAgain();
+  assert.equal(
+    dom.window.document.querySelectorAll('style').length,
+    0,
+    'Client disposal leaked plugin styles',
+  );
+  dom.window.close();
   for (const lang of ['en', 'zh']) {
     assert(JSON.parse(await readFile(join(target, 'locale', lang + '.json'), 'utf8')).meta.title);
   }
@@ -90,6 +149,8 @@ try {
     files: files.size,
     serverArtifactImport: true,
     clientFactory: true,
+    pureClientFactory: true,
+    ownedClientStyles: true,
     nativeConfig: true,
     bundlePatch: true,
     forbiddenClientImports: false,

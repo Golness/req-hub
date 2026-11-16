@@ -2,6 +2,7 @@ import { readdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { loadConfig, saveConfig } from '../config.js';
+import { disposeAll } from '../plugin-boundaries.js';
 import { withDocumentLock } from '../sync-document-validator.js';
 import { matchesWorkspacePath } from '../conversations/workspace-path.js';
 import { hash as conversationHash } from '../conversations/store.js';
@@ -1000,21 +1001,30 @@ export class KnowledgeApplication {
     this.indexCache.delete(store.scope.scopeId);
     await store.saveRules({ purpose: null, schema: null, language: 'auto' });
   }
-  /** Abort all jobs, wait for real completion, then close every store. */
-  async close() {
-    if (this.closed) {
-      return;
-    }
+  /** Stop new work and cancel every producer before any asynchronous teardown waits. */
+  beginClose() {
     this.closed = true;
-    await this.sync.close();
-    await this.queue.close();
-    this.installation.dispose();
-    this.context.close();
-    for (const store of this.stores.values()) {
-      await store.close();
-    }
-    this.stores.clear();
-    this.indexCache.clear();
+    this.sync.beginClose();
+    this.queue.beginClose();
+  }
+  /** Abort all jobs, wait for real completion, then close every store. */
+  close() {
+    this.closing ||= (async () => {
+      this.beginClose();
+      try {
+        await disposeAll([
+          () => this.sync.close(),
+          () => this.queue.close(),
+          () => this.installation.dispose(),
+          () => this.context.close(),
+          ...[...this.stores.values()].map((store) => () => store.close()),
+        ]);
+      } finally {
+        this.stores.clear();
+        this.indexCache.clear();
+      }
+    })();
+    return this.closing;
   }
 }
 

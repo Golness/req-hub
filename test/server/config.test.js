@@ -16,6 +16,7 @@ vi.mock('node:fs/promises', () => ({
   readdir: (...args) => mockReaddir(...args),
   mkdir: vi.fn(),
   rename: vi.fn(),
+  rm: vi.fn(),
 }));
 
 vi.mock('node:fs', () => ({
@@ -182,7 +183,7 @@ describe('loadConfig', () => {
   it('should return default config when file does not exist', async () => {
     mockExistsSync.mockReturnValue(false);
     const config = await loadConfig();
-    expect(config).toEqual({
+    expect(JSON.parse(JSON.stringify(config))).toEqual({
       general: {
         timeZone: 'Asia/Shanghai',
         uiLanguage: 'follow',

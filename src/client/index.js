@@ -1,4 +1,5 @@
 'use strict';
+const { installStyles } = require('./styles/runtime.js');
 const { t, installLocale } = require('./locale.js');
 const { installTimeZone } = require('./time.js');
 const { installUiLanguage, useUiLanguage } = require('./ui-language.js');
@@ -46,115 +47,136 @@ const { TriggerButton } = require('./components/TriggerButton.js');
 module.exports = {
   inject: ['slots', 'sidebarRightTabs', 'sidebarRight', 'locale'],
   apply(ctx) {
-    const disposers = [
-      ctx.effect(() => installLocale(ctx)),
-      ctx.effect(() => installTimeZone()),
-      ctx.effect(() => installUiLanguage()),
-    ];
-
-    // Store context globally for components to access
-    window.__DSH_CTX__ = ctx;
-
-    disposers.push(
-      ctx.slots.inject('shell.overlay', () =>
-        ctx.slots.register({ name: 'shell.overlay', id: 'req-hub-notifications' }, ToastContainer),
-      ),
-    );
-
-    disposers.push(
-      ctx.sidebarRightTabs.register({
-        id: TAB_ID,
-        kind: TAB_KIND,
-        multiple: false,
-        priority: 'user',
-        title: () => t('common.brand'),
-      }),
-    );
-
-    const currentSessionId = () => {
-      try {
-        return ctx.get?.('uiWorkspace')?.selection?.getSnapshot?.()?.sessionId || null;
-      } catch {
-        return null;
-      }
-    };
-    function LocalizedTabBody() {
-      React.useSyncExternalStore(
-        (listener) => ctx.locale.subscribe(listener),
-        () => ctx.locale.getSnapshot(),
-      );
-      useUiLanguage();
-      return h(
-        SessionSelectionContext.Provider,
-        { value: currentSessionId },
-        h(
-          require('./components/shared/DiffReviewPage.js').DiffReviewProvider,
-          null,
-          h(TabBodyWrapper),
-        ),
-      );
-    }
-
-    disposers.push(
-      ctx.slots.inject('sidebar.right.pane.tab', () =>
-        ctx.slots.register(
-          {
-            name: 'sidebar.right.pane.tab',
-            key: TAB_ID,
-          },
-          LocalizedTabBody,
-        ),
-      ),
-    );
-
-    disposers.push(
-      ctx.slots.inject('sidebar.right.pane.tab.title', () =>
-        ctx.slots.register(
-          {
-            name: 'sidebar.right.pane.tab.title',
-            key: TAB_ID,
-          },
-          TabTitle,
-        ),
-      ),
-    );
-
-    disposers.push(
-      ctx.slots.inject('sidebar.footer.action', () =>
-        ctx.slots.register(
-          {
-            name: 'sidebar.footer.action',
-            id: 'req-hub-trigger',
-            order: 10,
-            label: t('common.brand'),
-          },
-          ({ wide }) => {
-            const handleClick = () => {
-              if (!ctx.sidebarRight.mounted.getSnapshot()) {
-                showToast({ text: t('trigger.sessionRequired'), tone: 'info' });
-                return;
-              }
-              ctx.sidebarRight.openTab(TAB_KIND);
-            };
-            return h(TriggerButton, { onClick: handleClick, wide });
-          },
-        ),
-      ),
-    );
-
-    // The Client fiber owns teardown as well as direct-call test callers.
+    const disposers = [];
     let disposed = false;
     const cleanup = () => {
       if (disposed) {
         return;
       }
       disposed = true;
-      for (const d of disposers) {
-        d();
+      const errors = [];
+      for (const dispose of disposers.toReversed()) {
+        try {
+          dispose();
+        } catch (error) {
+          errors.push(error);
+        }
       }
-      delete window.__DSH_CTX__;
+      if (window.__DSH_CTX__ === ctx) {
+        delete window.__DSH_CTX__;
+      }
+      if (errors.length) {
+        throw new AggregateError(errors, 'ReqHub Client cleanup failed');
+      }
     };
     ctx.effect(() => cleanup, 'req-hub: client lifecycle');
-    return cleanup;
+    try {
+      disposers.push(ctx.effect(() => installStyles()));
+      disposers.push(ctx.effect(() => installLocale(ctx)));
+      disposers.push(ctx.effect(() => installTimeZone()));
+      disposers.push(ctx.effect(() => installUiLanguage()));
+
+      // Store context globally for components to access
+      window.__DSH_CTX__ = ctx;
+
+      disposers.push(
+        ctx.slots.inject('shell.overlay', () =>
+          ctx.slots.register(
+            { name: 'shell.overlay', id: 'req-hub-notifications' },
+            ToastContainer,
+          ),
+        ),
+      );
+
+      disposers.push(
+        ctx.sidebarRightTabs.register({
+          id: TAB_ID,
+          kind: TAB_KIND,
+          multiple: false,
+          priority: 'user',
+          title: () => t('common.brand'),
+        }),
+      );
+
+      const currentSessionId = () => {
+        try {
+          return ctx.get?.('uiWorkspace')?.selection?.getSnapshot?.()?.sessionId || null;
+        } catch {
+          return null;
+        }
+      };
+      function LocalizedTabBody() {
+        React.useSyncExternalStore(
+          (listener) => ctx.locale.subscribe(listener),
+          () => ctx.locale.getSnapshot(),
+        );
+        useUiLanguage();
+        return h(
+          SessionSelectionContext.Provider,
+          { value: currentSessionId },
+          h(
+            require('./components/shared/DiffReviewPage.js').DiffReviewProvider,
+            null,
+            h(TabBodyWrapper),
+          ),
+        );
+      }
+
+      disposers.push(
+        ctx.slots.inject('sidebar.right.pane.tab', () =>
+          ctx.slots.register(
+            {
+              name: 'sidebar.right.pane.tab',
+              key: TAB_ID,
+            },
+            LocalizedTabBody,
+          ),
+        ),
+      );
+
+      disposers.push(
+        ctx.slots.inject('sidebar.right.pane.tab.title', () =>
+          ctx.slots.register(
+            {
+              name: 'sidebar.right.pane.tab.title',
+              key: TAB_ID,
+            },
+            TabTitle,
+          ),
+        ),
+      );
+
+      disposers.push(
+        ctx.slots.inject('sidebar.footer.action', () =>
+          ctx.slots.register(
+            {
+              name: 'sidebar.footer.action',
+              id: 'req-hub-trigger',
+              order: 10,
+              label: t('common.brand'),
+            },
+            ({ wide }) => {
+              const handleClick = () => {
+                if (!ctx.sidebarRight.mounted.getSnapshot()) {
+                  showToast({ text: t('trigger.sessionRequired'), tone: 'info' });
+                  return;
+                }
+                ctx.sidebarRight.openTab(TAB_KIND);
+              };
+              return h(TriggerButton, { onClick: handleClick, wide });
+            },
+          ),
+        ),
+      );
+
+      return cleanup;
+    } catch (cause) {
+      try {
+        cleanup();
+      } catch (error) {
+        throw new AggregateError([cause, error], 'ReqHub Client initialization failed');
+      }
+      throw cause;
+    }
   },
 };

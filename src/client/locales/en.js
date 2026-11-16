@@ -1771,38 +1771,51 @@ module.exports = {
   'lark.targetRetrySave': 'Retry save',
   'lark.targetSaveConnection': 'Save connection',
   'lark.targetSaving': 'Saving…',
-  'server.ERR_EXTRACTED_TEXT_TOO_LARGE': 'Extracted text exceeds 2 million characters. Please split the file.',
+  'server.ERR_EXTRACTED_TEXT_TOO_LARGE':
+    'Extracted text exceeds 2 million characters. Please split the file.',
   'server.ERR_OFFICE_FILE_INVALID': 'The Office file is invalid, encrypted, or corrupted.',
   'server.ERR_OFFICE_ARCHIVE_CORRUPTED': 'The Office archive is corrupted.',
-  'server.ERR_OFFICE_EXTRACTED_CONTENT_TOO_LARGE': 'The decompressed Office content is too large. Please split the file.',
+  'server.ERR_OFFICE_EXTRACTED_CONTENT_TOO_LARGE':
+    'The decompressed Office content is too large. Please split the file.',
   'server.ERR_ENCRYPTED_OFFICE_UNSUPPORTED': 'Encrypted Office files are not supported yet.',
   'server.ERR_FILE_CONTENT_EXTENSION_MISMATCH': 'The file content does not match its extension.',
   'server.ERR_PDF_INVALID': 'The PDF file is invalid or corrupted.',
   'server.ERR_PDF_TOO_MANY_PAGES': 'The PDF exceeds 500 pages. Please split the file.',
-  'server.ERR_PDF_NO_TEXT_NEEDS_OCR': 'No text was extracted from the PDF; it may be a scan that requires OCR. Only text-based PDFs are supported.',
-  'server.ERR_PDF_PAGE_NO_TEXT_OCR_SKIPPED': 'No text was extracted from page {v0} (blank or scanned); OCR was not run.',
+  'server.ERR_PDF_NO_TEXT_NEEDS_OCR':
+    'No text was extracted from the PDF; it may be a scan that requires OCR. Only text-based PDFs are supported.',
+  'server.ERR_PDF_PAGE_NO_TEXT_OCR_SKIPPED':
+    'No text was extracted from page {v0} (blank or scanned); OCR was not run.',
   'server.ERR_PDF_ENCRYPTED': 'The PDF is encrypted. Remove the password before analyzing.',
-  'server.ERR_WORD_TOO_MANY_PARAGRAPHS': 'The Word file exceeds 10,000 paragraphs or table rows. Please split the file.',
-  'server.ERR_EXCEL_TOO_MANY_SHEETS': 'The Excel file exceeds 50 worksheets. Please split the file.',
-  'server.ERR_EXCEL_TOO_MANY_CELLS': 'The Excel file exceeds 100,000 non-empty cells. Please split the file.',
+  'server.ERR_WORD_TOO_MANY_PARAGRAPHS':
+    'The Word file exceeds 10,000 paragraphs or table rows. Please split the file.',
+  'server.ERR_EXCEL_TOO_MANY_SHEETS':
+    'The Excel file exceeds 50 worksheets. Please split the file.',
+  'server.ERR_EXCEL_TOO_MANY_CELLS':
+    'The Excel file exceeds 100,000 non-empty cells. Please split the file.',
   'server.ERR_DOC_PARSE_FAILED': 'Failed to parse the document.',
   'server.TASK_CANCELLED': 'Task cancelled.',
-  'server.ERR_DOC_PARSE_TIMEOUT': 'Document parsing exceeded 30 seconds. Please split the file and retry.',
+  'server.ERR_DOC_PARSE_TIMEOUT':
+    'Document parsing exceeded 30 seconds. Please split the file and retry.',
   'server.ERR_DOC_PARSE_FAILED_WITH_REASON': 'Failed to parse the document: {v0}',
   'server.ERR_DOC_PARSE_WORKER_EXITED': 'The document parsing process exited early ({v0})',
   'server.LOG_CODEX_TITLE_INDEX_UNREADABLE': 'Codex title index is unreadable: ',
   'server.CODEX_METADATA_INVALID': 'Cannot read the Codex session identifier',
-  'server.ERR_CODEX_SESSION_DIR_NOT_FOUND': 'No local Codex session directory found. Check CODEX_HOME or ~/.codex.',
+  'server.ERR_CODEX_SESSION_DIR_NOT_FOUND':
+    'No local Codex session directory found. Check CODEX_HOME or ~/.codex.',
   'server.ERR_CODEX_THREADS_SCHEMA_UNSUPPORTED': 'Unsupported threads table schema.',
   'server.STATUS_NO_WORKSPACE': 'No workspace',
   'server.CODEX_DATABASE_READ_FAILED': 'Failed to read the Codex session directory: ',
-  'server.CODEX_SOURCE_INVALID': 'The session file is not inside the active Codex session directory',
+  'server.CODEX_SOURCE_INVALID':
+    'The session file is not inside the active Codex session directory',
   'server.CODEX_SESSION_CHANGING': 'The session is being written. Please refresh later.',
-  'server.CODEX_SESSION_INVALID': 'The session JSONL contains corrupted or incomplete records. Please refresh later.',
-  'server.CODEX_SOURCE_INVALID_ARCHIVED': 'The session identifier does not match or has been archived.',
+  'server.CODEX_SESSION_INVALID':
+    'The session JSONL contains corrupted or incomplete records. Please refresh later.',
+  'server.CODEX_SOURCE_INVALID_ARCHIVED':
+    'The session identifier does not match or has been archived.',
   'server.TASK_HANDLER_RETURNED_EMPTY': 'The handler returned an empty result.',
   'server.TASK_CHUNK_EMPTY_RESULT': 'Chunk {v0} returned an empty result.',
-  'server.LOG_PLUGIN_STARTED': 'ReqHub plugin started (modular architecture - unified Subagent delegation)',
+  'server.LOG_PLUGIN_STARTED':
+    'ReqHub plugin started (modular architecture - unified Subagent delegation)',
   'server.LOG_AVAILABLE_SERVICES': 'Available services',
   'server.LOG_CLEARED': 'Logs cleared.',
   'server.SESSION_NOT_FOUND_BY_TITLE': 'No session found with a title containing "{v0}"',
@@ -1842,41 +1855,58 @@ module.exports = {
   'server.SYNC_LABEL_SESSION_ROUND': 'Session round',
   'server.SYNC_SESSION_ID_MISSING': 'No session identifier provided',
   'server.STATUS_UNKNOWN': 'Unknown',
-  'server.SYNC_INPUT_ESTIMATE_NOTE': '(conservative estimate of the full input: {v0}, limit: {v1}, including prompts, documents and evidence)',
+  'server.SYNC_INPUT_ESTIMATE_NOTE':
+    '(conservative estimate of the full input: {v0}, limit: {v1}, including prompts, documents and evidence)',
   'server.SYNC_FULL_INPUT_OVER_BUDGET': 'The full sync input exceeds the budget',
   'server.SKILL_CONTRACT_UNCONFIRMED': 'Reconfirm the Skill binding against the v2 contract',
   'server.DOCUMENT_INPUT_TOO_LARGE': 'The documents and fixed contract exceed the full-read budget',
-  'server.DOCUMENT_INPUT_TOO_LARGE_EVIDENCE': 'The fixed input budget is insufficient to read the evidence snippets: {v0}',
+  'server.DOCUMENT_INPUT_TOO_LARGE_EVIDENCE':
+    'The fixed input budget is insufficient to read the evidence snippets: {v0}',
   'server.SYNC_PARENT_AGENT_MISSING': 'No parent agent available to run the sync',
   'server.LOG_SYNC_V2_PREFIX': 'Sync v2: ',
   'server.SYNC_NO_RELEVANT_CHANGES': 'No relevant changes',
   'server.SYNC_NO_APPLICABLE_CHANGES': 'No applicable changes',
   'server.PROMPT_KB_SOURCE_ANALYSIS': 'Knowledge source analysis',
-  'server.PROMPT_KB_SOURCE_ANALYSIS_DESC': 'Read frozen sources and maintenance rules, then submit a structured analysis for the compiler to generate pages',
-  'server.PROMPT_KB_SOURCE_ANALYSIS_INSTRUCTION': 'Read all frozen sources and submit a structured analysis with source line numbers through controlled tools',
+  'server.PROMPT_KB_SOURCE_ANALYSIS_DESC':
+    'Read frozen sources and maintenance rules, then submit a structured analysis for the compiler to generate pages',
+  'server.PROMPT_KB_SOURCE_ANALYSIS_INSTRUCTION':
+    'Read all frozen sources and submit a structured analysis with source line numbers through controlled tools',
   'server.PROMPT_KB_PAGE_GENERATION': 'Knowledge page generation',
-  'server.PROMPT_KB_PAGE_GENERATION_DESC': 'Generate or update Wiki pages from the source analysis; the host validates and publishes them',
-  'server.PROMPT_KB_PAGE_GENERATION_INSTRUCTION': 'Read all frozen sources; pages cite exact source versions and line numbers and are validated by the host',
+  'server.PROMPT_KB_PAGE_GENERATION_DESC':
+    'Generate or update Wiki pages from the source analysis; the host validates and publishes them',
+  'server.PROMPT_KB_PAGE_GENERATION_INSTRUCTION':
+    'Read all frozen sources; pages cite exact source versions and line numbers and are validated by the host',
   'server.PROMPT_KB_QA': 'Knowledge Q&A',
-  'server.PROMPT_ANSWER_WITH_EVIDENCE': 'Answer from the published Wiki and authorized sources, with evidence citations',
-  'server.PROMPT_ANSWER_WITH_VERSION_REFS': 'Read all required evidence; answers carry exact version and line references',
+  'server.PROMPT_ANSWER_WITH_EVIDENCE':
+    'Answer from the published Wiki and authorized sources, with evidence citations',
+  'server.PROMPT_ANSWER_WITH_VERSION_REFS':
+    'Read all required evidence; answers carry exact version and line references',
   'server.PROMPT_KB_SEMANTIC_CHECK': 'Knowledge semantic check',
-  'server.PROMPT_KB_SEMANTIC_CHECK_DESC': 'Check the published Wiki for semantic issues and submit reviewable findings without editing pages',
-  'server.PROMPT_KB_FINDINGS_WITH_CITATIONS': 'Read all relevant pages and evidence; findings carry exact citations and pages are not modified',
+  'server.PROMPT_KB_SEMANTIC_CHECK_DESC':
+    'Check the published Wiki for semantic issues and submit reviewable findings without editing pages',
+  'server.PROMPT_KB_FINDINGS_WITH_CITATIONS':
+    'Read all relevant pages and evidence; findings carry exact citations and pages are not modified',
   'server.PROMPT_KNOWLEDGE_EXAMPLE_ADVICE': 'Knowledge checks and example suggestions',
-  'server.PROMPT_REVIEWABLE_SUGGESTIONS': 'Generate reviewable suggestions from the selected frozen sources without editing official documents',
-  'server.PROMPT_SUBMIT_VIA_CONTROLLED_TOOLS': 'Read all authorized sources and submit through controlled tools; every suggestion carries a version and source location',
+  'server.PROMPT_REVIEWABLE_SUGGESTIONS':
+    'Generate reviewable suggestions from the selected frozen sources without editing official documents',
+  'server.PROMPT_SUBMIT_VIA_CONTROLLED_TOOLS':
+    'Read all authorized sources and submit through controlled tools; every suggestion carries a version and source location',
   'server.PROMPT_DOC_REFINEMENT': 'Document refinement',
-  'server.PROMPT_DOC_REFINEMENT_DESC': 'Refine the requirement document or technical design with the selected knowledge base',
-  'server.PROMPT_SUBMIT_DOC_WITH_CITATIONS': 'Submit the complete document and knowledge citations through the writing tool',
+  'server.PROMPT_DOC_REFINEMENT_DESC':
+    'Refine the requirement document or technical design with the selected knowledge base',
+  'server.PROMPT_SUBMIT_DOC_WITH_CITATIONS':
+    'Submit the complete document and knowledge citations through the writing tool',
   'server.PROMPT_CODE_DIFF_REQ': 'Code diff analysis (requirement)',
-  'server.PROMPT_V2_READONLY_PATCH': 'v2: read-only evidence references; local edits with program-generated patches',
+  'server.PROMPT_V2_READONLY_PATCH':
+    'v2: read-only evidence references; local edits with program-generated patches',
   'server.PROMPT_CONTROLLED_RUN_ID': 'Controlled run ID',
   'server.PROMPT_FROZEN_LIST_ID': 'Frozen list ID',
   'server.PROMPT_MARKDOWN_OUTPUT_ID': 'Markdown output ID',
   'server.PROMPT_JSON_INDEX_OUTPUT_ID': 'JSON index output ID',
-  'server.PROMPT_NO_INLINE_DIFF': 'The entry does not inline diffs, source text or conversation content',
-  'server.PROMPT_FULL_EVIDENCE_NO_UNRELATED_CHANGES': 'Read all evidence; unrelated changes are not allowed',
+  'server.PROMPT_NO_INLINE_DIFF':
+    'The entry does not inline diffs, source text or conversation content',
+  'server.PROMPT_FULL_EVIDENCE_NO_UNRELATED_CHANGES':
+    'Read all evidence; unrelated changes are not allowed',
   'server.PROMPT_PATCH_BY_PROGRAM': 'The standard patch is generated by the program',
   'server.PROMPT_DISCUSSION_DIFF_REQ': 'Discussion diff analysis (requirement)',
   'server.PROMPT_CODE_ANALYSIS_SUMMARY_REQ': 'Code analysis summary (requirement)',
@@ -1885,18 +1915,36 @@ module.exports = {
   'server.PROMPT_CODE_DIFF_TECH': 'Code diff analysis (technical design)',
   'server.PROMPT_DISCUSSION_DIFF_TECH': 'Discussion diff analysis (technical design)',
   'server.PROMPT_CODE_ANALYSIS_SUMMARY_TECH': 'Code analysis summary (technical design)',
-  'server.PROMPT_DISCUSSION_ANALYSIS_SUMMARY_TECH': 'Discussion analysis summary (technical design)',
+  'server.PROMPT_DISCUSSION_ANALYSIS_SUMMARY_TECH':
+    'Discussion analysis summary (technical design)',
   'server.PROMPT_ISOLATED_LOCAL_EDIT_TECH': 'Isolated local edit (technical design)',
   'server.LOG_GET_SCOPED_SKILLS_FAILED': 'Failed to get scoped skills: {v0}',
   'server.ERR_UNKNOWN_PROMPT_KEY': 'Unknown promptKey: {v0}',
   'server.ERR_TEMPLATE_EMPTY': 'The template cannot be empty',
-  'server.ERR_TEMPLATE_MISSING_REQUIRED_VAR': 'Missing required variable in template: {{v0}} ({v1})',
-  'server.PROMPT_JSON_OUTPUT_ADVICE': 'This prompt requires JSON output; it is recommended to state this explicitly in the template',
+  'server.ERR_TEMPLATE_MISSING_REQUIRED_VAR':
+    'Missing required variable in template: {{v0}} ({v1})',
+  'server.PROMPT_JSON_OUTPUT_ADVICE':
+    'This prompt requires JSON output; it is recommended to state this explicitly in the template',
   'server.ERR_INVALID_REQUEST_JSON': 'Invalid request JSON',
   'server.ERR_WORKSPACE_NOT_FOUND': 'Workspace does not exist',
   'server.ERR_INVALID_CODEX_WORKSPACE_ID': 'Invalid Codex workspace ID',
   'server.LOG_GET_CONFIG_FAILED': 'Failed to GET /config: {v0}',
   'server.CONFIG_UPDATED': 'Configuration updated',
+  'server.SYNC_REQUEST_INVALID': 'The sync request is invalid.',
+  'server.SYNC_INPUT_TOO_LARGE': 'The complete sync request exceeds the input limit.',
+  'server.INVALID_CONFIG': 'These settings are invalid. Review the values and try again.',
+  'server.CALLER_WORKSPACE_MISMATCH': 'The calling session does not belong to this workspace.',
+  'server.CONFIG_CONFLICT':
+    'Settings changed elsewhere. Refresh and review your changes before saving again.',
+  'server.CONFIG_DEPLOYMENT_OVERRIDE':
+    'This setting is controlled by deployment configuration. Update that configuration to change it.',
+  'server.CONFIG_APPLY_FAILED':
+    'Settings were saved, but could not be applied. Review the error and retry.',
+  'server.CONFIG_SCOPE_MISMATCH':
+    'These settings belong to another plugin instance. Refresh before saving.',
+  'server.CONFIG_CLOSED': 'The settings service has stopped. Reload the plugin and retry.',
+  'server.REQ_HUB_CLOSED': 'ReqHub has stopped. Reload the plugin and retry.',
+  'server.METHOD_NOT_ALLOWED': 'This operation does not support the requested method.',
   'server.LOG_POST_CONFIG_FAILED': 'Failed to POST /config: {v0}',
   'server.LOG_GET_MODELS_FAILED': 'Failed to get the model list: {v0}',
   'server.LOG_GET_LLM_CONFIG_FAILED': 'Failed to get the LLM config: {v0}',
@@ -1913,12 +1961,15 @@ module.exports = {
   'server.LOG_TASK_SUPERVISOR_RECOVER_FAILED': 'Failed to recover task supervision:',
   'server.SYNC_TASK_SWITCHED_REFRESH_STATUS': 'The sync task changed. Refresh the status.',
   'server.LOG_DELETE_SYNC_TASK_FAILED': 'Failed to delete the sync task:',
-  'server.SYNC_DEFAULT_BRANCH_NOT_FOUND': 'No main or master branch found. Enter a base branch manually.',
+  'server.SYNC_DEFAULT_BRANCH_NOT_FOUND':
+    'No main or master branch found. Enter a base branch manually.',
   'server.STATUS_NOT_FOUND': 'Not found',
   'server.LOG_GET_SESSION_LIST_FAILED': 'Failed to get the session list: {v0}',
   'server.STATUS_UNTITLED': '(untitled)',
-  'server.LOG_SESSION_QUERY_GET_SESSION_FAILED': 'Failed to get sessions via sessionQuery: {v0}, trying the sessions service',
-  'server.SESSION_SERVICES_UNAVAILABLE': 'Both the sessions and sessionQuery services are unavailable',
+  'server.LOG_SESSION_QUERY_GET_SESSION_FAILED':
+    'Failed to get sessions via sessionQuery: {v0}, trying the sessions service',
+  'server.SESSION_SERVICES_UNAVAILABLE':
+    'Both the sessions and sessionQuery services are unavailable',
   'server.SESSION_SERVICE_UNAVAILABLE': 'Session service unavailable',
   'server.ERR_SESSION_NOT_FOUND_OR_CLOSED_DETAIL': 'Session does not exist or was closed: {v0}',
   'server.ERR_SESSION_NOT_FOUND_OR_CLOSED': 'Session does not exist or was closed',
@@ -1927,19 +1978,23 @@ module.exports = {
   'server.LOG_GET_SESSION_DETAIL_FAILED': 'Failed to get session details: {v0}',
   'server.SESSION_NONE_FOUND': 'No sessions found',
   'server.SESSION_NO_MAIN_FOUND': 'No main session found',
-  'server.LOG_SESSION_QUERY_GET_CURRENT_FAILED': 'Failed to get the current session via sessionQuery: {v0}, trying the sessions service',
+  'server.LOG_SESSION_QUERY_GET_CURRENT_FAILED':
+    'Failed to get the current session via sessionQuery: {v0}, trying the sessions service',
   'server.SESSION_NO_ACTIVE_FOUND': 'No active sessions found',
   'server.LOG_GET_CURRENT_SESSION_FAILED': 'Failed to get the current session: {v0}',
   'server.SESSION_CHANGED': 'The session changed. Refresh the session list and select again.',
   'server.LOG_GET_SESSION_TURNS_FAILED': 'Failed to get session turns: {v0}',
   'server.DOC_REQUIREMENT': 'Requirement document',
   'server.DOC_TECHNICAL_DESIGN': 'Technical design',
-  'server.SYNC_TASK_ALREADY_RUNNING': 'A sync task is already running. Requirement documents and technical designs share one execution slot.',
+  'server.SYNC_TASK_ALREADY_RUNNING':
+    'A sync task is already running. Requirement documents and technical designs share one execution slot.',
   'server.SESSION_SELECTION_INVALID': 'Invalid session selection',
   'server.SESSION_EMPTY': '{v0} has no complete turns to sync',
   'server.SYNC_PLUGIN_UNLOADING': 'The plugin is unloading and cannot start a sync',
-  'server.SYNC_OWNER_MISSING_ORIGINAL': 'The original sync task has no owner left; its residual state was reclaimed',
-  'server.SYNC_CONNECTION_LOST_TASK_PERSISTING': 'The sync connection was lost; the task continues to run and persist:',
+  'server.SYNC_OWNER_MISSING_ORIGINAL':
+    'The original sync task has no owner left; its residual state was reclaimed',
+  'server.SYNC_CONNECTION_LOST_TASK_PERSISTING':
+    'The sync connection was lost; the task continues to run and persist:',
   'server.SYNC_READING_FROZEN_COMMITS': 'Reading frozen commits from the requirement branch...',
   'server.SYNC_COMMIT_COUNT': '{v0} commits',
   'server.SYNC_NO_COMMITS': 'No commit records',
@@ -1949,16 +2004,22 @@ module.exports = {
   'server.SYNC_UNCOMMITTED_CHANGES': ', uncommitted changes: {v0}',
   'server.SYNC_NEW_DOCUMENT': ', new document',
   'server.SYNC_EXTRACT_SESSION_CONTENT': 'Extracting content from {v0} sessions...',
-  'server.SYNC_TURNS_EXTRACTED_CHECK_BUDGET': '{v0} turns extracted, checking the chunk input budget...',
+  'server.SYNC_TURNS_EXTRACTED_CHECK_BUDGET':
+    '{v0} turns extracted, checking the chunk input budget...',
   'server.SYNC_EXTRACT_SESSION_CONTENT_FAILED': 'Failed to extract session content: {v0}',
   'server.SYNC_SESSION_EXTRACTION_FAILED': 'Failed to extract sessions: {v0}',
-  'server.SESSION_NOT_ACTIVE': 'Session does not exist or has ended. Call this from an active DSH session.',
-  'server.SYNC_CALCULATE_CHUNK_BUDGET': 'Checking documents and required evidence against the subagent model capacity to calculate the chunk budget...',
-  'server.SYNC_CHUNK_BUDGET_CHECK_PASSED': ', {v0} code chunks, {v1} session chunks, input budget check passed',
+  'server.SESSION_NOT_ACTIVE':
+    'Session does not exist or has ended. Call this from an active DSH session.',
+  'server.SYNC_CALCULATE_CHUNK_BUDGET':
+    'Checking documents and required evidence against the subagent model capacity to calculate the chunk budget...',
+  'server.SYNC_CHUNK_BUDGET_CHECK_PASSED':
+    ', {v0} code chunks, {v1} session chunks, input budget check passed',
   'server.SYNC_NO_VALID_DOC_SNAPSHOT': 'No valid document snapshot was produced',
   'server.SYNC_CHECK_VERSION_AND_PUBLISH': 'Checking the document version and publishing...',
-  'server.SYNC_PUBLISHED_DOC_MATCHES_SNAPSHOT': 'The published document matches the successful snapshot',
-  'server.SYNC_PUBLISH_JOURNAL_FINALIZE_FAILED': 'Failed to finalize the publish journal; verify on restart: ',
+  'server.SYNC_PUBLISHED_DOC_MATCHES_SNAPSHOT':
+    'The published document matches the successful snapshot',
+  'server.SYNC_PUBLISH_JOURNAL_FINALIZE_FAILED':
+    'Failed to finalize the publish journal; verify on restart: ',
   'server.SYNC_PHASED_SYNC_FINISHED': '{v0} phased sync finished: {v1}',
   'server.SYNC_PHASED_SYNC_FAILED': 'Phased sync failed: {v0}',
   'server.SYNC_PERSIST_FINAL_STATE_FAILED': 'Failed to persist the final sync state: ',
@@ -1967,8 +2028,10 @@ module.exports = {
   'server.SYNC_GET_ACTIVE_FAILED': 'Failed to get the active sync: {v0}',
   'server.SYNC_GET_HISTORY_FAILED': 'Failed to get the sync history: {v0}',
   'server.SYNC_VERSION_COMPARE_FAILED': 'Failed to compare versions: {v0}',
-  'server.SYNC_SUCCESS_SNAPSHOT_MISSING': 'The successful version snapshot is missing, so comparison is unavailable',
-  'server.SYNC_SHUTDOWN_TIMEOUT': 'Sync did not shut down cleanly when the plugin exited; its state was reclaimed',
+  'server.SYNC_SUCCESS_SNAPSHOT_MISSING':
+    'The successful version snapshot is missing, so comparison is unavailable',
+  'server.SYNC_SHUTDOWN_TIMEOUT':
+    'Sync did not shut down cleanly when the plugin exited; its state was reclaimed',
   'server.DOC_OPEN_FILE_EXPLORER_FAILED': 'Failed to open the file explorer: {v0}',
   'server.DOC_GET_STATS_FAILED': 'Failed to get statistics: {v0}',
   'server.DOC_FILE_TYPE_NOT_EDITABLE': 'The {v0} file type cannot be edited',
@@ -1982,22 +2045,28 @@ module.exports = {
   'server.DOC_CREATE_DIRECTORY_FAILED': 'Failed to create the directory: {v0}',
   'server.DOC_GET_FILE_TREE_FAILED': 'Failed to get the file tree: {v0}',
   'server.WRITING_SERVICE_DISABLED': 'Writing service is disabled',
-  'server.WRITING_OPTIMIZE_TASK_MISSING': 'The optimization task no longer exists. Start a new optimization.',
+  'server.WRITING_OPTIMIZE_TASK_MISSING':
+    'The optimization task no longer exists. Start a new optimization.',
   'server.ERR_ENDPOINT_NOT_FOUND': 'Endpoint not found',
   'server.WRITING_INVALID_WORKSPACE_OR_DOC_TYPE': 'Invalid workspace or document type',
   'server.KB_SELECTION_INVALID': 'Invalid knowledge base selection',
   'server.SESSION_SELECT_ACTIVE_REQUIRED': 'Select an active DSH session first',
-  'server.WRITING_PROVIDER_REQUIREMENT': 'Writing requires a spawn provider with tool isolation and no inherited parent context',
-  'server.KB_SELECTED_NOT_FOUND': 'The selected knowledge base no longer exists. Refresh and try again.',
+  'server.WRITING_PROVIDER_REQUIREMENT':
+    'Writing requires a spawn provider with tool isolation and no inherited parent context',
+  'server.KB_SELECTED_NOT_FOUND':
+    'The selected knowledge base no longer exists. Refresh and try again.',
   'server.KB_SELECTED_TOO_LARGE': 'The selected knowledge base is too large. Narrow the selection.',
-  'server.PROMPT_WRITING_DEFAULT_INSTRUCTION': 'Improve wording, boundaries and verifiability using the source and knowledge base',
+  'server.PROMPT_WRITING_DEFAULT_INSTRUCTION':
+    'Improve wording, boundaries and verifiability using the source and knowledge base',
   'server.WRITING_REFINE_TASK_TITLE': 'Refine {v0}',
   'server.WRITING_SUBAGENT_OPTIMIZATION_FAILED': 'Subagent optimization failed',
   'server.SESSION_FOUND_RELATED_VIA_QUERY': 'Found {v0} related sessions (using sessionQuery)',
   'server.SESSION_QUERY_LIST_FAILED': 'Failed to list sessions via sessionQuery: {v0}',
-  'server.SESSION_SERVICES_UNAVAILABLE_LIST': 'Both the sessions and sessionQuery services are unavailable, so sessions cannot be listed',
+  'server.SESSION_SERVICES_UNAVAILABLE_LIST':
+    'Both the sessions and sessionQuery services are unavailable, so sessions cannot be listed',
   'server.SESSION_ACTIVE_LABEL': '(Active session)',
-  'server.SESSION_FOUND_ACTIVE_VIA_SERVICE': 'Found {v0} related active sessions (using the sessions service)',
+  'server.SESSION_FOUND_ACTIVE_VIA_SERVICE':
+    'Found {v0} related active sessions (using the sessions service)',
   'server.SESSION_LIST_FAILED': 'Failed to list sessions: {v0}',
   'server.SESSION_READ_SERVICE_UNAVAILABLE': 'Session read service unavailable',
   'server.DOC_SOURCE_PATH_INVALID': 'Invalid file path',
@@ -2012,36 +2081,53 @@ module.exports = {
   'server.SYNC_BRANCH_NOT_FOUND': 'Branch does not exist: {v0}',
   'server.SYNC_V2_BYPASS_TOOLS_FORBIDDEN': 'Sync v2 forbids bypass tools',
   'server.SYNC_SUBAGENT_PROVIDER_NOT_REGISTERED': 'Subagent provider "{v0}" is not registered',
-  'server.SYNC_PROVIDER_TOOL_FILTER_UNSUPPORTED': 'Provider "{v0}" does not support tool isolation (toolFilter)',
-  'server.SYNC_PROVIDER_PARENT_CONTEXT_NOT_DECLARED': 'Provider "{v0}" does not declare zero parent context (inheritsParentContext=false)',
-  'server.SYNC_NATIVE_FILE_TOOLS_MISSING': 'The current session lacks native file tools: str_replace_editor or read + edit + write is required. Enable the corresponding file tools in the Agent preset.',
-  'server.SYNC_HOST_TOOL_MISSING': 'The host is missing tools.{v0}, so controlled tools cannot be installed',
-  'server.SYNC_HOST_EVENT_API_MISSING': 'The host is missing the event API, so the subagent context cannot be validated',
+  'server.SYNC_PROVIDER_TOOL_FILTER_UNSUPPORTED':
+    'Provider "{v0}" does not support tool isolation (toolFilter)',
+  'server.SYNC_PROVIDER_PARENT_CONTEXT_NOT_DECLARED':
+    'Provider "{v0}" does not declare zero parent context (inheritsParentContext=false)',
+  'server.SYNC_NATIVE_FILE_TOOLS_MISSING':
+    'The current session lacks native file tools: str_replace_editor or read + edit + write is required. Enable the corresponding file tools in the Agent preset.',
+  'server.SYNC_HOST_TOOL_MISSING':
+    'The host is missing tools.{v0}, so controlled tools cannot be installed',
+  'server.SYNC_HOST_EVENT_API_MISSING':
+    'The host is missing the event API, so the subagent context cannot be validated',
   'server.CAPABILITY_UNSUPPORTED': 'Sync controlled tools could not be installed: {v0}',
-  'server.SYNC_MAIN_DOC_CHANGED_DURING_SYNC': 'The main document was modified during the sync. Retry with the latest document.',
-  'server.SYNC_HISTORY_COMMIT_UNAVAILABLE': 'The historical sync commit is unavailable, so the sync base cannot be determined safely',
-  'server.SYNC_MULTIPLE_REQUIREMENT_BRANCHES': 'Multiple requirement branches exist. Switch to the target requirement branch.',
+  'server.SYNC_MAIN_DOC_CHANGED_DURING_SYNC':
+    'The main document was modified during the sync. Retry with the latest document.',
+  'server.SYNC_HISTORY_COMMIT_UNAVAILABLE':
+    'The historical sync commit is unavailable, so the sync base cannot be determined safely',
+  'server.SYNC_MULTIPLE_REQUIREMENT_BRANCHES':
+    'Multiple requirement branches exist. Switch to the target requirement branch.',
   'server.SYNC_REQUIREMENT_BRANCH_NOT_FOUND': 'No local Git branch found for the requirement',
   'server.SYNC_UNSUPPORTED_DOC_TYPE': 'Unsupported document type',
-  'server.SYNC_COMMIT_ALREADY_SYNCED': 'The current commit is already synced or predates the last successful sync version',
-  'server.SYNC_COMMIT_DIVERGED': 'The current commit has diverged from the historical sync commit. Resolve the branch history first.',
+  'server.SYNC_COMMIT_ALREADY_SYNCED':
+    'The current commit is already synced or predates the last successful sync version',
+  'server.SYNC_COMMIT_DIVERGED':
+    'The current commit has diverged from the historical sync commit. Resolve the branch history first.',
   'server.BASE_BRANCH_REQUIRED': 'Configure a sync base branch',
   'server.BASE_ANCESTOR_AMBIGUOUS': 'A unique most recent common ancestor is required',
   'server.COMMIT_SELECTION_INVALID': 'Invalid commit list',
-  'server.COMMIT_LIST_CHANGED': 'The branch has been updated. Refresh the commit list and select again.',
-  'server.COMMIT_OUT_OF_RANGE': 'The selected commit is not in the diff between the target branch and the base branch',
-  'server.SYNC_WORKING_BRANCH_HAS_UNCOMMITTED_CHANGES': 'The current working branch has uncommitted changes. Switch to the requirement branch before syncing.',
+  'server.COMMIT_LIST_CHANGED':
+    'The branch has been updated. Refresh the commit list and select again.',
+  'server.COMMIT_OUT_OF_RANGE':
+    'The selected commit is not in the diff between the target branch and the base branch',
+  'server.SYNC_WORKING_BRANCH_HAS_UNCOMMITTED_CHANGES':
+    'The current working branch has uncommitted changes. Switch to the requirement branch before syncing.',
   'server.INPUT_CHANGED_GIT_STATUS': 'Git state changed during capture',
   'server.INPUT_CHANGED_WORKSPACE': 'Workspace changed during capture',
-  'server.SYNC_SELECTED_COMMITS_ALREADY_SYNCED': 'The selected commits and uncommitted changes are already synced',
+  'server.SYNC_SELECTED_COMMITS_ALREADY_SYNCED':
+    'The selected commits and uncommitted changes are already synced',
   'server.SYNC_CANCELLED': 'Sync cancelled',
-  'server.SYNC_PREVIOUS_TASK_STOPPING': 'The previous sync task is still stopping. Try again later.',
-  'server.SYNC_ANALYSIS_BUILD_FAILED_INDEX_KEPT': 'The analysis build did not succeed, so indexes that depend on it were not rebuilt',
+  'server.SYNC_PREVIOUS_TASK_STOPPING':
+    'The previous sync task is still stopping. Try again later.',
+  'server.SYNC_ANALYSIS_BUILD_FAILED_INDEX_KEPT':
+    'The analysis build did not succeed, so indexes that depend on it were not rebuilt',
   'server.STATUS_RUNNING': 'Running…',
   'server.STATUS_COMPLETED': 'Completed',
   'server.STATUS_EXECUTION_FAILED': 'Execution failed',
   'server.LOG_SUMMARIZING_CHUNK_ANALYSIS': 'Summarizing chunk analysis…',
-  'server.ERR_COMPARE_REQUIRES_TWO_SUCCESS_VERSIONS': 'Only two different successful sync versions of the same document type can be compared',
+  'server.ERR_COMPARE_REQUIRES_TWO_SUCCESS_VERSIONS':
+    'Only two different successful sync versions of the same document type can be compared',
   'server.SYNC_LEASE_EXPIRED': 'Sync task execution lease has expired',
   'server.SYNC_CANCEL_TIMEOUT': 'Cancel cleanup timed out; the task was reclaimed',
   'server.SYNC_TOTAL_TIMEOUT': 'The sync task exceeded the total execution time limit',
@@ -2052,13 +2138,15 @@ module.exports = {
   'server.TASK_EXECUTION_SUCCEEDED': 'Task completed successfully',
   'server.TASK_INTERRUPTED': 'Task interrupted',
   'server.ERR_OUTPUT_LENGTH_LIMIT': 'Output reached the length limit. Try increasing maxTokens.',
-  'server.ERR_MODEL_REFUSED_TASK': 'The model refused this task. Check that the task description is compliant.',
+  'server.ERR_MODEL_REFUSED_TASK':
+    'The model refused this task. Check that the task description is compliant.',
   'server.ERR_EXECUTION_ERROR': 'An error occurred during execution',
   'server.TASK_EXECUTION_FAILED': 'Task failed',
   'server.TAG_TASK_EXECUTION': 'Task execution',
   'server.ERR_CONTEXT_UNAVAILABLE': 'Context is unavailable; cannot delegate the task',
   'server.ERR_SUBAGENT_SERVICE_UNAVAILABLE': 'Subagent service unavailable',
-  'server.ERR_SKILLS_BINDINGS_IGNORED': 'Skills service unavailable; Skill bindings will be ignored',
+  'server.ERR_SKILLS_BINDINGS_IGNORED':
+    'Skills service unavailable; Skill bindings will be ignored',
   'server.ERR_NO_PARENT_AGENT': 'No parent agent available to delegate the task',
   'server.ERR_PARENT_AGENT_STOPPED': 'Parent agent has stopped, current status: {v0}',
   'server.ERR_PARENT_AGENT_NO_SESSION': 'Parent agent has no session',
@@ -2076,11 +2164,14 @@ module.exports = {
   'server.ERR_PROMPT_EMPTY': 'The built prompt is empty',
   'server.ERR_PROMPT_TOO_LONG': 'Prompt is too long (about {v0} tokens)',
   'server.ERR_REQUIRED_VAR_MISSING': 'Missing required variable: {v0} ({v1})',
-  'server.ERR_INPUT_OVER_BUDGET': 'Sync input exceeds the budget (must be under {v0} tokens); reduce the fixed prompt or split the input',
-  'server.ERR_SUBAGENT_PROVIDER_NOT_REGISTERED': 'Subagent provider "{v0}" is not registered; available: {v1}',
+  'server.ERR_INPUT_OVER_BUDGET':
+    'Sync input exceeds the budget (must be under {v0} tokens); reduce the fixed prompt or split the input',
+  'server.ERR_SUBAGENT_PROVIDER_NOT_REGISTERED':
+    'Subagent provider "{v0}" is not registered; available: {v1}',
   'server.STATUS_NONE': '(None)',
   'server.ERR_PROVIDER_NO_AGENT_OPTIONS': 'Provider "{v0}" does not support agentOptions',
-  'server.ERR_PROVIDER_NO_OUTPUT_SCHEMA': 'Provider "{v0}" does not support outputSchema; it will be ignored',
+  'server.ERR_PROVIDER_NO_OUTPUT_SCHEMA':
+    'Provider "{v0}" does not support outputSchema; it will be ignored',
   'server.ERR_PROVIDER_NO_TOOL_ISOLATION': 'Provider {v0} does not support tool isolation',
   'server.ERR_MAX_DELEGATION_DEPTH': 'Maximum delegation depth reached',
   'server.LOG_STARTING_SUBAGENT': 'Starting subagent',
@@ -2096,12 +2187,15 @@ module.exports = {
   'server.STATUS_AI_REPLYING': 'AI replying',
   'server.STATUS_CALLING_TOOLS': 'Calling tools',
   'server.STATUS_GENERATING_DELIVERABLES': 'Generating deliverables',
-  'server.LOG_SESSION_QUERY_UNAVAILABLE_ACTIVITY': 'sessionQuery is unavailable; skipping activity check',
+  'server.LOG_SESSION_QUERY_UNAVAILABLE_ACTIVITY':
+    'sessionQuery is unavailable; skipping activity check',
   'server.STATUS_AI_WORKING': 'AI working',
   'server.STATUS_ACTIVE': 'Active',
   'server.LOG_SUBAGENT_NO_NEW_ACTIVITY': 'Subagent has no new activity',
-  'server.LOG_SUBAGENT_MAYBE_STUCK': 'Subagent may be stuck: no activity for {v0}s (last activity: {v1})',
-  'server.LOG_SUBAGENT_NO_RESPONSE': 'Subagent detected no response: no activity for {v0}s, interrupting automatically',
+  'server.LOG_SUBAGENT_MAYBE_STUCK':
+    'Subagent may be stuck: no activity for {v0}s (last activity: {v1})',
+  'server.LOG_SUBAGENT_NO_RESPONSE':
+    'Subagent detected no response: no activity for {v0}s, interrupting automatically',
   'server.ERR_ACTIVITY_CHECK_FAILED': 'Failed to check activity: {v0}',
   'server.TAG_SUBAGENT_RESULT': 'Subagent execution result',
   'server.LOG_SUBAGENT_COMPLETED': 'Subagent completed',
@@ -2110,21 +2204,27 @@ module.exports = {
   'server.ERR_RESOURCE_RELEASE_FAILED': 'Failed to release resources: {v0}',
   'server.ERR_SUBAGENT_EMPTY_OUTPUT': 'Subagent produced no output',
   'server.ERR_SUBAGENT_NON_TEXT_OUTPUT': 'Subagent output contains non-text blocks',
-  'server.LOG_SESSION_QUERY_UNAVAILABLE_DELIVERABLES': 'sessionQuery is unavailable; skipping deliverable collection',
+  'server.LOG_SESSION_QUERY_UNAVAILABLE_DELIVERABLES':
+    'sessionQuery is unavailable; skipping deliverable collection',
   'server.ERR_CANNOT_OBSERVE_SESSION': 'Cannot observe session: {v0}',
   'server.LOG_DELIVERABLES_FOUND': 'Deliverables found',
   'server.ERR_DELIVERABLE_COLLECTION_FAILED': 'Failed to collect deliverables: {v0}',
   'server.TAG_TASK_METRICS': 'Task metrics',
-  'server.WRITING_KB_BUDGET_EXCEEDED': 'Knowledge sources exceed this round\'s context budget; reduce the selected knowledge bases or narrow the optimization scope',
+  'server.WRITING_KB_BUDGET_EXCEEDED':
+    "Knowledge sources exceed this round's context budget; reduce the selected knowledge bases or narrow the optimization scope",
   'server.WRITING_INVALID_READ_POSITION': 'Invalid read position',
   'server.WRITING_MUST_SEARCH_EACH_KB': 'Every selected knowledge base must be searched',
   'server.WRITING_INVALID_CANDIDATE_OR_CITATION': 'Invalid candidate document or citation',
   'server.WRITING_CITATION_FULL_READ_REQUIRED': 'Cited content must be read in full',
-  'server.WRITING_EACH_KB_NEEDS_CITATION': 'Every non-empty knowledge base needs at least one source read and cited',
+  'server.WRITING_EACH_KB_NEEDS_CITATION':
+    'Every non-empty knowledge base needs at least one source read and cited',
   'server.WRITING_REQUIRES_HARNESS_TOOLS': 'Writing requires Harness controlled tools',
-  'server.WRITING_READ_SCOPE_RESTRICTED': 'Writing may only read selected knowledge bases and submit candidate documents',
-  'server.WRITING_CONTEXT_BUDGET_INSUFFICIENT': 'Writing context budget is insufficient; narrow the optimization scope',
+  'server.WRITING_READ_SCOPE_RESTRICTED':
+    'Writing may only read selected knowledge bases and submit candidate documents',
+  'server.WRITING_CONTEXT_BUDGET_INSUFFICIENT':
+    'Writing context budget is insufficient; narrow the optimization scope',
   'server.SYNC_TERMINATED': 'Sync terminated',
   'server.SYNC_SESSION_ROUND_ID': '{v0} · Round {v1}',
-  'server.SYNC_SINGLE_ITEM_OVER_BUDGET': 'A single {v0} exceeds the sync input budget: {v1} (conservative estimate of the full input: {v2}, limit: {v3}, including prompts, documents and evidence)',
+  'server.SYNC_SINGLE_ITEM_OVER_BUDGET':
+    'A single {v0} exceeds the sync input budget: {v1} (conservative estimate of the full input: {v2}, limit: {v3}, including prompts, documents and evidence)',
 };

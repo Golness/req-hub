@@ -5,74 +5,232 @@ import { join } from 'node:path';
 import { apply } from '../../src/server/index.js';
 import { KnowledgeApplication } from '../../src/server/knowledge-v2/application.js';
 import { createOperations } from '../../src/server/operations.js';
-import { setActiveSync, getSyncScope, removeSyncTask, loadState } from '../../src/server/sync-state.js';
+import {
+  setActiveSync,
+  getSyncScope,
+  removeSyncTask,
+  loadState,
+} from '../../src/server/sync-state.js';
 import { saveConfig } from '../../src/server/config.js';
 
-let root, close;
-afterEach(async () => { await close?.(); vi.restoreAllMocks(); vi.unstubAllEnvs(); if (root) await rm(root, { recursive: true, force: true }); close = null; });
-async function fixture() {
-  root = await mkdtemp(join(tmpdir(), 'rh-plugin-review-')); vi.stubEnv('DSH_HOME', root); vi.stubEnv('DSH_PROFILE_DIR', root);
-  const routes = new Map(), definitions = new Map(), scopeDisposers = [];
+let root, close, lastFixture;
+afterEach(async () => {
+  await close?.();
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  if (root) await rm(root, { recursive: true, force: true });
+  close = null;
+});
+async function fixture(failAt = Infinity) {
+  root = await mkdtemp(join(tmpdir(), 'rh-plugin-review-'));
+  vi.stubEnv('DSH_HOME', root);
+  vi.stubEnv('DSH_PROFILE_DIR', root);
+  const routes = new Map(),
+    definitions = new Map(),
+    scopeDisposers = [];
   const ctx = {
-    workspaceRegistry: { list: () => [] }, connection: { admit: () => ({ peer: {} }) },
-    webServer: { register(route) { routes.set(route.path, route); return () => routes.delete(route.path); } },
-    skills: { async list() { return []; }, async get() { return { name: 'one', content: 'fixture' }; } },
+    workspaceRegistry: { list: () => [] },
+    connection: { admit: () => ({ peer: {} }) },
+    webServer: {
+      register(route) {
+        if (routes.size === failAt) {
+          throw new Error('REGISTER_FAILED');
+        }
+        routes.set(route.path, route);
+        return () => routes.delete(route.path);
+      },
+    },
+    skills: {
+      async list() {
+        return [];
+      },
+      async get() {
+        return { name: 'one', content: 'fixture' };
+      },
+    },
     subagents: {},
     agentDefaultModel: {},
-    agents: { get: () => undefined }, agentPresets: { async acquireScope() { const dispose = vi.fn(async () => {}); scopeDisposers.push(dispose); return { key: {}, [Symbol.asyncDispose]: dispose }; } },
-    sessionQuery: { observeSession: async () => ({ header: { cwd: root }, projections: { values: { agentPreset: 'one' } } }) },
-    tools: { register(definition) { definitions.set(definition.name, definition); return () => definitions.delete(definition.name); }, guard: () => () => {} },
-    on: () => () => {}, effect: factory => factory(),
+    agents: { get: () => undefined },
+    agentPresets: {
+      async acquireScope() {
+        const dispose = vi.fn(async () => {});
+        scopeDisposers.push(dispose);
+        return { key: {}, [Symbol.asyncDispose]: dispose };
+      },
+    },
+    sessionQuery: {
+      observeSession: async () => ({
+        header: { cwd: root },
+        projections: { values: { agentPreset: 'one' } },
+      }),
+    },
+    tools: {
+      register(definition) {
+        definitions.set(definition.name, definition);
+        return () => definitions.delete(definition.name);
+      },
+      guard: () => () => {},
+    },
+    on: () => () => {},
+    effect: (factory) => factory(),
   };
-  close = apply(ctx); return { ctx, routes, definitions, scopeDisposers };
+  lastFixture = { ctx, routes, definitions, scopeDisposers };
+  close = await apply(ctx);
+  return lastFixture;
 }
+it('rolls back initialized owners and earlier admissions when route registration fails', async () => {
+  const release = vi.spyOn(KnowledgeApplication.prototype, 'close');
+  await expect(fixture(2)).rejects.toThrow('REGISTER_FAILED');
+  expect(lastFixture.routes.size).toBe(0);
+  expect(lastFixture.definitions.size).toBe(0);
+  expect(release).toHaveBeenCalledOnce();
+});
 it('releases both skill-route leases on successful reads and failures', async () => {
   const { ctx, routes, scopeDisposers } = await fixture();
   const operations = createOperations([...routes.values()]);
-  for (const action of ['skills', 'skill-content']) await operations.execute({ action, query: { sessionId: 'cold', name: 'one' } }, { agent: { session: { id: 'cold' } } });
-  expect(scopeDisposers).toHaveLength(2); for (const dispose of scopeDisposers) expect(dispose).toHaveBeenCalledOnce();
-  ctx.skills.list = async () => { throw new Error('read failure'); };
-  expect((await operations.execute({ action: 'skills', query: { sessionId: 'cold' } }, { agent: { session: { id: 'cold' } } })).status).toBe(500);
+  for (const action of ['skills', 'skill-content'])
+    await operations.execute(
+      { action, query: { sessionId: 'cold', name: 'one' } },
+      { agent: { session: { id: 'cold' } } },
+    );
+  expect(scopeDisposers).toHaveLength(2);
+  for (const dispose of scopeDisposers) expect(dispose).toHaveBeenCalledOnce();
+  ctx.skills.list = async () => {
+    throw new Error('read failure');
+  };
+  expect(
+    (
+      await operations.execute(
+        { action: 'skills', query: { sessionId: 'cold' } },
+        { agent: { session: { id: 'cold' } } },
+      )
+    ).status,
+  ).toBe(500);
   expect(scopeDisposers.at(-1)).toHaveBeenCalledOnce();
 });
 it('awaits the actual plugin knowledge owner and unregisters every route and tool', async () => {
-  let release; const original = KnowledgeApplication.prototype.close;
-  vi.spyOn(KnowledgeApplication.prototype, 'close').mockImplementation(async function () { await new Promise(resolve => { release = resolve; }); await original.call(this); });
-  const { routes, definitions } = await fixture(); let done = false;
+  let release;
+  const original = KnowledgeApplication.prototype.close;
+  vi.spyOn(KnowledgeApplication.prototype, 'close').mockImplementation(async function () {
+    await new Promise((resolve) => {
+      release = resolve;
+    });
+    await original.call(this);
+  });
+  const { routes, definitions } = await fixture();
+  let done = false;
   expect(definitions.has('req_hub_action')).toBe(true);
-  const closing = close().then(() => { done = true; }); close = null;
-  await vi.waitFor(() => expect(release).toBeTypeOf('function')); expect(done).toBe(false);
-  release(); await closing; expect(done).toBe(true); expect(routes.size).toBe(0); expect(definitions.size).toBe(0);
+  const closing = close().then(() => {
+    done = true;
+  });
+  close = null;
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  expect(done).toBe(false);
+  release();
+  await closing;
+  expect(done).toBe(true);
+  expect(routes.size).toBe(0);
+  expect(definitions.size).toBe(0);
 });
 
 it('guards real sync-file and write routes while preserving normal file operations', async () => {
   const { ctx, routes } = await fixture();
   ctx.workspaceRegistry.list = () => [{ id: 'ws', path: root }];
   await saveConfig({ docsDir: 'docs' });
-  const requirement = '2026-10-25-orders', relative = 'alice/' + requirement;
-  await mkdir(join(root, 'docs', relative), { recursive: true }); await mkdir(join(root, 'outside'));
-  await writeFile(join(root, 'outside/secret.md'), 'secret'); await writeFile(join(root, 'docs', relative, 'result.md'), 'result');
-  await symlink(join(root, 'outside'), join(root, 'docs/linked'), process.platform === 'win32' ? 'junction' : 'dir');
+  const requirement = '2026-10-25-orders',
+    relative = 'alice/' + requirement;
+  await mkdir(join(root, 'docs', relative), { recursive: true });
+  await mkdir(join(root, 'outside'));
+  await writeFile(join(root, 'outside/secret.md'), 'secret');
+  await writeFile(join(root, 'docs', relative, 'result.md'), 'result');
+  await symlink(
+    join(root, 'outside'),
+    join(root, 'docs/linked'),
+    process.platform === 'win32' ? 'junction' : 'dir',
+  );
   const operations = createOperations([...routes.values()]);
-  await operations.execute({action:'sync-file',query:{}},{});
-  await loadState('ws',requirement,join(root,'docs',relative),{workspace:{id:'ws',path:root},docsRoot:join(root,'docs')});
-  const task={workspaceId:'ws',requirementId:requirement,status:'running'};await setActiveSync(task,join(root,'docs',relative));
-  const storage=getSyncScope('ws',requirement).store;storage.putEvidence(task,'preview','result');const artifact=storage.artifact(task,'result.md',{logicalId:'preview'});
-  const query={workspaceId:'ws',requirementId:requirement,attemptId:task.id,artifactId:artifact.artifactId};
-  expect((await operations.execute({action:'sync-file',query},{})).value.content).toBe('result');
-  expect((await operations.execute({ action: 'sync-file', query: { workspaceId: 'ws', requirementId: requirement, fileName: '../../../outside/secret.md' } }, {})).status).toBe(400);
-  expect((await operations.execute({ action: 'write', method: 'POST', body: { workspaceId: 'ws', path: 'linked/secret.md', content: 'overwritten' } }, {})).status).toBe(403);
+  await operations.execute({ action: 'sync-file', query: {} }, {});
+  await loadState('ws', requirement, join(root, 'docs', relative), {
+    workspace: { id: 'ws', path: root },
+    docsRoot: join(root, 'docs'),
+  });
+  const task = { workspaceId: 'ws', requirementId: requirement, status: 'running' };
+  await setActiveSync(task, join(root, 'docs', relative));
+  const storage = getSyncScope('ws', requirement).store;
+  storage.putEvidence(task, 'preview', 'result');
+  const artifact = storage.artifact(task, 'result.md', { logicalId: 'preview' });
+  const query = {
+    workspaceId: 'ws',
+    requirementId: requirement,
+    attemptId: task.id,
+    artifactId: artifact.artifactId,
+  };
+  expect((await operations.execute({ action: 'sync-file', query }, {})).value.content).toBe(
+    'result',
+  );
+  expect(
+    (
+      await operations.execute(
+        {
+          action: 'sync-file',
+          query: {
+            workspaceId: 'ws',
+            requirementId: requirement,
+            fileName: '../../../outside/secret.md',
+          },
+        },
+        {},
+      )
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await operations.execute(
+        {
+          action: 'write',
+          method: 'POST',
+          body: { workspaceId: 'ws', path: 'linked/secret.md', content: 'overwritten' },
+        },
+        {},
+      )
+    ).status,
+  ).toBe(403);
   expect(await readFile(join(root, 'outside/secret.md'), 'utf8')).toBe('secret');
-  expect((await operations.execute({ action: 'write', method: 'POST', body: { workspaceId: 'ws', path: relative + '/result.md', content: 'edited' } }, {})).status).toBe(200);
+  expect(
+    (
+      await operations.execute(
+        {
+          action: 'write',
+          method: 'POST',
+          body: { workspaceId: 'ws', path: relative + '/result.md', content: 'edited' },
+        },
+        {},
+      )
+    ).status,
+  ).toBe(200);
   expect(await readFile(join(root, 'docs', relative, 'result.md'), 'utf8')).toBe('edited');
   await removeSyncTask(task);
   const outside = await mkdtemp(join(tmpdir(), 'rh-outside-docs-'));
   try {
     await mkdir(join(outside, relative), { recursive: true });
     await writeFile(join(outside, relative, 'result.md'), 'outside workspace');
-    await symlink(outside, join(root, 'external-docs'), process.platform === 'win32' ? 'junction' : 'dir');
+    await symlink(
+      outside,
+      join(root, 'external-docs'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
     await saveConfig({ docsDir: 'external-docs' });
-    expect((await operations.execute({ action: 'sync-file', query: { workspaceId: 'ws', requirementId: requirement, ...query } }, {})).status).toBe(403);
+    expect(
+      (
+        await operations.execute(
+          {
+            action: 'sync-file',
+            query: { workspaceId: 'ws', requirementId: requirement, ...query },
+          },
+          {},
+        )
+      ).status,
+    ).toBe(403);
   } finally {
     // Remove the junction before its separately owned temporary target.
     await rm(join(root, 'external-docs'), { recursive: true, force: true });

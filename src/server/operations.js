@@ -1,8 +1,8 @@
 import { Readable, Writable } from 'node:stream';
 import { finished } from 'node:stream/promises';
 
-// One Host operation implementation, reached by both authenticated HTTP and
-// agent tools. Existing handlers retain their validation and transactional work.
+// Direct catalog entries share application methods with HTTP. Unmigrated operations
+// retain a bounded compatibility bridge until their application boundary is extracted.
 /**
  * Expose an explicit operation catalog shared by HTTP handlers and Agent tools.
  * @param routes - Host route definitions sharing one business implementation.
@@ -13,6 +13,12 @@ export function createOperations(routes) {
     (route) => route.kind === 'exact' && !['/req-hub/open-in-explorer'].includes(route.path),
   );
   const byAction = new Map(catalog.map((route) => [route.path.slice('/req-hub/'.length), route]));
+  const direct = new Map();
+  for (const route of routes) {
+    for (const operation of route.operations || (route.operation ? [route.operation] : [])) {
+      direct.set(operation.action, operation);
+    }
+  }
   // Prefix APIs have explicit operation paths; never let a tool select an arbitrary URL.
   for (const [action, path] of [
     ...[
@@ -65,8 +71,38 @@ export function createOperations(routes) {
   const dispatch = (route, req, res) => route.handler(req, res);
   return {
     routes: routes.map((route) => ({ ...route, handler: (req, res) => dispatch(route, req, res) })),
-    actions: [...byAction.keys()],
+    actions: [...new Set([...byAction.keys(), ...direct.keys()])],
     async execute({ action, method = 'GET', query = {}, body, id }, exec) {
+      const operation = direct.get(action);
+      if (operation) {
+        exec.signal?.throwIfAborted();
+        if (!operation.methods.includes(method)) {
+          return { status: 405, value: { error: 'METHOD_NOT_ALLOWED' } };
+        }
+        let result;
+        try {
+          result = await operation.execute(
+            { ...(method === 'GET' ? query : body), ...(id === undefined ? {} : { id }) },
+            { ...exec, kind: 'agent' },
+            () => {},
+            method,
+          );
+        } catch (error) {
+          result = {
+            status: error.status || 500,
+            value: {
+              error: error.code || error.message,
+              ...(error.details ? { details: error.details } : {}),
+            },
+          };
+        }
+        exec.signal?.throwIfAborted();
+        const rendered = [{ type: 'text', text: JSON.stringify(result) }];
+        if (Buffer.byteLength(JSON.stringify(rendered)) + 1024 > 8 * 1024 * 1024) {
+          throw new Error('OPERATION_OUTPUT_TOO_LARGE');
+        }
+        return result;
+      }
       const route = byAction.get(action);
       if (!route) {
         throw new Error('UNKNOWN_OPERATION');
@@ -158,9 +194,10 @@ export function createOperations(routes) {
  * Register Agent access to the shared Host operation dispatcher.
  * @param ctx - The injected Host context.
  * @param operations - The shared operation dispatcher.
+ * @param run - Plugin-owned async scope used to bind configuration and track in-flight work.
  * @returns The tool registration disposer.
  */
-export function installOperationTool(ctx, operations) {
+export function installOperationTool(ctx, operations, run = (callback) => callback()) {
   return ctx.tools.register({
     name: 'req_hub_action',
     description:
@@ -181,6 +218,6 @@ export function installOperationTool(ctx, operations) {
       schema: { type: 'object' },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
     },
-    execute: (args, exec) => operations.execute(args, exec),
+    execute: (args, exec) => run(() => operations.execute(args, exec)),
   });
 }

@@ -237,12 +237,16 @@ export class KnowledgeQueue {
       retryOf: job.id,
     });
   }
-  /** Abort all running work and wait for the runner to become quiescent. */
-  async close() {
+  /** Stop admission and signal all running work before waiting for any owner. */
+  beginClose() {
     this.closed = true;
     for (const { controller } of this.active.values()) {
       controller.abort(Object.assign(new Error('KB_CANCELLED'), { code: 'KB_CANCELLED' }));
     }
+  }
+  /** Abort all running work and wait for the runner to become quiescent. */
+  async close() {
+    this.beginClose();
     await this.pending;
     for (const store of this.getStores()) {
       await this.recover(store);

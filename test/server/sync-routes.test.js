@@ -14,7 +14,12 @@ vi.mock('../../src/server/config.js',()=>({loadConfig:vi.fn().mockResolvedValue(
 vi.mock('../../src/server/doc-reader.js',()=>({findRequirementDir:async root=>join(root,'2026-10-20-route-test')}));
 const {createSyncRoutes:createHostSyncRoutes}=await import('../../src/server/routes/sync-routes.js');
 const allocatedRoutes=new Set();
-function createSyncRoutes(...args){const routes=createHostSyncRoutes(...args);allocatedRoutes.add(routes);return routes;}
+function createSyncRoutes(...args) {
+  harness.parentAgent.session.header = { cwd: repo };
+  const routes = createHostSyncRoutes(...args);
+  allocatedRoutes.add(routes);
+  return routes;
+}
 const {getSyncHistory,getActiveSync,getAbortController,abortSync}=await import('../../src/server/sync-state.js');
 let repo,reqDir,routes,workspaceId,harness;
 function store() {return getSyncScope(workspaceId,requirementId).store;}
@@ -254,15 +259,47 @@ async function postRoute(path,data) {
  return {status:res.status,data:JSON.parse(res.body)};
 }
 function withSessionQuery(events) {
+  harness.parentAgent.session.header = { cwd: repo };
  harness.ctx.sessionQuery={listSessions:async()=>[{header:{id:'s',cwd:repo,createdAt:1}}],readTitle:async()=>({title:'同步会话'}),readSession:async()=>({events})};
  routes=createSyncRoutes({list:()=>[{id:workspaceId,path:repo}]},{},{},{get:()=>harness.parentAgent},harness.ctx);
 }
-async function dispatch(data={}, responseRef) {
- const listeners={};const req={method:'POST',headers:{'x-session-id':'parent'},url:'/req-hub/phased-sync',on:(name,fn)=>{listeners[name]=fn;}};
- const res={status:200,headersSent:false,body:'',writeHead(status){if(this.headersSent)throw new Error('ERR_HTTP_HEADERS_SENT');this.status=status;this.headersSent=true;},write(text){this.body+=text;},end(text=''){this.body+=text;}};
- if(responseRef)responseRef.current=res;
- await routes.find(route=>route.path==='/req-hub/phased-sync').handler(req,res);
- listeners.data(JSON.stringify({workspaceId,requirementId,docType:'requirement',...data}));await listeners.end();return res;
+async function dispatch(data = {}, responseRef) {
+  const listeners = {};
+  const req = {
+    method: 'POST',
+    headers: { 'x-session-id': 'parent' },
+    url: '/req-hub/phased-sync',
+    on(name, fn) {
+      listeners[name] = fn;
+    },
+  };
+  const res = {
+    status: 200,
+    headersSent: false,
+    body: '',
+    writeHead(status) {
+      if (this.headersSent) {
+        throw new Error('ERR_HTTP_HEADERS_SENT');
+      }
+      this.status = status;
+      this.headersSent = true;
+    },
+    write(text) {
+      this.body += text;
+    },
+    end(text = '') {
+      this.body += text;
+    },
+  };
+  if (responseRef) {
+    responseRef.current = res;
+  }
+  const execution = routes.find((route) => route.path === '/req-hub/phased-sync').handler(req, res);
+  await vi.waitFor(() => expect(listeners.end).toBeTypeOf('function'));
+  listeners.data(JSON.stringify({ workspaceId, requirementId, docType: 'requirement', ...data }));
+  listeners.end();
+  await execution;
+  return res;
 }
 beforeEach(async()=>{
  repo=await mkdtemp(join(tmpdir(),'req-hub-v2-routes-'));reqDir=join(repo,'docs',requirementId);await mkdir(reqDir,{recursive:true});
@@ -271,7 +308,9 @@ beforeEach(async()=>{
  await writeFile(join(repo,'source.js'),'base');git('add','.');git('commit','-m','base');git('switch','-c','feature/dev/'+requirementId);
  await writeFile(join(repo,'source.js'),'changed');git('add','.');git('commit','-m','change');
  for(const name of ['requirement.md','design.md']) await writeFile(join(reqDir,name),source);
- workspaceId=randomUUID();harness=createSyncHarness();
+  workspaceId = randomUUID();
+  harness = createSyncHarness();
+  harness.parentAgent.session.header = { cwd: repo };
  const setup=()=>createSyncRoutes({list:()=>[{id:workspaceId,path:repo}]},{},{},{get:()=>harness.parentAgent},harness.ctx);
  routes=setup();
 });
@@ -724,7 +763,7 @@ describe('Host-owned quick sync', () => {
     expect(history.filter((task) => task.quickSyncId === id && task.status === 'completed')).toHaveLength(2);
     expect(syncSupervisor.latestQuickSync).toMatchObject({ id, status: 'completed' });
   });
-  it('uses the same pipeline through Agent operations and sends HTTP headers only once', async () => {
+  it('runs the same pipeline through Agent operations and returns a structured terminal result', async () => {
     const operations = createOperations(routes);
     const response = await operations.execute({
       action: 'phased-sync',
@@ -732,7 +771,7 @@ describe('Host-owned quick sync', () => {
       body: { workspaceId, requirementId, ...quickInput() },
     }, { agent: harness.parentAgent });
     expect(response.status).toBe(200);
-    expect(streamEvents({ body: response.value }).at(-1)).toMatchObject({
+    expect(response.value).toMatchObject({
       type: 'done', quickSync: { status: 'completed' }, sync: { docType: 'design' },
     });
     expect((await getSyncHistory(workspaceId, requirementId)).filter((task) => task.status === 'completed'))

@@ -43,25 +43,68 @@ const GLOBAL_CSS_VIRTUAL_PREFIX = '\0dsh-global-css:';
 const CSS_VIRTUAL_SUFFIX = '.mjs';
 
 /**
- * Generate DSH-compliant style injection module
- * Source: packages/client/tsdown.client.ts lines 36-56
+ * Collect stylesheet data without emitting DOM mutations in module factories.
+ * The activation-owned manifest includes both eager and lazy component styles.
  */
-function styleInjectionModule(id, fileId, css, classMap) {
-  const source = [
-    `const css = ${JSON.stringify(css)};`,
-    `const tagId = ${JSON.stringify(`${id}/${basename(fileId)}`)};`,
-    "if (typeof document !== 'undefined' && document.querySelector('style[data-plugin-css=' + JSON.stringify(tagId) + ']') === null) {",
-    "  const tag = document.createElement('style');",
-    `  tag.dataset.plugin = ${JSON.stringify(id)};`,
-    '  tag.dataset.pluginCss = tagId;',
-    '  tag.textContent = css;',
-    '  document.head.appendChild(tag);',
-    '}',
-  ];
-  source.push(
-    classMap === undefined ? 'export {};' : `export default ${JSON.stringify(classMap)};`,
+const styleDefinitions = new Map();
+const globalStyleOrder = [
+  'tokens.css',
+  'base.css',
+  'layout.css',
+  'components.css',
+  'buttons.css',
+  'selects.css',
+  'markdown.css',
+  'animations.css',
+];
+
+function stylesheetPriority(file) {
+  const normalized = file.replaceAll('\\', '/');
+  const index = globalStyleOrder.findIndex((name) =>
+    normalized.endsWith('/src/client/styles/' + name),
   );
-  return source.join('\n');
+  return index === -1 ? globalStyleOrder.length : index;
+}
+
+function styleInjectionModule(id, fileId, css, classMap) {
+  styleDefinitions.set(fileId, [id + '/' + fileId.replaceAll('\\', '/'), css]);
+  return classMap === undefined ? 'export {};' : `export default ${JSON.stringify(classMap)};`;
+}
+
+/**
+ * Supply one activation-owned manifest, including CSS used by lazy chunks. Replacing
+ * the marker after graph loading keeps every module factory free of DOM effects.
+ * @returns A Rolldown plugin collecting the current build's stylesheet definitions.
+ */
+function styleManifestPlugin() {
+  return {
+    name: 'req-hub-style-manifest',
+    load(id) {
+      if (id.replaceAll('\\', '/').endsWith('/src/client/styles/manifest.cjs')) {
+        return 'module.exports = { styles: "__REQ_HUB_STYLE_MANIFEST__" };';
+      }
+    },
+    renderChunk(code) {
+      if (!code.includes('__REQ_HUB_STYLE_MANIFEST__')) {
+        return null;
+      }
+      const styles = [...styleDefinitions.entries()]
+        .filter(
+          ([file]) =>
+            this.getModuleInfo(CSS_VIRTUAL_PREFIX + file + CSS_VIRTUAL_SUFFIX) ||
+            this.getModuleInfo(GLOBAL_CSS_VIRTUAL_PREFIX + file + CSS_VIRTUAL_SUFFIX),
+        )
+        .sort(
+          ([left], [right]) =>
+            stylesheetPriority(left) - stylesheetPriority(right) || left.localeCompare(right),
+        )
+        .map(([, definition]) => definition);
+      return {
+        code: code.replace(/["']__REQ_HUB_STYLE_MANIFEST__["']/g, () => JSON.stringify(styles)),
+        map: null,
+      };
+    },
+  };
 }
 
 /**
@@ -291,6 +334,7 @@ export default {
   plugins: [
     // Dynamic import rewriting (must run after deps plugin)
     asyncChunkRequirePlugin(),
+    styleManifestPlugin(),
     // CSS handling (consistent with DSH official)
     cssGlobalInlinePlugin(PLUGIN_ID),
     cssModulesInlinePlugin(PLUGIN_ID),

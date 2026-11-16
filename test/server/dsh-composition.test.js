@@ -45,10 +45,7 @@ it.skipIf(!available)('composes ReqHub with real DSH Cordis, WebServer, Connecti
     await writeFile(join(profileDir, 'req-hub/config.json'), JSON.stringify({ docsDir: 'docs' }));
     ctx.provide('profileContext', { name: 'fixture', dir: profileDir });
     const fiber = ctx.plugin(ReqHub, {}); await fiber.await();
-    expect(configFilePath()).toBe(join(profileDir, 'req-hub/config.json'));
-    await saveConfig({ docsDir: 'docs', developerName: 'profile-owned' });
-    expect(JSON.parse(await readFile(join(profileDir, 'req-hub/config.json'), 'utf8')).developerName).toBe('profile-owned');
-    expect(JSON.parse(await readFile(join(root, 'req-hub/config.json'), 'utf8')).developerName).toBeUndefined();
+    expect(configFilePath()).toBe(join(root, 'req-hub/config.json'));
     const base = `http://127.0.0.1:${ctx.webServer.port}`;
     expect((await fetch(base + '/req-hub/config')).status).toBe(401);
     let headers;
@@ -56,6 +53,13 @@ it.skipIf(!available)('composes ReqHub with real DSH Cordis, WebServer, Connecti
     expect(ctx.connection.authorizeIndex({ method: 'GET', url: login.pathname + login.search, headers: { host: login.host } }, { writeHead(_status, value) { headers = value; }, end() {} })).toBe(false);
     const cookie = headers['set-cookie'].split(';')[0];
     const authenticated = { cookie };
+    const saved = await fetch(base + '/req-hub/config', {
+      method: 'POST', headers: { ...authenticated, 'content-type': 'application/json' },
+      body: JSON.stringify({ developerName: 'profile-owned' }),
+    });
+    expect(saved.status).toBe(200);
+    expect(JSON.parse(await readFile(join(profileDir, 'req-hub/config.json'), 'utf8')).developerName).toBe('profile-owned');
+    expect(JSON.parse(await readFile(join(root, 'req-hub/config.json'), 'utf8')).developerName).toBeUndefined();
     expect((await fetch(base + '/req-hub/config', { headers: authenticated })).status).toBe(200);
     const directoryTree = await fetch(base + '/req-hub/tree?workspaceId=fixture', { headers: authenticated });
     expect(directoryTree.status).toBe(200); expect((await directoryTree.json()).caseSensitivePaths).toBe(process.platform !== 'win32');
