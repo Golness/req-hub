@@ -1,3 +1,4 @@
+import { ownedAgentListener } from '../owned-agent-listener.js';
 import { randomUUID } from 'node:crypto';
 import { runtimeForRequest } from '../delegation-context.js';
 import { syncReadPage } from '../sync-budget.js';
@@ -186,6 +187,7 @@ export function installKbTaskTools(ctx) {
   const runtimes = new Map();
   const sessions = new Map();
   const disposers = [];
+  const scopedListeners = new Map();
   const properties = [
     { id: { type: 'string' }, offset: { type: 'integer', minimum: 0 } },
     { result: { type: 'object', additionalProperties: true } },
@@ -255,56 +257,50 @@ export function installKbTaskTools(ctx) {
         : undefined,
     ),
   );
-  disposers.push(
-    ctx.on(
-      'agent/turn-stopping',
-      ({ agent, signal }) => {
-        const runtime = sessions.get(agent.session.id);
-        if (
-          !runtime ||
-          runtime.closed ||
-          runtime.failure ||
-          runtime.result ||
-          signal?.aborted ||
-          runtime.signal?.aborted ||
-          typeof agent.steer !== 'function'
-        ) {
-          return;
-        }
-        if ((runtime.completionReminders || 0) >= 3) {
-          runtime.failure = Object.assign(new Error('KB_RESULT_INCOMPLETE'), {
-            code: 'KB_RESULT_INCOMPLETE',
-          });
-          runtime.onFatal?.(runtime.failure);
-          return;
-        }
-        runtime.completionReminders = (runtime.completionReminders || 0) + 1;
-        const state = runtime.completionState();
-        agent.steer(
+  const beforeTurnStops = ({ agent, signal }) => {
+    const runtime = sessions.get(agent.session.id);
+    if (
+      !runtime ||
+      runtime.closed ||
+      runtime.failure ||
+      runtime.result ||
+      signal?.aborted ||
+      runtime.signal?.aborted ||
+      typeof agent.steer !== 'function'
+    ) {
+      return;
+    }
+    if ((runtime.completionReminders || 0) >= 3) {
+      runtime.failure = Object.assign(new Error('KB_RESULT_INCOMPLETE'), {
+        code: 'KB_RESULT_INCOMPLETE',
+      });
+      runtime.onFatal?.(runtime.failure);
+      return;
+    }
+    runtime.completionReminders = (runtime.completionReminders || 0) + 1;
+    const state = runtime.completionState();
+    agent.steer(
+      Object.freeze({
+        id: randomUUID(),
+        role: 'user',
+        source: Object.freeze({
+          kind: 'req-hub-knowledge',
+          form: 'notice',
+          summary: 'Knowledge result not submitted',
+        }),
+        content: Object.freeze([
           Object.freeze({
-            id: randomUUID(),
-            role: 'user',
-            source: Object.freeze({
-              kind: 'req-hub-knowledge',
-              form: 'notice',
-              summary: 'Knowledge result not submitted',
-            }),
-            content: Object.freeze([
-              Object.freeze({
-                type: 'text',
-                text:
-                  'ReqHub has NOT received a successful req_hub_kb_task_submit receipt. Continue in the SAME turn with the actual callable tools. ' +
-                  'Writing tool-call text in a normal answer does not execute tools. ' +
-                  JSON.stringify(state) +
-                  '. Read unreadRequired documents with req_hub_kb_task_read until eof, then submit the complete structured result. Do not claim completion without a receipt.',
-              }),
-            ]),
+            type: 'text',
+            text:
+              'ReqHub has NOT received a successful req_hub_kb_task_submit receipt. Continue in the SAME turn with the actual callable tools. ' +
+              'Writing tool-call text in a normal answer does not execute tools. ' +
+              JSON.stringify(state) +
+              '. Read unreadRequired documents with req_hub_kb_task_read until eof, then submit the complete structured result. Do not claim completion without a receipt.',
           }),
-        );
-      },
-      { global: true },
-    ),
-  );
+        ]),
+      }),
+    );
+  };
   disposers.push(
     ctx.on(
       'llm/stream',
@@ -352,10 +348,20 @@ export function installKbTaskTools(ctx) {
   );
   return {
     add(runtime) {
-      runtime.bindSession = (id) => sessions.set(id, runtime);
+      runtime.bindSession = (id) => {
+        sessions.set(id, runtime);
+        if (!scopedListeners.has(runtime.id)) {
+          scopedListeners.set(
+            runtime.id,
+            ownedAgentListener(ctx, id, 'agent/turn-stopping', beforeTurnStops),
+          );
+        }
+      };
       runtimes.set(runtime.id, runtime);
     },
     close(runtime) {
+      scopedListeners.get(runtime.id)?.();
+      scopedListeners.delete(runtime.id);
       runtime.closed = true;
       runtimes.delete(runtime.id);
       if (runtime.sessionId) {
@@ -363,6 +369,13 @@ export function installKbTaskTools(ctx) {
       }
     },
     dispose() {
+      for (const runtime of runtimes.values()) {
+        runtime.closed = true;
+      }
+      for (const dispose of scopedListeners.values()) {
+        dispose();
+      }
+      scopedListeners.clear();
       for (const dispose of disposers.reverse()) {
         dispose();
       }

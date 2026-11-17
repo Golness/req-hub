@@ -1,9 +1,9 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { PagedList } = require('./shared/PagedList.js');
 const { Disclosure } = require('./shared/Disclosure.js');
 const React = require('react');
 const { t } = require('../locale.js');
-const { ROUTE } = require('../constants.js');
 const { Checkbox } = require('./shared/controls.js');
 const { Button } = require('./shared/Button.js');
 const { Input } = require('./shared/Input.js');
@@ -24,7 +24,8 @@ function KnowledgeContextPicker({ workspaceId, scopeIds, onChange, disabled, emb
     const abort = new AbortController();
     setError('');
     setLoading(true);
-    fetch(`${ROUTE}/writing/options`, { signal: abort.signal })
+    clientApi
+      .request(clientApi.endpoint('writing/options'), { signal: abort.signal })
       .then(async (res) => {
         if (!res.ok) {
           throw new Error();

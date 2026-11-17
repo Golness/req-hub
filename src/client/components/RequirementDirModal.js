@@ -1,4 +1,5 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { t } = require('../locale.js');
 const css = require('./RequirementDirModal.module.css').default;
 const { cssValue } = require('./shared/presentation.js');
@@ -8,7 +9,6 @@ const { Button } = require('./shared/Button.js');
 const React = require('react');
 const h = React.createElement;
 const { useState, useEffect } = React;
-const { ROUTE } = require('../constants.js');
 const { createIconComponents } = require('../icons.js');
 
 const { IconFolderOpen, IconChevronRight } = createIconComponents(h);
@@ -33,8 +33,11 @@ function RequirementDirModal({ workspaceId, selectedReqId, onSelect, onClose }) 
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(
-          `${ROUTE}/tree?workspaceId=${encodeURIComponent(workspaceId)}&t=${Date.now()}`,
+        const res = await clientApi.request(
+          clientApi.endpoint(
+            'tree',
+            `workspaceId=${encodeURIComponent(workspaceId)}&t=${Date.now()}`,
+          ),
         );
         if (res.ok) {
           const data = await res.json();

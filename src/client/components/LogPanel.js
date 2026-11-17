@@ -1,4 +1,5 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { formatTime, useTimeZone } = require('../time.js');
 const { PagedList } = require('./shared/PagedList.js');
 const { Checkbox } = require('./shared/controls.js');
@@ -10,7 +11,6 @@ const { Button } = require('./shared/Button.js');
 const React = require('react');
 const h = React.createElement;
 const { useState, useEffect } = React;
-const { ROUTE } = require('../constants.js');
 const { localizeMessage } = require('../utils/serverMessage.js');
 
 /**
@@ -36,8 +36,8 @@ function ApplicationLogs({ onClose }) {
     const fetchLogs = async () => {
       try {
         const [logsRes, metaRes] = await Promise.all([
-          fetch(`${ROUTE}/logs`, { signal: controller.signal }),
-          fetch(`${ROUTE}/logs/meta`, { signal: controller.signal }),
+          clientApi.request(clientApi.endpoint('logs'), { signal: controller.signal }),
+          clientApi.request(clientApi.endpoint('logs/meta'), { signal: controller.signal }),
         ]);
 
         if (logsRes.ok) {
@@ -195,7 +195,7 @@ function ApplicationLogs({ onClose }) {
             tone: 'danger',
             onClick: async () => {
               try {
-                await fetch(`${ROUTE}/logs/clear`, { method: 'POST' });
+                await clientApi.request(clientApi.endpoint('logs/clear'), { method: 'POST' });
                 setLogs([]);
               } catch (err) {
                 console.error('Failed to clear logs:', err);

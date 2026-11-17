@@ -1,10 +1,10 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { localizeMessage, messageCode } = require('../utils/serverMessage.js');
 const { formatDateTime, useTimeZone } = require('../time.js');
 const { PagedList } = require('./shared/PagedList.js');
 const React = require('react');
 const { t } = require('../locale.js');
-const { ROUTE } = require('../constants.js');
 const { ModalFrame } = require('./shared/ModalFrame.js');
 const { Button } = require('./shared/Button.js');
 const { Input } = require('./shared/Input.js');
@@ -62,8 +62,8 @@ function ConversationManager({ workspaceId, onClose, onChanged }) {
     const controller = new AbortController();
     requests.current.add(controller);
     try {
-      const response = await fetch(
-        `${ROUTE}/conversations-${action}${body ? '' : '?' + new URLSearchParams({ workspaceId, ...params })}`,
+      const response = await clientApi.request(
+        clientApi.endpoint('conversations', body ? undefined : { workspaceId, ...params }, action),
         {
           signal: controller.signal,
           ...(body

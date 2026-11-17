@@ -1,4 +1,5 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { clientError } = require('../utils/serverMessage.js');
 const React = require('react');
 const { HoverCard } = require('./shared/controls.js');
@@ -10,7 +11,6 @@ const { Breadcrumb } = require('./shared/Breadcrumb.js');
 const { PagedList } = require('./shared/PagedList.js');
 const { LarkErrorDetails } = require('./LarkErrorDetails.js');
 const { LarkWorkspaceBindings } = require('./LarkWorkspaceBindings.js');
-const { ROUTE } = require('../constants.js');
 const { t, hasLocaleKey } = require('../locale.js');
 const form = require('./shared/SettingsForm.module.css').default;
 const css = require('./LarkTargetSettings.module.css').default;
@@ -79,7 +79,7 @@ function LarkTargetSettings({ workspaceId, connectionKey, disabled, connectionBu
     return text(codes.includes(code) ? code : 'LARK_TARGET_FAILED');
   };
   const request = async (action, body, signal) => {
-    const response = await fetch(`${ROUTE}/lark/target-${action}`, {
+    const response = await clientApi.request(clientApi.endpoint('larkTarget', undefined, action), {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
@@ -96,7 +96,8 @@ function LarkTargetSettings({ workspaceId, connectionKey, disabled, connectionBu
   React.useEffect(() => {
     const controller = new AbortController();
     setError(null);
-    fetch(`${ROUTE}/workspaces`, { signal: controller.signal, cache: 'no-store' })
+    clientApi
+      .request(clientApi.endpoint('workspaces'), { signal: controller.signal, cache: 'no-store' })
       .then(async (response) => {
         if (!response.ok) {
           throw new Error('LARK_WORKSPACE_INVALID');

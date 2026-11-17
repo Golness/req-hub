@@ -1,9 +1,9 @@
 'use strict';
+const clientApi = require('../../api/index.js');
 const { t } = require('../../locale.js');
 const { Button } = require('./Button.js');
 const React = require('react');
 const h = React.createElement;
-const { ROUTE } = require('../../constants.js');
 
 /**
  * Remove a scoped sync task and retain retry access when deletion fails.
@@ -22,7 +22,7 @@ function DeleteSyncTaskButton({ task, onDeleted, scope = 'attempt' }) {
     }
     setBusy(true);
     try {
-      const response = await fetch(`${ROUTE}/sync-delete`, {
+      const response = await clientApi.request(clientApi.endpoint('sync-delete'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

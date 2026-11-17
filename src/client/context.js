@@ -23,4 +23,29 @@ const DocsViewerContext = React.createContext({
 
 // Only the selection getter crosses the component boundary, never the Host ctx.
 const SessionSelectionContext = React.createContext(() => null);
-module.exports = { DocsViewerContext, SessionSelectionContext };
+const SessionSelectionStoreContext = React.createContext(null);
+
+/**
+ * Subscribe to the current session through the plugin's narrow selection interface.
+ * @returns The selected session ID, or null when the optional Host selection is unavailable.
+ */
+function useSelectedSessionId() {
+  const store = React.useContext(SessionSelectionStoreContext);
+  const getSession = React.useContext(SessionSelectionContext);
+  const snapshot = React.useCallback(
+    () => (store ? store.getSnapshot() : getSession()),
+    [store, getSession],
+  );
+  const subscribe = React.useCallback(
+    (listener) => (store ? store.subscribe(listener) : () => {}),
+    [store],
+  );
+  return React.useSyncExternalStore(subscribe, snapshot, snapshot);
+}
+
+module.exports = {
+  DocsViewerContext,
+  SessionSelectionContext,
+  SessionSelectionStoreContext,
+  useSelectedSessionId,
+};

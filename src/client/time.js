@@ -1,6 +1,6 @@
 'use strict';
+const clientApi = require('./api/index.js');
 const React = require('react');
-const { ROUTE } = require('./constants.js');
 const { DEFAULT_TIME_ZONE, validateTimeZone, formatTimestamp } = require('../shared/time.cjs');
 
 let zone = DEFAULT_TIME_ZONE;
@@ -42,7 +42,8 @@ function useTimeZone() {
 function installTimeZone() {
   const controller = new AbortController();
   const initialRevision = revision;
-  const pending = fetch(`${ROUTE}/config`, { signal: controller.signal })
+  const pending = clientApi
+    .request(clientApi.endpoint('config'), { signal: controller.signal })
     .then(async (response) => {
       if (!response.ok) {
         return;

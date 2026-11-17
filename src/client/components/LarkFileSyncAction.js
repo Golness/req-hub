@@ -1,7 +1,7 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const React = require('react');
 const { t, hasLocaleKey } = require('../locale.js');
-const { ROUTE } = require('../constants.js');
 const { Button } = require('./shared/Button.js');
 const { showToast } = require('./shared/ToastContainer.js');
 const h = React.createElement;
@@ -27,7 +27,7 @@ function LarkFileSyncAction({ workspaceId, path, name, dirty }) {
   const sync = async () => {
     setBusy(true);
     try {
-      const response = await fetch(`${ROUTE}/lark/file-sync`, {
+      const response = await clientApi.request(clientApi.endpoint('lark/file-sync'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspaceId, path }),

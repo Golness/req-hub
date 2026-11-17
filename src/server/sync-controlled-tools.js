@@ -1,3 +1,9 @@
+import { ownedAgentListener } from './owned-agent-listener.js';
+import {
+  SYNC_SESSION_PROJECTION,
+  installSyncSessionProjection,
+  foldSyncSessionFacts,
+} from './sync-session-projection.js';
 import { msg } from './messages.js';
 import { runtimeForRequest } from './delegation-context.js';
 import { randomUUID } from 'node:crypto';
@@ -27,6 +33,10 @@ export function installSyncTools(ctx) {
   const runtimes = new Map();
   const sessions = new Map();
   const disposers = [];
+  const projectionDisposer = installSyncSessionProjection(ctx.sessionProjections);
+  if (projectionDisposer) {
+    disposers.push(projectionDisposer);
+  }
   const runtimeFor = (exec) => {
     exec.signal?.throwIfAborted();
     const runtime = sessions.get(exec.agent?.session?.id);
@@ -181,101 +191,86 @@ export function installSyncTools(ctx) {
       'session/event',
       (session, event) => {
         const runtime = sessions.get(session.id);
-        if (
-          runtime &&
-          !runtime.closed &&
-          ['compaction/prune', 'compaction/summary'].includes(event.type)
-        ) {
-          runtime.evidenceCompacted = true;
+        if (!runtime || runtime.closed) {
+          return;
         }
-        // The spawn provider returns only stopReason. Keep the owned child's actual
-        // terminal failure before the Host disposes it; never inspect other sessions.
-        if (
-          runtime &&
-          !runtime.closed &&
-          event.type === 'turn/end' &&
-          event.data?.reason?.kind === 'error'
-        ) {
-          const failure = event.data.reason.error;
-          runtime.failure = { code: failure?.code, message: failure?.message };
+        const facts = projectionDisposer
+          ? ctx.sessionProjections.stateOf(session, SYNC_SESSION_PROJECTION)
+          : foldSyncSessionFacts(
+              { compacted: !!runtime.evidenceCompacted, failure: runtime.failure || null },
+              event,
+            );
+        if (facts) {
+          runtime.evidenceCompacted = facts.compacted;
+          runtime.failure = facts.failure;
         }
       },
       { global: true },
     ),
   );
-  // DSH's stop boundary permits same-turn steering before a one-shot settles.
-  // Repair only our published child, using tool receipts rather than its claims.
-  disposers.push(
-    ctx.on(
-      'agent/turn-stopping',
-      async ({ agent, signal }) => {
-        const runtime = sessions.get(agent.session.id);
-        if (
-          !runtime ||
-          runtime.closed ||
-          runtime.evidenceCompacted ||
-          signal?.aborted ||
-          runtime.signal?.aborted ||
-          typeof agent.steer !== 'function'
-        ) {
-          return;
-        }
-        runtime.assertActive?.();
-        const diagnostic = await runtime.diagnostics();
-        const missingOutputs = Object.keys(runtime.outputs).filter(
-          (id) => !runtime.outputWritten.has(id),
-        );
-        const missingEditBlockIds = runtime.candidatePath
-          ? [...new Set(runtime.changes.map((change) => change.blockId))].filter(
-              (id) => !runtime.journal.some((edit) => edit.blockId === id),
-            )
-          : [];
-        if (
-          !diagnostic.readState.remaining &&
-          !missingOutputs.length &&
-          !missingEditBlockIds.length
-        ) {
-          return;
-        }
-        if ((runtime.completionReminders || 0) >= (runtime.maxCompletionReminders ?? 3)) {
-          return;
-        }
-        signal?.throwIfAborted();
-        runtime.signal?.throwIfAborted();
-        runtime.assertActive?.();
-        if (runtime.closed) {
-          return;
-        }
-        runtime.completionReminders = (runtime.completionReminders || 0) + 1;
-        runtime.onActivity?.();
-        const text =
-          'ReqHub tool receipts show that this task is NOT complete. Continue in this same turn; do not claim success or repeat completed reads. ' +
-          JSON.stringify({
-            readState: diagnostic.readState,
-            missingOutputs,
-            missingEditBlockIds,
-            outputErrors: diagnostic.outputErrors,
-          }) +
-          '. Read readState.next.artifactId at readState.next.offset until remaining=0. ' +
-          (runtime.candidatePath
-            ? 'Read candidate to locate exact text as needed. Use req_hub_sync_edit for missingEditBlockIds. Edit receipts confirm completion. This stage has no analysis outputs; do not call req_hub_sync_write.'
-            : 'Write every missing output with req_hub_sync_write. Only written=true acknowledges a successful write.');
-        agent.steer(
-          Object.freeze({
-            id: randomUUID(),
-            role: 'user',
-            source: Object.freeze({
-              kind: 'req-hub-sync',
-              form: 'notice',
-              summary: 'Incomplete sync evidence or outputs',
-            }),
-            content: Object.freeze([Object.freeze({ type: 'text', text })]),
-          }),
-        );
-      },
-      { global: true },
-    ),
-  );
+  // Only a published child receives completion steering; the runtime owns the registration too.
+  const beforeTurnStops = async ({ agent, signal }) => {
+    const runtime = sessions.get(agent.session.id);
+    if (
+      !runtime ||
+      runtime.closed ||
+      runtime.evidenceCompacted ||
+      signal?.aborted ||
+      runtime.signal?.aborted ||
+      typeof agent.steer !== 'function'
+    ) {
+      return;
+    }
+    runtime.assertActive?.();
+    const diagnostic = await runtime.diagnostics();
+    const missingOutputs = Object.keys(runtime.outputs).filter(
+      (id) => !runtime.outputWritten.has(id),
+    );
+    const missingEditBlockIds = runtime.candidatePath
+      ? [...new Set(runtime.changes.map((change) => change.blockId))].filter(
+          (id) => !runtime.journal.some((edit) => edit.blockId === id),
+        )
+      : [];
+    if (!diagnostic.readState.remaining && !missingOutputs.length && !missingEditBlockIds.length) {
+      return;
+    }
+    if ((runtime.completionReminders || 0) >= (runtime.maxCompletionReminders ?? 3)) {
+      return;
+    }
+    signal?.throwIfAborted();
+    runtime.signal?.throwIfAborted();
+    runtime.assertActive?.();
+    if (runtime.closed) {
+      return;
+    }
+    runtime.completionReminders = (runtime.completionReminders || 0) + 1;
+    runtime.onActivity?.();
+    const text =
+      'ReqHub tool receipts show that this task is NOT complete. Continue in this same turn; do not claim success or repeat completed reads. ' +
+      JSON.stringify({
+        readState: diagnostic.readState,
+        missingOutputs,
+        missingEditBlockIds,
+        outputErrors: diagnostic.outputErrors,
+      }) +
+      '. Read readState.next.artifactId at readState.next.offset until remaining=0. ' +
+      (runtime.candidatePath
+        ? 'Read candidate to locate exact text as needed. Use req_hub_sync_edit for missingEditBlockIds. Edit receipts confirm completion. This stage has no analysis outputs; do not call req_hub_sync_write.'
+        : 'Write every missing output with req_hub_sync_write. Only written=true acknowledges a successful write.');
+    agent.steer(
+      Object.freeze({
+        id: randomUUID(),
+        role: 'user',
+        source: Object.freeze({
+          kind: 'req-hub-sync',
+          form: 'notice',
+          summary: 'Incomplete sync evidence or outputs',
+        }),
+        content: Object.freeze([Object.freeze({ type: 'text', text })]),
+      }),
+    );
+  };
+
   const installation = {
     revoke(signal) {
       for (const runtime of [...runtimes.values()]) {
@@ -287,10 +282,19 @@ export function installSyncTools(ctx) {
     create(options) {
       options.signal?.throwIfAborted();
       const runtime = new SyncRuntime(ctx, options);
-      runtime.bindSession = (id) => sessions.set(id, runtime);
+      let stopDisposer;
+      runtime.bindSession = (id) => {
+        sessions.set(id, runtime);
+        if (stopDisposer) {
+          return;
+        }
+        stopDisposer = ownedAgentListener(ctx, id, 'agent/turn-stopping', beforeTurnStops);
+      };
       const close = runtime.close.bind(runtime);
       runtime.close = () => {
         options.signal?.removeEventListener('abort', runtime.close);
+        stopDisposer?.();
+        stopDisposer = null;
         close();
         runtimes.delete(runtime.id);
         if (runtime.sessionId) {

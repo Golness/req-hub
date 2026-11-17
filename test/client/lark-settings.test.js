@@ -60,8 +60,8 @@ it('submits only one check when clicked twice before React updates the button', 
   });
   await render(fetcher);
   await act(async () => {
-    button('检测配置').click();
-    button('检测配置').click();
+    button('检查连接').click();
+    button('检查连接').click();
   });
   expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/lark/check'))).toHaveLength(1);
   await act(async () => finish(response({ ready: true, code: 'LARK_CHECK_OK' })));
@@ -81,21 +81,21 @@ it('shows connection network failures with safe details and leaves save disabled
       ),
     ),
   );
-  await click(button('检测配置'));
-  expect(document.querySelector('[role="alert"]').textContent).toContain('无法连接飞书服务');
+  await click(button('检查连接'));
+  expect(document.querySelector('[role="alert"]').textContent).toContain('网络请求失败');
   expect(button('保存连接').disabled).toBe(true);
 });
 
 it('separates connection and target controls and keeps credentials under the connection section', async () => {
   await render(vi.fn(async () => response({})));
   const headings = [...document.querySelectorAll('h3')];
-  const connection = headings.find((node) => node.textContent === 'CLI 连接').closest('section');
-  const targets = headings.find((node) => node.textContent === '发布目标').closest('section');
+  const connection = headings.find((node) => node.textContent === '飞书连接').closest('section');
+  const targets = headings.find((node) => node.textContent === '发布到飞书').closest('section');
   expect(connection).not.toBe(targets);
-  expect(connection.contains(button('检测配置'))).toBe(true);
-  expect(targets.contains(button('检测配置'))).toBe(false);
+  expect(connection.contains(button('检查连接'))).toBe(true);
+  expect(targets.contains(button('检查连接'))).toBe(false);
   const setup = [...document.querySelectorAll('[data-rh-disclosure-trigger]')].find(
-    (node) => node.textContent === '应用配置与登录',
+    (node) => node.textContent === '设置飞书连接',
   );
   expect(connection.contains(setup)).toBe(true);
   expect(setup.getAttribute('aria-expanded')).toBe('false');
@@ -127,13 +127,13 @@ it('checks unsaved settings before saving and invalidates verification on edit',
   expect(document.querySelector(`label[for="${profile().id}"]`).textContent).toBe(
     '应用配置名称（可选）',
   );
-  await click(button('检测配置'));
+  await click(button('检查连接'));
   expect(document.body.textContent).toContain('检测通过');
   await edit('team');
   expect(document.body.textContent).not.toContain('检测通过');
-  expect(button('检测配置').disabled).toBe(false);
+  expect(button('检查连接').disabled).toBe(false);
   expect(button('保存连接').disabled).toBe(true);
-  await click(button('检测配置'));
+  await click(button('检查连接'));
   expect(button('保存连接').disabled).toBe(false);
   await click(button('保存连接'));
   expect(
@@ -141,8 +141,8 @@ it('checks unsaved settings before saving and invalidates verification on edit',
   ).toEqual({
     lark: { executable: 'lark-cli', profile: 'team', identity: 'user', timeoutMs: 30000 },
   });
-  expect(button('检测配置').disabled).toBe(false);
-  await click(button('检测配置'));
+  expect(button('检查连接').disabled).toBe(false);
+  await click(button('检查连接'));
   expect(JSON.parse(fetcher.mock.calls.at(-1)[1].body).lark.profile).toBe('team');
 });
 
@@ -157,7 +157,7 @@ it('preserves drafts on save failure and reports authentication failure as an er
     return response({});
   });
   await render(fetcher);
-  await click(button('检测配置'));
+  await click(button('检查连接'));
   expect(document.querySelector('[role="alert"]').textContent).toContain('尚未登录');
   await edit('draft');
   fetcher.mockImplementation(async (url) => {
@@ -166,11 +166,11 @@ it('preserves drafts on save failure and reports authentication failure as an er
     }
     return response({}, false);
   });
-  await click(button('检测配置'));
+  await click(button('检查连接'));
   await click(button('保存连接'));
   expect(profile().value).toBe('draft');
   expect(document.querySelector('[role="alert"]').textContent).toContain('保存失败');
-  expect(button('检测配置').disabled).toBe(false);
+  expect(button('检查连接').disabled).toBe(false);
 });
 
 it('retries a failed load and aborts pending detection on unmount', async () => {
@@ -185,7 +185,7 @@ it('retries a failed load and aborts pending detection on unmount', async () => 
   expect(document.body.textContent).toContain('读取配置失败');
   fail = false;
   await click(button('重试'));
-  await click(button('检测配置'));
+  await click(button('检查连接'));
   const signal = fetcher.mock.calls.at(-1)[1].signal;
   expect(signal.aborted).toBe(false);
   await act(async () => root.unmount());
@@ -205,17 +205,17 @@ it('keeps application secrets out of plugin settings and clears the input after 
   });
   await render(fetcher);
   const setup = [...document.querySelectorAll('[data-rh-disclosure-trigger]')].find(
-    (node) => node.textContent === '应用配置与登录',
+    (node) => node.textContent === '设置飞书连接',
   );
   expect(setup.getAttribute('aria-expanded')).toBe('false');
-  expect(document.body.textContent).toContain('无需填写下方应用信息');
+  expect(document.body.textContent).toContain('可选：配置飞书发布到知识库。');
   expect(
-    button('检测配置').compareDocumentPosition(setup) & Node.DOCUMENT_POSITION_FOLLOWING,
+    button('检查连接').compareDocumentPosition(setup) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
   await click(setup);
-  const help = document.querySelector('button[aria-label="App ID说明"]');
+  const help = document.querySelector('button[aria-label="应用 App ID说明"]');
   await act(async () => help.focus());
-  expect(document.querySelector('[role="tooltip"]').textContent).toContain('凭证与基础信息');
+  expect(document.querySelector('[role="tooltip"]').textContent).toContain('应用 App ID');
   await act(async () =>
     help.dispatchEvent(
       new KeyboardEvent('keydown', {
@@ -235,9 +235,9 @@ it('keeps application secrets out of plugin settings and clears the input after 
     setter.call(secret, 'test-secret');
     secret.dispatchEvent(new Event('input', { bubbles: true }));
   });
-  expect(button('保存应用配置到 CLI').disabled).toBe(true);
-  await click(button('检测应用凭据'));
-  expect(button('保存应用配置到 CLI').disabled).toBe(false);
+  expect(button('配置连接').disabled).toBe(true);
+  await click(button('检查应用'));
+  expect(button('配置连接').disabled).toBe(false);
   await act(async () => {
     Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(
       secret,
@@ -245,9 +245,9 @@ it('keeps application secrets out of plugin settings and clears the input after 
     );
     secret.dispatchEvent(new Event('input', { bubbles: true }));
   });
-  expect(button('保存应用配置到 CLI').disabled).toBe(true);
-  await click(button('检测应用凭据'));
-  await click(button('保存应用配置到 CLI'));
+  expect(button('配置连接').disabled).toBe(true);
+  await click(button('检查应用'));
+  await click(button('配置连接'));
   expect(fetcher.mock.calls.at(-1)[0]).toBe('/req-hub/lark/configure');
   expect(JSON.parse(fetcher.mock.calls.at(-1)[1].body)).toEqual({
     appId: 'cli_test',

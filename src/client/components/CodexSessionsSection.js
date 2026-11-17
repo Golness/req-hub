@@ -1,4 +1,5 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { localizeMessage } = require('../utils/serverMessage.js');
 const { formatDateTime, useTimeZone } = require('../time.js');
 const { Disclosure } = require('./shared/Disclosure.js');
@@ -9,7 +10,6 @@ const React = require('react');
 const { createPortal } = require('react-dom');
 const layoutCss = require('./ConversationSources.module.css').default;
 const h = React.createElement;
-const { ROUTE } = require('../constants.js');
 const { SessionList } = require('./shared/SessionList.js');
 const { readConversationResponse } = require('../utils/readConversationResponse.js');
 const { ConversationRefreshProgress } = require('./ConversationRefreshProgress.js');
@@ -77,8 +77,12 @@ function CodexSessionsSection({
     };
   }, []);
   const request = async (action, body, onProgress, signal) => {
-    const response = await fetch(
-      `${ROUTE}/codex/${action}${body ? '' : '?' + new URLSearchParams({ workspaceId, matchWorkspace: 'true' })}`,
+    const response = await clientApi.requestStream(
+      clientApi.endpoint(
+        'codex',
+        body ? undefined : { workspaceId, matchWorkspace: 'true' },
+        action,
+      ),
       body
         ? {
             method: 'POST',
@@ -92,7 +96,7 @@ function CodexSessionsSection({
           }
         : { signal },
     );
-    return readConversationResponse(response, onProgress);
+    return readConversationResponse(response, onProgress, { signal });
   };
   const load = async (action, body) => {
     const id = ++requestId.current;

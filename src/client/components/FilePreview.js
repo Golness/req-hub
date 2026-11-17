@@ -1,4 +1,5 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { localizeMessage } = require('../utils/serverMessage.js');
 const { formatTime, useTimeZone } = require('../time.js');
 const { t } = require('../locale.js');
@@ -14,7 +15,7 @@ const { createPortal } = require('react-dom');
 const h = React.createElement;
 const { useState, useEffect, useRef, useMemo } = React;
 
-const { ROUTE, MERMAID_SCRIPT_ID } = require('../constants.js');
+const { MERMAID_SCRIPT_ID } = require('../constants.js');
 const { useScript } = require('../hooks/useScript.js');
 const { getMermaidTheme } = require('../utils/getMermaidTheme.js');
 const { getDocIcon } = require('../utils/getDocIcon.js');
@@ -95,7 +96,7 @@ function FilePreview({
 
     setSaving(true);
     try {
-      const res = await fetch(`${ROUTE}/write`, {
+      const res = await clientApi.request(clientApi.endpoint('write'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -139,39 +140,29 @@ function FilePreview({
   }, [active, isMd, editMode, editContent, workspaceId, relPath, readOnly]);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
     setEditMode(false);
     setText('');
     setEditContent('');
     setError(null);
     setParseWarnings([]);
     setLastSaved(null);
-    (async () => {
-      try {
-        const url =
-          sourceUrl ||
-          `${ROUTE}/read?workspaceId=${encodeURIComponent(workspaceId)}&path=${encodeURIComponent(relPath)}`;
-        const res = await fetch(url);
-        const data = await res.json();
-        if (cancelled) {
-          return;
-        }
-        if (!res.ok) {
-          setError(localizeMessage(data.error) || 'read failed');
-        } else {
+    const url = sourceUrl || clientApi.endpoint('read', { workspaceId, path: relPath });
+    clientApi
+      .requestFile(url, { signal: controller.signal })
+      .then((data) => {
+        if (!controller.signal.aborted) {
           setText(data.text || '');
           setEditContent(data.text || '');
           setParseWarnings(data.warnings || []);
         }
-      } catch (e) {
-        if (!cancelled) {
-          setError(String(e));
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setError(localizeMessage(error));
         }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+      });
+    return () => controller.abort();
   }, [workspaceId, relPath, isMd, sourceUrl]);
 
   useEffect(() => {

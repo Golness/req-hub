@@ -176,6 +176,15 @@ export async function apply(ctx, config = {}) {
         () => scheduledSync.beginClose(),
       );
 
+      // Optional timer support must not make document management depend on a new service.
+      if (ctx.inject) {
+        const timerScope = ctx.inject(['timer'], (timerCtx) => {
+          scheduledSync.useTimeout((callback, delay) => timerCtx.timeout(callback, delay));
+          return () => scheduledSync.useTimeout();
+        });
+        lifecycle.own(() => timerScope.dispose());
+      }
+
       const routes = [
         ...createKnowledgeV2Routes(knowledgeV2),
         ...enhancements.routes,

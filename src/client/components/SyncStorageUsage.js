@@ -1,7 +1,7 @@
+const clientApi = require('../api/index.js');
 const { localizeMessage } = require('../utils/serverMessage.js');
 const React = require('react');
 const { t } = require('../locale.js');
-const { ROUTE } = require('../constants.js');
 const { Button } = require('./shared/Button.js');
 const css = require('./SyncStorageUsage.module.css').default;
 const h = React.createElement;
@@ -20,7 +20,7 @@ function storageError(error) {
   if (error.message === 'SYNC_STORAGE_RESPONSE_INVALID') {
     return t('sync.storage.responseInvalid', { status: error.status || '?' });
   }
-  if (error instanceof TypeError) {
+  if (error instanceof TypeError || error.code === 'API_NETWORK_FAILED') {
     return t('sync.storage.networkFailed');
   }
   return t('sync.storage.failureReason', { reason: error.message || t('sync.storage.failed') });
@@ -43,16 +43,19 @@ function SyncStorageUsage({ workspaceId, onChanged }) {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`${ROUTE}/sync-storage?${new URLSearchParams({ workspaceId })}`, {
-        method,
-        signal,
-        ...(method === 'POST'
-          ? {
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ workspaceId }),
-            }
-          : {}),
-      });
+      const res = await clientApi.request(
+        clientApi.endpoint('sync-storage', `${new URLSearchParams({ workspaceId })}`),
+        {
+          method,
+          signal,
+          ...(method === 'POST'
+            ? {
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ workspaceId }),
+              }
+            : {}),
+        },
+      );
       let result;
       try {
         result = await res.json();

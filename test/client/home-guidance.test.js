@@ -24,6 +24,7 @@ function requests({ requirements = [first], commits = [] } = {}) {
         scopes: [],
         starters: { requirement: { label: '需求文档', content: '# 需求' } },
       });
+    if (url.includes('/knowledge-v2/pages?')) return response({ pages: [], total: 0 });
     if (url.includes('/entries')) return response({ entries: [] });
     if (url.includes('/sessions')) return response({ sessions: [] });
     return response({});
@@ -231,13 +232,17 @@ it('guides an existing requirement to writing and knowledge instead of creating 
   expect(action('管理知识库')).toBeTruthy();
   await click(action('管理知识库'));
   expect(container.querySelector('.rh-file-tree-sidebar')).toBeNull();
-  expect(container.querySelector('#knowledge-tab-wiki').getAttribute('aria-selected')).toBe('true');
+  expect(container.querySelector('#kb-tab-wiki').getAttribute('aria-selected')).toBe('true');
   expect(
     [...container.querySelectorAll('.rh-rail-btn.active')].some(
       (button) => button.textContent === '知识库',
     ),
   ).toBe(true);
-  await click(container.querySelector('[aria-label="关闭面板"]'));
+  await click(
+    [...container.querySelectorAll('.rh-rail-btn')].find(
+      (button) => button.textContent === '知识库',
+    ),
+  );
   await click(action('开始写作'));
   expect(container.querySelector('.rh-writing-panel')).not.toBeNull();
   expect(container.querySelector('.rh-file-tree-sidebar')).toBeNull();

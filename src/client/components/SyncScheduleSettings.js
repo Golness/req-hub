@@ -1,4 +1,5 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { useTimeZone } = require('../time.js');
 const React = require('react');
 const { Input } = require('./shared/Input.js');
@@ -6,7 +7,6 @@ const { Button } = require('./shared/Button.js');
 const { SettingsActionBar } = require('./shared/SettingsActionBar.js');
 const { Select } = require('./shared/Select.js');
 const { HoverCard } = require('./shared/controls.js');
-const { ROUTE } = require('../constants.js');
 const { t } = require('../locale.js');
 const css = require('./shared/SettingsForm.module.css').default;
 const h = React.createElement;
@@ -27,7 +27,8 @@ function SyncScheduleSettings({ defaultUsername } = {}) {
     const controller = new AbortController();
     owner.current = controller;
     setError(null);
-    fetch(`${ROUTE}/config`, { signal: controller.signal })
+    clientApi
+      .request(clientApi.endpoint('config'), { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) {
           throw new Error('CONFIG_LOAD_FAILED');
@@ -289,7 +290,7 @@ function SyncScheduleSettings({ defaultUsername } = {}) {
             setSaveNotice(null);
             const signal = owner.current.signal;
             try {
-              const response = await fetch(`${ROUTE}/config`, {
+              const response = await clientApi.request(clientApi.endpoint('config'), {
                 method: 'POST',
                 signal,
                 headers: { 'Content-Type': 'application/json' },

@@ -1,4 +1,5 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { clientError } = require('../utils/serverMessage.js');
 const React = require('react');
 const { Input } = require('./shared/Input.js');
@@ -9,7 +10,6 @@ const { Disclosure } = require('./shared/Disclosure.js');
 const { HoverCard } = require('./shared/controls.js');
 const { LarkTargetSettings } = require('./LarkTargetSettings.js');
 const { LarkErrorDetails } = require('./LarkErrorDetails.js');
-const { ROUTE } = require('../constants.js');
 const { t, hasLocaleKey } = require('../locale.js');
 const css = require('./shared/SettingsForm.module.css').default;
 const layout = require('./LarkSettings.module.css').default;
@@ -50,7 +50,8 @@ function LarkCliSettings({ workspaceId } = {}) {
     const controller = new AbortController();
     owner.current = controller;
     setError(null);
-    fetch(`${ROUTE}/config`, { signal: controller.signal, cache: 'no-store' })
+    clientApi
+      .request(clientApi.endpoint('config'), { signal: controller.signal, cache: 'no-store' })
       .then(async (response) => {
         if (!response.ok) {
           throw new Error('LARK_LOAD_FAILED');
@@ -169,7 +170,7 @@ function LarkCliSettings({ workspaceId } = {}) {
       const body = ['configure', 'app-check'].includes(action)
         ? { ...application, lark: values }
         : { lark: values };
-      const response = await fetch(`${ROUTE}/${path}`, {
+      const response = await clientApi.request(clientApi.endpoint('lark', undefined, action), {
         method: 'POST',
         signal,
         headers: { 'Content-Type': 'application/json' },

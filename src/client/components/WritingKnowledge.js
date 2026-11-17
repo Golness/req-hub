@@ -1,8 +1,8 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { PagedList } = require('./shared/PagedList.js');
 const React = require('react');
 const { t } = require('../locale.js');
-const { ROUTE } = require('../constants.js');
 const { Button } = require('./shared/Button.js');
 const { Checkbox } = require('./shared/controls.js');
 const { DocumentAssist } = require('./ContextAssist.js');
@@ -49,8 +49,8 @@ function WritingKnowledge({
     setDetail(null);
     const timer = setTimeout(async () => {
       try {
-        const response = await fetch(
-          `${ROUTE}/writing/knowledge?` +
+        const response = await clientApi.request(
+          clientApi.endpoint('writing/knowledge', ``) +
             new URLSearchParams({
               workspaceId,
               scopeIds: selectedKey,

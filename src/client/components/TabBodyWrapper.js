@@ -1,11 +1,11 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { t } = require('../locale.js');
 const css = require('./TabBodyWrapper.module.css').default;
 
 const React = require('react');
 const h = React.createElement;
 const { useState, useEffect } = React;
-const { ROUTE } = require('../constants.js');
 const { DocsViewerBody } = require('./DocsViewerBody.js');
 
 /**
@@ -31,10 +31,11 @@ function TabBodyWrapper() {
   // Pass wsList explicitly to avoid stale closure over workspaces state
   const loadConfig = (wsList) => {
     const list = wsList || workspaces;
-    return fetch(`${ROUTE}/config?t=${Date.now()}`, {
-      cache: 'no-cache',
-      headers: { 'Cache-Control': 'no-cache' },
-    })
+    return clientApi
+      .request(clientApi.endpoint('config', `t=${Date.now()}`), {
+        cache: 'no-cache',
+        headers: { 'Cache-Control': 'no-cache' },
+      })
       .then((res) => (res.ok ? res.json() : null))
       .then((config) => {
         if (config?.docsDir) {
@@ -63,7 +64,7 @@ function TabBodyWrapper() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${ROUTE}/workspaces`);
+        const res = await clientApi.request(clientApi.endpoint('workspaces'));
         if (!res.ok) {
           return;
         }

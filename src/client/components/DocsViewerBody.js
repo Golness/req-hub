@@ -1,4 +1,5 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { t } = require('../locale.js');
 const css = require('./DocsViewerBody.module.css').default;
 const { cssValue } = require('./shared/presentation.js');
@@ -10,7 +11,6 @@ const React = require('react');
 const h = React.createElement;
 const { useState, useEffect, useRef } = React;
 
-const { ROUTE } = require('../constants.js');
 const { DocsViewerContext } = require('../context.js');
 const { createIconComponents } = require('../icons.js');
 
@@ -18,8 +18,9 @@ const { IconPlus, IconSync, IconBooks, IconEdit, IconLog, IconSettings, IconRepo
   createIconComponents(h);
 const { TaskReportsPanel } = require('./TaskReportsPanel.js');
 
-const { parseBranchName } = require('../utils/parseBranchName.js');
-const { findBranchRequirement } = require('../utils/findBranchRequirement.js');
+const { useRequirementLocator } = require('../hooks/useRequirementLocator.js');
+const { useRequirementCatalog } = require('../hooks/useRequirementCatalog.js');
+const { useCreationStatus } = require('../hooks/useCreationStatus.js');
 const { TopBar } = require('./TopBar.js');
 const { CreateDirForm } = require('./CreateDirForm.js');
 const { FilePreview } = require('./FilePreview.js');
@@ -68,6 +69,7 @@ function DocsViewerBody({
   initialReqId,
   initialLocation,
 }) {
+  const locateRequirement = useRequirementLocator(workspaces);
   const [activePanel, setActivePanel] = useState(initialLocation?.createBranch ? 'create' : null);
   const [knowledgeTab, setKnowledgeTab] = useState('wiki');
   const [knowledgeRevision, setKnowledgeRevision] = useState(0);
@@ -181,67 +183,23 @@ function DocsViewerBody({
   const [previewToolbarTarget, setPreviewToolbarTarget] = useState(null);
   const [headerBackTarget, setHeaderBackTarget] = useState(null);
   const [selectedReq, setSelectedReq] = useState(initialLocation?.requirement || null);
-  const [creationStatus, setCreationStatus] = useState(null);
-  const [creationNotice, setCreationNotice] = useState(null);
-  const createRequest = useRef(null);
-  const locateRequest = useRef(null);
-  const [creationRefresh, setCreationRefresh] = useState(0);
-  useEffect(() => () => locateRequest.current?.abort(), []);
-  useEffect(() => {
-    const controller = new AbortController();
-    setCreationStatus(null);
-    setCreationNotice(null);
-    fetch(`${ROUTE}/create-status?workspaceId=${encodeURIComponent(workspace.id)}`, {
-      signal: controller.signal,
-      cache: 'no-store',
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!controller.signal.aborted) {
-          setCreationStatus(data);
-        }
-      })
-      .catch((error) => {
-        // Creation status is optional; keep creation unavailable until a later successful refresh.
-      });
-    return () => {
-      controller.abort();
-      createRequest.current?.abort();
-    };
-  }, [workspace.id, docsDir, selectedReq?.id, creationRefresh]);
-  const openCreation = async () => {
-    createRequest.current?.abort();
-    const controller = new AbortController();
-    createRequest.current = controller;
-    try {
-      const res = await fetch(
-        `${ROUTE}/create-status?workspaceId=${encodeURIComponent(workspace.id)}`,
-        { signal: controller.signal, cache: 'no-store' },
-      );
-      if (!res.ok) {
-        throw new Error('CREATE_FAILED');
-      }
-      const data = await res.json();
-      if (controller.signal.aborted) {
-        return;
-      }
-      setCreationStatus(data);
-      if (data.existingRequirement) {
-        setCreationNotice(data);
-        return;
-      }
+  const {
+    creationStatus,
+    creationNotice,
+    creationRefresh,
+    setCreationNotice,
+    setCreationRefresh,
+    openCreation,
+  } = useCreationStatus({
+    workspace,
+    docsDir,
+    selectedReq,
+    onOpen: () => {
       setShowFileTree(false);
-      setCreationRefresh((value) => value + 1);
       setActivePanel('create');
-    } catch {
-      if (!controller.signal.aborted) {
-        showToast({ tone: 'error', text: t('create.statusFailed') });
-      }
-    }
-  };
+    },
+  });
   const [selectedFile, setSelectedFile] = useState(null);
-  const [syncHint, setSyncHint] = useState(null);
-  const [totalReqs, setTotalReqs] = useState(0);
   const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
   const [showReqDirModal, setShowReqDirModal] = useState(false);
   const [showFileTree, setShowFileTree] = useState(false);
@@ -254,124 +212,18 @@ function DocsViewerBody({
   const refreshTreeRef = useRef(() => {});
   const refreshSelectedReqRef = useRef(() => {});
 
-  // Recheck on returning home; only confirmed commits for this exact selection show a sync action.
-  const syncHintKey = JSON.stringify([workspace.id, docsDir, selectedReq?.id]);
-  const hasSyncCommits = syncHint?.key === syncHintKey && syncHint.hasCommits;
-  useEffect(() => {
-    if (!selectedReq || activePanel || selectedFile) {
-      return;
-    }
-    const controller = new AbortController();
-    setSyncHint(null);
-    const params = new URLSearchParams({
-      workspaceId: workspace.id,
-      requirementId: selectedReq.id,
-    });
-    fetch(`${ROUTE}/sync-commits?${params}`, { signal: controller.signal })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data) => {
-        if (!controller.signal.aborted) {
-          setSyncHint({
-            key: syncHintKey,
-            hasCommits: Array.isArray(data?.commits) && data.commits.length > 0,
-          });
-        }
-      })
-      .catch((error) => {
-        // An unavailable commit hint must not expose a sync action without confirmed commits.
-      });
-    return () => controller.abort();
-  }, [syncHintKey, activePanel, selectedFile]);
-
-  // Auto-select requirement from config (initialReqId) or first available
-  const isInitialMount = useRef(true);
-  useEffect(() => {
-    if (initialLocation) {
-      isInitialMount.current = false;
-      return;
-    }
-    let cancelled = false;
-    const revision = selectionRevision.current;
-    (async () => {
-      try {
-        const res = await fetch(
-          `${ROUTE}/tree?workspaceId=${encodeURIComponent(workspace.id)}&t=${Date.now()}`,
-        );
-        if (!res.ok) {
-          return;
-        }
-        const data = await res.json();
-        if (cancelled || revision !== selectionRevision.current || !data.tree?.developers) {
-          return;
-        }
-
-        let found = null;
-
-        // Try to restore from config
-        const restoreId =
-          focusedSyncRef.current?.workspaceId === workspace.id
-            ? focusedSyncRef.current.requirementId
-            : initialReqId;
-        if (restoreId) {
-          for (const dev of data.tree.developers) {
-            for (const req of dev.requirements) {
-              if (req.id === restoreId) {
-                found = { ...req, developer: dev.name };
-                break;
-              }
-            }
-            if (found) {
-              break;
-            }
-          }
-        }
-
-        // Fallback: first requirement of first developer (only on initial mount)
-        if (!found && isInitialMount.current && data.tree.developers.length > 0) {
-          const firstDev = data.tree.developers[0];
-          if (firstDev.requirements.length > 0) {
-            found = { ...firstDev.requirements[0], developer: firstDev.name };
-          }
-        }
-
-        isInitialMount.current = false;
-
-        if (found) {
-          setSelectedReq(found);
-        } else {
-          setSelectedReq(null);
-        }
-      } catch (error) {
-        // Keep the current selection when the saved requirement cannot be restored.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [workspace.id, initialReqId, initialLocation]);
-
-  // Fetch total requirements count
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(
-          `${ROUTE}/tree?workspaceId=${encodeURIComponent(workspace.id)}&t=${Date.now()}`,
-        );
-        if (res.ok) {
-          const data = await res.json();
-          if (!cancelled) {
-            setTotalReqs(data.totalRequirements || 0);
-          }
-        }
-      } catch (error) {
-        // Requirement counts are optional; keep the last available count on refresh failure.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [workspace.id]);
+  const { totalReqs, hasSyncCommits, isInitialMount } = useRequirementCatalog({
+    workspace,
+    docsDir,
+    selectedReq,
+    selectedFile,
+    activePanel,
+    initialReqId,
+    initialLocation,
+    selectionRevision,
+    focusedSyncRef,
+    setSelectedReq,
+  });
 
   // Setup keyboard shortcuts
   useEffect(() => {
@@ -419,7 +271,7 @@ function DocsViewerBody({
     // Persist the selection without reloading the current document.
     if (req) {
       try {
-        await fetch(`${ROUTE}/config`, {
+        await clientApi.request(clientApi.endpoint('config'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -440,8 +292,11 @@ function DocsViewerBody({
       return;
     }
     try {
-      const res = await fetch(
-        `${ROUTE}/tree?workspaceId=${encodeURIComponent(workspace.id)}&t=${Date.now()}`,
+      const res = await clientApi.request(
+        clientApi.endpoint(
+          'tree',
+          `workspaceId=${encodeURIComponent(workspace.id)}&t=${Date.now()}`,
+        ),
       );
       if (!res.ok) {
         return;
@@ -507,7 +362,7 @@ function DocsViewerBody({
 
   const doCreateAndSwitch = async (targetWorkspace, developer, date, title, requirementId) => {
     try {
-      const createRes = await fetch(`${ROUTE}/create-dir`, {
+      const createRes = await clientApi.request(clientApi.endpoint('create-dir'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspaceId: targetWorkspace.id, developer, date, title }),
@@ -533,8 +388,11 @@ function DocsViewerBody({
       await refreshTree();
       await new Promise((resolve) => setTimeout(resolve, 300));
 
-      const newTreeRes = await fetch(
-        `${ROUTE}/tree?workspaceId=${encodeURIComponent(targetWorkspace.id)}&t=${Date.now()}`,
+      const newTreeRes = await clientApi.request(
+        clientApi.endpoint(
+          'tree',
+          `workspaceId=${encodeURIComponent(targetWorkspace.id)}&t=${Date.now()}`,
+        ),
       );
       if (newTreeRes.ok) {
         const newTreeData = await newTreeRes.json();
@@ -558,122 +416,34 @@ function DocsViewerBody({
 
   const handleLocateSessionReq = async () => {
     selectionRevision.current++;
-    locateRequest.current?.abort();
-    const controller = new AbortController();
-    locateRequest.current = controller;
-    const { signal } = controller;
-    const locateFetch = async (url, options = {}) => {
-      const response = await fetch(url, { ...options, cache: 'no-store', signal });
-      signal.throwIfAborted();
-      return response;
-    };
-    console.log(t('DocsViewerBody.message006'));
     try {
-      const ctx = window.__DSH_CTX__;
-      if (!ctx) {
-        console.error(t('DocsViewerBody.message007'));
-        return;
-      }
-
-      let currentSessionId = null;
-      try {
-        const uiWorkspace = ctx.get?.('uiWorkspace');
-        if (uiWorkspace) {
-          if (uiWorkspace.selection && typeof uiWorkspace.selection.getSnapshot === 'function') {
-            const selection = uiWorkspace.selection.getSnapshot();
-            console.log(t('DocsViewerBody.message008'), selection);
-            if (selection?.sessionId) {
-              currentSessionId = selection.sessionId;
-            }
-          }
-        }
-      } catch (e) {
-        console.error(t('DocsViewerBody.message009'), e);
-      }
-
-      if (!currentSessionId) {
-        console.error(t('DocsViewerBody.message012'));
+      const result = await locateRequirement();
+      const { kind, workspace: targetWorkspace, signal } = result;
+      if (kind === 'no-session') {
         showToast({ tone: 'warning', text: t('locate.noSession') });
         return;
       }
-
-      console.log(t('DocsViewerBody.message013'), currentSessionId);
-
-      const sessionRes = await locateFetch(
-        `${ROUTE}/session-info?sessionId=${encodeURIComponent(currentSessionId)}`,
-      );
-      if (!sessionRes.ok) {
-        console.error(t('DocsViewerBody.message014'), sessionRes.status);
+      if (kind === 'ambiguous') {
+        showToast({ tone: 'warning', text: t('locate.ambiguous'), holdMs: 5000 });
         return;
       }
-      const sessionData = await sessionRes.json();
+      if (kind === 'unavailable') {
+        return;
+      }
+      const crossWorkspace = targetWorkspace.id !== workspace.id;
+      if (kind !== 'missing' || crossWorkspace) {
+        await clientApi.requestJson(clientApi.endpoint('config'), {
+          signal,
+          cache: 'no-store',
+          json: {
+            workspaceId: targetWorkspace.id,
+            developerName: result.requirement?.developer || null,
+            requirementId: result.requirement?.id || null,
+          },
+        });
+      }
       signal.throwIfAborted();
-      console.log(t('DocsViewerBody.message015'), sessionData);
-
-      if (!sessionData.session) {
-        console.error(t('DocsViewerBody.message016'));
-        return;
-      }
-
-      const session = sessionData.session;
-      const sessionCwd = session.cwd;
-      console.log(t('DocsViewerBody.message017'), sessionCwd);
-
-      if (!sessionCwd) {
-        console.error(t('DocsViewerBody.message018'));
-        return;
-      }
-
-      console.log(t('DocsViewerBody.message019'));
-      console.log(
-        t('DocsViewerBody.message020'),
-        workspaces.map((w) => ({ id: w.id, path: w.path, title: w.title })),
-      );
-
-      let targetWorkspace = null;
-      for (const ws of workspaces) {
-        const wsPath = ws.path.replace(/\\/g, '/').replace(/\/$/, '').toLowerCase();
-        const cwdPath = sessionCwd.replace(/\\/g, '/').replace(/\/$/, '').toLowerCase();
-        if (wsPath === cwdPath) {
-          targetWorkspace = ws;
-          break;
-        }
-      }
-
-      if (!targetWorkspace) {
-        console.error(t('DocsViewerBody.message021'), sessionCwd);
-        return;
-      }
-
-      console.log(t('DocsViewerBody.message022'), targetWorkspace);
-
-      console.log(t('DocsViewerBody.message026'));
-      const branchRes = await locateFetch(
-        `${ROUTE}/git-branch?workspaceId=${encodeURIComponent(targetWorkspace.id)}`,
-      );
-      if (!branchRes.ok) {
-        console.error(t('DocsViewerBody.message027'), branchRes.status);
-        return;
-      }
-      const branchData = await branchRes.json();
-      signal.throwIfAborted();
-      console.log(t('DocsViewerBody.message028'), branchData);
-      if (!branchData.branch) {
-        console.error(t('DocsViewerBody.message029'));
-        return;
-      }
-
-      const branch = branchData.branch;
-      const parsed = parseBranchName(branch);
-      console.log(t('DocsViewerBody.message030'), branch);
-      console.log(t('DocsViewerBody.message031'), parsed);
-
-      // The parser always returns an object; a recognized requirement needs both developer and date.
-      const isValidBranch = parsed && parsed.developer && parsed.date;
-      console.log(t('DocsViewerBody.message032'), isValidBranch);
-
-      if (!isValidBranch) {
-        console.warn(t('DocsViewerBody.message033'), branch);
+      if (kind === 'create-branch') {
         selectionRevision.current++;
         isInitialMount.current = false;
         pendingSyncNavigation.current = null;
@@ -684,24 +454,7 @@ function DocsViewerBody({
         setShowFileTree(false);
         setPendingCreateReq(null);
         setShowCreateConfirm(false);
-        try {
-          const cleared = await locateFetch(`${ROUTE}/config`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              workspaceId: targetWorkspace.id,
-              developerName: null,
-              requirementId: null,
-            }),
-          });
-          if (!cleared.ok) {
-            throw new Error('CONFIG_SAVE_FAILED');
-          }
-        } catch (e) {
-          console.error(t('DocsViewerBody.message047'), e);
-        }
-        signal.throwIfAborted();
-        if (targetWorkspace.id !== workspace.id) {
+        if (crossWorkspace) {
           onSelectWorkspace(targetWorkspace, { createBranch: true });
           return;
         }
@@ -710,99 +463,27 @@ function DocsViewerBody({
         setInitialCreateBranch(true);
         showToast({
           tone: 'warning',
-          text: t('DocsViewerBody.message034', { value0: branch }),
+          text: t('DocsViewerBody.message034', { value0: result.branch }),
           holdMs: 5000,
         });
-        return;
-      }
-
-      console.log(t('DocsViewerBody.message035'));
-
-      const { developer, date, title, requirementId } = parsed;
-      console.log(
-        t('DocsViewerBody.message036'),
-        developer,
-        t('DocsViewerBody.message037'),
-        date,
-        t('DocsViewerBody.message038'),
-        title,
-        t('DocsViewerBody.message039'),
-        requirementId,
-      );
-
-      console.log(t('DocsViewerBody.message040'));
-      const treeRes = await locateFetch(
-        `${ROUTE}/tree?workspaceId=${encodeURIComponent(targetWorkspace.id)}&t=${Date.now()}`,
-      );
-      if (!treeRes.ok) {
-        console.error(t('DocsViewerBody.message041'), treeRes.status);
-        return;
-      }
-      const treeData = await treeRes.json();
-      signal.throwIfAborted();
-      console.log(t('DocsViewerBody.message042'), treeData);
-
-      const { match: existingReq, ambiguous } = findBranchRequirement(
-        treeData.tree,
-        parsed,
-        treeData.caseSensitivePaths !== false,
-      );
-      if (ambiguous) {
-        showToast({ tone: 'warning', text: t('locate.ambiguous'), holdMs: 5000 });
-        return;
-      }
-
-      if (existingReq) {
-        console.log(t('DocsViewerBody.message046'), existingReq);
-
-        try {
-          await locateFetch(`${ROUTE}/config`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              workspaceId: targetWorkspace.id,
-              developerName: existingReq.developer,
-              requirementId: existingReq.id,
-            }),
-          });
-        } catch (e) {
-          console.error(t('DocsViewerBody.message047'), e);
-        }
-        signal.throwIfAborted();
-        if (targetWorkspace.id !== workspace.id) {
-          onSelectWorkspace(targetWorkspace, { requirement: existingReq });
+      } else if (kind === 'existing') {
+        if (crossWorkspace) {
+          onSelectWorkspace(targetWorkspace, { requirement: result.requirement });
           return;
         }
         pendingSyncNavigation.current = null;
         setFocusedSync(null);
-        setSelectedReq(existingReq);
+        setSelectedReq(result.requirement);
         setSelectedFile(null);
-        console.log(t('DocsViewerBody.message048'));
-        return;
+      } else if (crossWorkspace) {
+        onSelectWorkspace(targetWorkspace, { pendingCreateReq: result.pending });
+      } else {
+        setPendingCreateReq(result.pending);
+        setShowCreateConfirm(true);
       }
-
-      console.log(t('DocsViewerBody.message049'));
-
-      const pending = { workspace: targetWorkspace, developer, date, title, requirementId };
-      if (targetWorkspace.id !== workspace.id) {
-        await locateFetch(`${ROUTE}/config`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            workspaceId: targetWorkspace.id,
-            developerName: null,
-            requirementId: null,
-          }),
-        });
-        signal.throwIfAborted();
-        onSelectWorkspace(targetWorkspace, { pendingCreateReq: pending });
-        return;
-      }
-      setPendingCreateReq(pending);
-      setShowCreateConfirm(true);
-    } catch (e) {
-      if (!signal.aborted) {
-        console.error(t('DocsViewerBody.message050'), e);
+    } catch (error) {
+      if (error.name !== 'AbortError') {
+        showToast({ tone: 'error', text: error });
       }
     }
   };
@@ -889,8 +570,11 @@ function DocsViewerBody({
           setInitialCreateBranch(false);
 
           await new Promise((resolve) => setTimeout(resolve, 500));
-          const treeRes = await fetch(
-            `${ROUTE}/tree?workspaceId=${encodeURIComponent(workspace.id)}&t=${Date.now()}`,
+          const treeRes = await clientApi.request(
+            clientApi.endpoint(
+              'tree',
+              `workspaceId=${encodeURIComponent(workspace.id)}&t=${Date.now()}`,
+            ),
           );
           if (treeRes.ok) {
             const treeData = await treeRes.json();
@@ -974,8 +658,8 @@ function DocsViewerBody({
           {
             label: t('DocsViewerBody.message063'),
             onClick: () => {
-              setActivePanel('files');
-              setShowFileTree(true);
+              setActivePanel('knowledge');
+              setShowFileTree(false);
             },
           },
           ...(hasSyncCommits
@@ -1414,7 +1098,7 @@ function DocsViewerBody({
             onSelectWorkspace(ws);
             // Save to config and clear requirement selection
             try {
-              await fetch(`${ROUTE}/config`, {
+              await clientApi.request(clientApi.endpoint('config'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

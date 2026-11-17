@@ -1,4 +1,5 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { localizeMessage, messageCode } = require('../utils/serverMessage.js');
 const { formatDate, useTimeZone } = require('../time.js');
 const { Checkbox } = require('./shared/controls.js');
@@ -14,7 +15,6 @@ const React = require('react');
 const h = React.createElement;
 const { useState, useEffect } = React;
 
-const { ROUTE } = require('../constants.js');
 const { DocsViewerContext } = require('../context.js');
 
 /**
@@ -103,11 +103,15 @@ function CreateDirForm({
     (async () => {
       try {
         const [res, defaults] = await Promise.all([
-          fetch(`${ROUTE}/create-status?workspaceId=${encodeURIComponent(workspaceId)}`, {
-            signal: controller.signal,
-            cache: 'no-store',
-          }),
-          fetch(`${ROUTE}/config`, { signal: controller.signal, cache: 'no-store' })
+          clientApi.request(
+            clientApi.endpoint('create-status', `workspaceId=${encodeURIComponent(workspaceId)}`),
+            {
+              signal: controller.signal,
+              cache: 'no-store',
+            },
+          ),
+          clientApi
+            .request(clientApi.endpoint('config'), { signal: controller.signal, cache: 'no-store' })
             .then((response) => (response.ok ? response.json() : {}))
             .catch(() => ({})),
         ]);
@@ -172,7 +176,7 @@ function CreateDirForm({
     setUpdatingMain(true);
     setError(null);
     try {
-      const response = await fetch(`${ROUTE}/update-main`, {
+      const response = await clientApi.request(clientApi.endpoint('update-main'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspaceId, expectedHead: creation.head, branch: creation.branch }),
@@ -256,7 +260,7 @@ function CreateDirForm({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${ROUTE}/create-dir`, {
+      const res = await clientApi.request(clientApi.endpoint('create-dir'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

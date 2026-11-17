@@ -2,7 +2,7 @@
 import { it, expect, afterEach, vi } from 'vitest';
 import { createRequire } from 'node:module';
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 const require = createRequire(import.meta.url),
   React = require('react'),
   { act } = React;
@@ -262,6 +262,63 @@ function files(dir) {
     entry.isDirectory() ? files(join(dir, entry.name)) : [join(dir, entry.name)],
   );
 }
+it('keeps Host URLs, transport readers and context ownership inside their declared boundaries', () => {
+  const violations = [];
+  for (const path of files(client).filter((path) => /\.js$/.test(path))) {
+    const source = readFileSync(path, 'utf8');
+    if (/__DSH_CTX__/.test(source)) violations.push(path + ': global ctx');
+    if (!path.startsWith(join(client, 'api') + sep)) {
+      if (
+        /\bfetch\s*\(|\.getReader\s*\(|\bROUTE\b/.test(source) &&
+        path !== join(client, 'constants.js')
+      ) {
+        violations.push(path + ': API transport');
+      }
+    }
+  }
+  expect(violations).toEqual([]);
+});
+it('preserves destination names and safe diagnostic parameters in both dictionaries', () => {
+  const parameters = {
+    'lark.browseChoose': ['title'],
+    'lark.browseOpen': ['title'],
+    'lark.browseSelected': ['path'],
+    'lark.removeWorkspaceBinding': ['name'],
+    'lark.workspaceUnbound': ['name'],
+    'lark.workspaceList': ['count'],
+    'lark.spacePage': ['page'],
+    'lark.defaultWikiResult': ['created', 'reused', 'total'],
+    'lark.defaultWikiBatchFailure': ['completed', 'created', 'name', 'total'],
+    'lark.errorCode': ['code'],
+    'lark.errorExitCode': ['code'],
+    'lark.errorFilesystem': ['reason'],
+    'lark.errorIdentity': ['identity'],
+    'lark.errorScopes': ['scopes'],
+    'lark.errorStage': ['stage'],
+  };
+  for (const dictionary of [zh, en]) {
+    for (const [key, expected] of Object.entries(parameters)) {
+      expect(
+        [...dictionary[key].matchAll(/\{(\w+)\}/g)].map((match) => match[1]).sort(),
+        key,
+      ).toEqual(expected);
+    }
+    for (const stage of [
+      'workspace-path',
+      'configuration',
+      'authentication',
+      'list-nodes',
+      'create-node',
+      'verify-node',
+      'save-bindings',
+    ]) {
+      expect(dictionary[`lark.stage.${stage}`]).toBeTruthy();
+    }
+    for (const code of ['ENOENT', 'ENOTDIR', 'EACCES', 'EPERM', 'EIO', 'ENOSPC']) {
+      expect(dictionary[`lark.filesystem.${code}`]).toBeTruthy();
+    }
+  }
+});
 it('keeps fixed presentation out of React style objects and feature weights within 500', () => {
   const violations = [];
   for (const path of files(client).filter((path) => /\.(?:js|mjs|css)$/.test(path))) {

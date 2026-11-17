@@ -68,15 +68,15 @@ it('shows workspace, local directory, remote type and binding, and removes just 
   await render(fetcher, { onRemoved: removed });
   expect(
     [...document.querySelectorAll('[role="columnheader"]')].map((node) => node.textContent),
-  ).toEqual(['工作区', '本地目录', '已绑定的飞书目录', '操作']);
+  ).toEqual(['绑定工作区', '本地路径', '远程路径', '操作']);
   const rows = [...document.querySelectorAll('[role="row"]')].slice(1);
   expect(rows[0].textContent).toContain('/projects/alpha');
-  expect(rows[0].textContent).toContain('知识库 / Alpha node');
+  expect(rows[0].textContent).toContain('绑定 Wiki / Alpha node');
   expect(rows[0].textContent).not.toContain(items[0].binding.url);
   expect(rows[0].querySelector('[title="/projects/alpha"]')).not.toBeNull();
   expect(rows[0].querySelector('[title="https://team.feishu.cn/wiki/Alpha"]')).not.toBeNull();
-  expect(rows[1].textContent).toContain('文件夹 / Beta folder');
-  expect(rows[2].textContent).toContain('未绑定');
+  expect(rows[1].textContent).toContain('绑定文件夹 / Beta folder');
+  expect(rows[2].textContent).toContain('无绑定');
   expect(rows[2].querySelector('button')).toBeNull();
   await click(document.querySelector('[aria-label="解除 Beta 的绑定"]'));
   expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({

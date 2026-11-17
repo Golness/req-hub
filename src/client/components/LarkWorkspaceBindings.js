@@ -1,7 +1,7 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { clientError } = require('../utils/serverMessage.js');
 const React = require('react');
-const { ROUTE } = require('../constants.js');
 const { t, hasLocaleKey } = require('../locale.js');
 const { Button } = require('./shared/Button.js');
 const { PagedList } = require('./shared/PagedList.js');
@@ -27,7 +27,7 @@ function LarkWorkspaceBindings({ revision, disabled, onRemoved, onBusyChange }) 
     return hasLocaleKey(full) ? t(full) : key;
   };
   const request = async (action, body, signal) => {
-    const response = await fetch(`${ROUTE}/lark/target-${action}`, {
+    const response = await clientApi.request(clientApi.endpoint('larkTarget', undefined, action), {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },

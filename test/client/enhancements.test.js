@@ -59,15 +59,23 @@ it('selects exact reference versions for sync without changing write targets or 
   await click(button('已确认')); expect(calls.find(call => call.path.endsWith('/reviews')).body).toMatchObject({ expectedRevision: 'revision', expectedReviewSeq: 2, basisHash: 'basis', decision: 'confirmed' });
 });
 it('keeps the global switch out of GitNexus settings and displays actual index progress', async () => {
-  await act(async () => root.render(React.createElement(EnhancementSettings, { workspaceId: 'w' })));
+  await act(async () =>
+    root.render(React.createElement(EnhancementSettings, { workspaceId: 'w' })),
+  );
   expect(container.querySelector('section[aria-label="知识关联与代码索引"]')).not.toBeNull();
   expect(button('结构检查')).toBeUndefined();
   expect(container.querySelector('[role="switch"]')).toBeNull();
-  live = true; await click(button('更新本地索引'));
-  expect(calls.find(call => call.body?.kind === 'code-index').body.context).toBeUndefined();
-  expect(container.querySelector('progress').value).toBe(42); expect(container.textContent).toContain('Parsing files');
-  live = false; await act(async () => { await new Promise(resolve => setTimeout(resolve, 1100)); });
-  expect(container.textContent).toContain('本机索引更新已完成'); expect(container.querySelector('progress')).toBeNull();
+  live = true;
+  await click(button('更新索引'));
+  expect(calls.find((call) => call.body?.kind === 'code-index').body.context).toBeUndefined();
+  expect(container.querySelector('progress').value).toBe(42);
+  expect(container.textContent).toContain('Parsing files');
+  live = false;
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+  });
+  expect(container.textContent).toContain('本机索引更新已完成');
+  expect(container.querySelector('progress')).toBeNull();
 });
 it('keeps checks unavailable when the source is not imported, dirty or enhancement is disabled', async () => {
   context.enabled = false; context.indexed = false; context.documentRefs = [];
@@ -79,11 +87,13 @@ it('keeps checks unavailable when the source is not imported, dirty or enhanceme
 it('keeps status checks and local indexing independent of document associations', async () => {
   context.enabled = false;
   context.graph.code = { status: 'disabled' };
-  await act(async () => root.render(React.createElement(EnhancementSettings, { workspaceId: 'w' })));
+  await act(async () =>
+    root.render(React.createElement(EnhancementSettings, { workspaceId: 'w' })),
+  );
   expect(container.textContent).toContain('尚未检查');
   expect(container.textContent).not.toContain('未启用');
   expect(button('检查索引状态（MCP）').disabled).toBe(false);
-  expect(button('更新本地索引').disabled).toBe(false);
+  expect(button('更新索引').disabled).toBe(false);
   await click(button('检查索引状态（MCP）'));
   const operations = calls.filter((call) => call.body?.kind);
   expect(operations.map((call) => call.body.kind)).toEqual(['code-refresh']);
@@ -93,8 +103,10 @@ it('keeps status checks and local indexing independent of document associations'
 
 it('places index execution in its own task section rather than under the index controls', async () => {
   live = true;
-  await act(async () => root.render(React.createElement(EnhancementSettings, { workspaceId: 'w' })));
-  await click(button('更新本地索引'));
+  await act(async () =>
+    root.render(React.createElement(EnhancementSettings, { workspaceId: 'w' })),
+  );
+  await click(button('更新索引'));
   const sections = [...container.querySelectorAll('h3')];
   expect(sections.map((node) => node.textContent)).toEqual(['MCP 连接', '代码索引', '当前任务']);
   const controls = sections[1].closest('section');
@@ -130,7 +142,7 @@ it('keeps index logs stable across updates and avoids an animated bar without a 
     await act(async () =>
       root.render(React.createElement(EnhancementSettings, { workspaceId: 'w' })),
     );
-    await click(button('更新本地索引'));
+    await click(button('更新索引'));
     expect(container.querySelector('progress')).toBeNull();
     expect(container.textContent).toContain('正在更新索引');
     const trigger = button('执行日志（最近 50 条）');
@@ -265,14 +277,14 @@ it('keeps unrelated enhancement history and running checks out of settings', asy
   ]);
   const groups = [...container.querySelectorAll('h3')].map((node) => node.closest('section'));
   expect(groups[0].querySelector('.rh-select')).not.toBeNull();
-  expect(groups[0].textContent).toContain('工具注册');
+  expect(groups[0].textContent).toContain('注册状态');
   expect(groups[0].textContent).not.toContain('索引状态');
   expect(groups[1].textContent).toContain('索引状态');
-  expect(groups[1].textContent).not.toContain('工具注册');
+  expect(groups[1].textContent).not.toContain('注册状态');
   expect(container.querySelector('[role="switch"]')).toBeNull();
   expect(calls.some((call) => /\/jobs\//.test(call.path))).toBe(false);
 
-  const help = container.querySelector('[aria-label="工具注册说明"]');
+  const help = container.querySelector('[aria-label="注册状态说明"]');
   await act(async () => help.focus());
   expect(document.querySelector('[role="tooltip"]').textContent).toContain('已注册不代表调用成功');
 });

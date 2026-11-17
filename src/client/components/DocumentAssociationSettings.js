@@ -1,8 +1,8 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { localizeMessage } = require('../utils/serverMessage.js');
 const React = require('react');
 const { t } = require('../locale.js');
-const { ROUTE } = require('../constants.js');
 const { Button } = require('./shared/Button.js');
 const { HoverCard } = require('./shared/controls.js');
 const css = require('./shared/SettingsForm.module.css').default;
@@ -26,7 +26,8 @@ function DocumentAssociationSettings() {
     const controller = new AbortController();
     owner.current = controller;
     setError(null);
-    fetch(`${ROUTE}/config`, { signal: controller.signal })
+    clientApi
+      .request(clientApi.endpoint('config'), { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) {
           throw new Error('ENHANCEMENT_FAILED');
@@ -59,13 +60,13 @@ function DocumentAssociationSettings() {
     setError(null);
     setSaved(false);
     try {
-      const current = await fetch(`${ROUTE}/config`, { signal });
+      const current = await clientApi.request(clientApi.endpoint('config'), { signal });
       if (!current.ok) {
         throw new Error('ENHANCEMENT_FAILED');
       }
       const config = await current.json();
       const next = !enabled;
-      const response = await fetch(`${ROUTE}/config`, {
+      const response = await clientApi.request(clientApi.endpoint('config'), {
         method: 'POST',
         signal,
         headers: { 'Content-Type': 'application/json' },

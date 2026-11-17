@@ -1,5 +1,5 @@
 'use strict';
-const { ROUTE } = require('../constants.js');
+const clientApi = require('../api/index.js');
 /**
  * Resolve authorized writing assets and reject dangerous image schemes.
  * @param src - The original Markdown image source.
@@ -9,7 +9,11 @@ const { ROUTE } = require('../constants.js');
 function markdownImageUrl(src, context) {
   const match = /^(?:\.\/)?assets\/images\/([a-f0-9]{64}\.(?:png|jpg|gif|webp))$/.exec(src || '');
   if (match && context?.workspaceId && context?.requirementPath) {
-    return `${ROUTE}/writing/assets/${match[1]}?${new URLSearchParams({ workspaceId: context.workspaceId, requirementPath: context.requirementPath })}`;
+    return clientApi.endpoint(
+      'writingAssets',
+      { workspaceId: context.workspaceId, requirementPath: context.requirementPath },
+      match[1],
+    );
   }
   return /^(?:javascript|vbscript|file):/i.test(src || '') ||
     /^data:(?!image\/(?:png|jpeg|gif|webp);base64,)/i.test(src || '')

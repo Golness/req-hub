@@ -8,10 +8,7 @@ const { EmptyState } = require('../shared/EmptyState.js');
 const { Skeleton } = require('../shared/Skeleton.js');
 const { showToast } = require('../shared/ToastContainer.js');
 const { MilkdownEditor } = require('../MilkdownEditor.js');
-const {
-  knowledgeV2Request,
-  knowledgeV2ErrorText,
-} = require('../../hooks/useKnowledgeV2.js');
+const { knowledgeV2Request, knowledgeV2ErrorText } = require('../../hooks/useKnowledgeV2.js');
 const css = require('./KnowledgeWorkspace.module.css').default;
 const h = React.createElement;
 const { IconSearch, IconSync, IconChevronRight, IconChevronDown } =
@@ -33,14 +30,12 @@ const pageTitle = (page) => {
 
 /** Strip Host frontmatter and turn wikilinks into interceptable wiki: links. */
 const displayBody = (text) =>
-  text
-    .replace(/^---\n[\s\S]*?\n---\n?/, '')
-    .replace(/\[\[([^\[\]\n]+)\]\]/g, (_, inner) => {
-      const split = inner.indexOf('|');
-      const id = (split === -1 ? inner : inner.slice(0, split)).trim();
-      const label = (split === -1 ? inner : inner.slice(split + 1)).trim();
-      return `[${label.replace(/[()]/g, '')}](wiki:${id})`;
-    });
+  text.replace(/^---\n[\s\S]*?\n---\n?/, '').replace(/\[\[([^\[\]\n]+)\]\]/g, (_, inner) => {
+    const split = inner.indexOf('|');
+    const id = (split === -1 ? inner : inner.slice(0, split)).trim();
+    const label = (split === -1 ? inner : inner.slice(split + 1)).trim();
+    return `[${label.replace(/[()]/g, '')}](wiki:${id})`;
+  });
 
 /**
  * Browse the published Wiki generation: grouped catalog, page body and links.
@@ -73,6 +68,9 @@ function WikiBrowser({
     setError(null);
     knowledgeV2Request('/pages', workspaceId, null, controller.signal)
       .then((data) => {
+        if (!Array.isArray(data.pages)) {
+          throw Object.assign(new Error('API_RESPONSE_INVALID'), { code: 'API_RESPONSE_INVALID' });
+        }
         if (!controller.signal.aborted) {
           setCatalog(data);
         }
@@ -320,11 +318,7 @@ function WikiBrowser({
         !selected && h(EmptyState, { title: t('kb.wiki.noPage') }),
         selected && !page && !pageError && h(Skeleton, { lines: 4 }),
         pageError &&
-          h(
-            'p',
-            { role: 'alert', className: css.error },
-            knowledgeV2ErrorText(pageError),
-          ),
+          h('p', { role: 'alert', className: css.error }, knowledgeV2ErrorText(pageError)),
         page &&
           h(
             React.Fragment,

@@ -35,27 +35,75 @@ it('allows blank knowledge selection and empty scopes without invented reference
   empty.submit({ content: '# 待确认', evidenceIds: [] });
 });
 it('isolates runtime tools to the child session and denies calls after close', async () => {
-  const definitions = new Map(); let hook, guard;
-  const ctx = { tools: { register: d => { definitions.set(d.name, d); return () => {}; }, guard: fn => { guard = fn; return () => {}; } }, on: (_name, fn) => { hook = fn; return () => {}; } };
-  const installation = installWritingTools(ctx), runtime = new WritingRuntime([{ id: 'a' }], [doc('one', 'a')]);
+  const definitions = new Map();
+  let hook, guard;
+  const ctx = {
+    tools: {
+      register: (d) => {
+        definitions.set(d.name, d);
+        return () => {};
+      },
+      guard: (fn) => {
+        guard = fn;
+        return () => {};
+      },
+    },
+    on: (name, fn) => {
+      if (name === 'llm/stream') hook = fn;
+      return () => {};
+    },
+  };
+  const installation = installWritingTools(ctx),
+    runtime = new WritingRuntime([{ id: 'a' }], [doc('one', 'a')]);
   installation.add(runtime);
   const search = definitions.get(WRITING_TOOLS[0]);
-  expect(() => search.execute({ scopeId: 'a', query: '订单' }, { agent: { session: { id: 'parent' } } })).toThrow('DENIED');
-  async function* next() { yield 'ok'; }
+  expect(() =>
+    search.execute({ scopeId: 'a', query: '订单' }, { agent: { session: { id: 'parent' } } }),
+  ).toThrow('DENIED');
+  async function* next() {
+    yield 'ok';
+  }
   bindOwnedSession(runtime, 'child');
-  for await (const _ of hook({ sessionId: 'child', messages: [{ content: `REQHUB_WRITING=${runtime.id}` }], tools: [{ name: 'child_session_helper' }] }, next)) {}
-  expect(search.execute({ scopeId: 'a', query: '订单' }, { agent: { session: { id: 'child' } } }).hits[0].id).toBe('one');
-  expect(guard({ name: 'shell', agent: { session: { id: 'child' } } })).toBe('WRITING_READ_SCOPE_RESTRICTED');
-  expect(guard({ name: 'child_session_helper', parent: Symbol('run_code'), agent: { session: { id: 'child' } } })).toBe('WRITING_READ_SCOPE_RESTRICTED');
+  for await (const _ of hook(
+    {
+      sessionId: 'child',
+      messages: [{ content: `REQHUB_WRITING=${runtime.id}` }],
+      tools: [{ name: 'child_session_helper' }],
+    },
+    next,
+  )) {
+  }
+  expect(
+    search.execute({ scopeId: 'a', query: '订单' }, { agent: { session: { id: 'child' } } }).hits[0]
+      .id,
+  ).toBe('one');
+  expect(guard({ name: 'shell', agent: { session: { id: 'child' } } })).toBe(
+    'WRITING_READ_SCOPE_RESTRICTED',
+  );
+  expect(
+    guard({
+      name: 'child_session_helper',
+      parent: Symbol('run_code'),
+      agent: { session: { id: 'child' } },
+    }),
+  ).toBe('WRITING_READ_SCOPE_RESTRICTED');
   installation.close(runtime);
-  expect(() => search.execute({ scopeId: 'a', query: '订单' }, { agent: { session: { id: 'child' } } })).toThrow('DENIED');
+  expect(() =>
+    search.execute({ scopeId: 'a', query: '订单' }, { agent: { session: { id: 'child' } } }),
+  ).toThrow('DENIED');
   installation.dispose();
 });
 
 let root, service, routes, server, base, definitions, streamHook, execute;
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), 'rh-writing-')); await mkdir(join(root, 'docs/alice/2026-10-23-orders'), { recursive: true });
-  const registry = { list: () => [{ id: 'ws', title: '本工作区', path: root }, { id: 'other', title: '另一个库', path: root }] };
+  root = await mkdtemp(join(tmpdir(), 'rh-writing-'));
+  await mkdir(join(root, 'docs/alice/2026-10-23-orders'), { recursive: true });
+  const registry = {
+    list: () => [
+      { id: 'ws', title: '本工作区', path: root },
+      { id: 'other', title: '另一个库', path: root },
+    ],
+  };
   const stores = new Map();
   service = new KnowledgeContext({
     registry,
@@ -70,7 +118,10 @@ beforeEach(async () => {
     release: async () => null,
   });
   for (const id of ['ws', 'other']) {
-    await writeFile(join(root, 'docs/alice/2026-10-23-orders', `${id}.md`), `${id} 审核通过后才能发货`);
+    await writeFile(
+      join(root, 'docs/alice/2026-10-23-orders', `${id}.md`),
+      `${id} 审核通过后才能发货`,
+    );
     const resolved = await resolveScope({
       root: join(root, 'v2'),
       workspace: registry.list().find((workspace) => workspace.id === id),
@@ -88,25 +139,70 @@ beforeEach(async () => {
     await Promise.all([...stores.values()].map((store) => store.close()));
   };
   definitions = new Map();
-  const ctx = { subagents: { getProvider: () => ({ capabilities: { toolFilter: true }, inheritsParentContext: false }) },
-    tools: { register: d => { definitions.set(d.name, d); return () => {}; }, guard: () => () => {} },
-    on: (_event, fn) => { streamHook = fn; return () => {}; } };
+  const ctx = {
+    subagents: {
+      getProvider: () => ({ capabilities: { toolFilter: true }, inheritsParentContext: false }),
+    },
+    tools: {
+      register: (d) => {
+        definitions.set(d.name, d);
+        return () => {};
+      },
+      guard: () => () => {},
+    },
+    on: (name, fn) => {
+      if (name === 'llm/stream') streamHook = fn;
+      return () => {};
+    },
+  };
   execute = vi.fn(async (_ctx, _llm, _config, options) => {
     const sessionId = `child-${execute.mock.calls.length}`;
-    async function* next() { yield 'ok'; }
+    async function* next() {
+      yield 'ok';
+    }
     bindOwnedSession(options.runtime, sessionId);
-    for await (const _ of streamHook({ sessionId, messages: [`REQHUB_WRITING=${options.variables.runtimeId}`], tools: WRITING_TOOLS.map(name => ({ name })) }, next)) {}
+    for await (const _ of streamHook(
+      {
+        sessionId,
+        messages: [`REQHUB_WRITING=${options.variables.runtimeId}`],
+        tools: WRITING_TOOLS.map((name) => ({ name })),
+      },
+      next,
+    )) {
+    }
     const exec = { agent: { session: { id: sessionId } }, signal: options.signal };
     const evidenceIds = [];
     for (const scope of JSON.parse(options.variables.scopes)) {
-      const hits = definitions.get(WRITING_TOOLS[0]).execute({ scopeId: scope.id, query: '审核' }, exec);
-      for (const hit of hits.hits) { definitions.get(WRITING_TOOLS[1]).execute({ id: hit.id }, exec); evidenceIds.push(hit.id); }
+      const hits = definitions
+        .get(WRITING_TOOLS[0])
+        .execute({ scopeId: scope.id, query: '审核' }, exec);
+      for (const hit of hits.hits) {
+        definitions.get(WRITING_TOOLS[1]).execute({ id: hit.id }, exec);
+        evidenceIds.push(hit.id);
+      }
     }
-    definitions.get(WRITING_TOOLS[2]).execute({ content: `${options.variables.content}\n\n审核通过后才能发货`, evidenceIds }, exec);
+    definitions
+      .get(WRITING_TOOLS[2])
+      .execute(
+        { content: `${options.variables.content}\n\n审核通过后才能发货`, evidenceIds },
+        exec,
+      );
     return { sessionId, isError: false };
   });
-  routes = createWritingRoutes(registry, null, { get: id => id === 'parent' ? { status: 'idle', session: { id, header: { cwd: root } } } : null }, ctx, service, { configLoader: async () => ({}), executeTask: execute });
-  server = createServer((req, res) => routes.routes[0].handler(req, res)); await new Promise(r => server.listen(0, '127.0.0.1', r)); base = `http://127.0.0.1:${server.address().port}/req-hub/writing`;
+  routes = createWritingRoutes(
+    registry,
+    null,
+    {
+      get: (id) =>
+        id === 'parent' ? { status: 'idle', session: { id, header: { cwd: root } } } : null,
+    },
+    ctx,
+    service,
+    { configLoader: async () => ({}), executeTask: execute },
+  );
+  server = createServer((req, res) => routes.routes[0].handler(req, res));
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  base = `http://127.0.0.1:${server.address().port}/req-hub/writing`;
 });
 afterEach(async () => { server?.closeAllConnections(); if (server) await new Promise(r => server.close(r)); await routes?.dispose(); await service?.close(); await rm(root, { recursive: true, force: true }); });
 const post = (path, data) => fetch(base + path, { method: 'POST', body: JSON.stringify(data) });
@@ -255,24 +351,57 @@ it('reports actual retrieval activity and separates overview from document bytes
 it('counts only real owned model deltas, retains no model text, and passes the stream through', async () => {
   let stream;
   const definitions = new Map();
-  const ctx = { tools: { register: value => { definitions.set(value.name, value); return () => {}; }, guard: () => () => {} }, on: (_event, hook) => { stream = hook; return () => {}; } };
-  const installed = installWritingTools(ctx), runtime = new WritingRuntime([], []);
-  installed.add(runtime); bindOwnedSession(runtime, 'owned');
-  const chunks = [{ type: 'reasoning-delta', text: 'private' }, { type: 'text-delta', text: 'answer' }, { type: 'usage', usage: {} }, { type: 'tool-call-delta', argumentsDelta: 'abc' }];
-  async function* next() { yield* chunks; }
+  const ctx = {
+    tools: {
+      register: (value) => {
+        definitions.set(value.name, value);
+        return () => {};
+      },
+      guard: () => () => {},
+    },
+    on: (name, hook) => {
+      if (name === 'llm/stream') stream = hook;
+      return () => {};
+    },
+  };
+  const installed = installWritingTools(ctx),
+    runtime = new WritingRuntime([], []);
+  installed.add(runtime);
+  bindOwnedSession(runtime, 'owned');
+  const chunks = [
+    { type: 'reasoning-delta', text: 'private' },
+    { type: 'text-delta', text: 'answer' },
+    { type: 'usage', usage: {} },
+    { type: 'tool-call-delta', argumentsDelta: 'abc' },
+  ];
+  async function* next() {
+    yield* chunks;
+  }
   const unrelated = [];
-  for await (const chunk of stream({ sessionId: 'other', messages: [] }, next)) unrelated.push(chunk);
-  expect(unrelated).toEqual(chunks); expect(runtime.activity.lastActivityAt).toBeUndefined();
+  for await (const chunk of stream({ sessionId: 'other', messages: [] }, next))
+    unrelated.push(chunk);
+  expect(unrelated).toEqual(chunks);
+  expect(runtime.activity.lastActivityAt).toBeUndefined();
   const output = [];
   for await (const chunk of stream({ sessionId: 'owned', messages: [] }, next)) output.push(chunk);
   expect(output).toEqual(chunks);
-  expect(runtime.activity).toMatchObject({ outputCharacters: 6, reasoningCharacters: 7, toolCharacters: 3, stage: 'tool_call' });
+  expect(runtime.activity).toMatchObject({
+    outputCharacters: 6,
+    reasoningCharacters: 7,
+    toolCharacters: 3,
+    stage: 'tool_call',
+  });
   expect(runtime.activity.lastActivityAt).toBeGreaterThan(0);
   expect(JSON.stringify(runtime.activity)).not.toContain('private');
   expect(definitions.get(WRITING_TOOLS[2]).parameters.required).not.toContain('overview');
-  expect(() => definitions.get(WRITING_TOOLS[1]).execute({ id: 'bad' }, { agent: { session: { id: 'owned' } } })).toThrow();
+  expect(() =>
+    definitions
+      .get(WRITING_TOOLS[1])
+      .execute({ id: 'bad' }, { agent: { session: { id: 'owned' } } }),
+  ).toThrow();
   expect(runtime.activity).toMatchObject({ stage: 'tool_error', toolErrors: 1 });
-  installed.close(runtime); installed.dispose();
+  installed.close(runtime);
+  installed.dispose();
 });
 it('publishes the owned child identity before completion and does not turn monitor polls into progress', async () => {
   let finish;

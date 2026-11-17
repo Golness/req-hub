@@ -1,7 +1,8 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { useState, useEffect, useRef } = require('react');
-const { ROUTE } = require('../constants.js');
 const { t, hasLocaleKey } = require('../locale.js');
+const { localizeMessage } = require('../utils/serverMessage.js');
 
 const ACTIVE = ['queued', 'running', 'cancelling'];
 
@@ -14,28 +15,7 @@ const ACTIVE = ['queued', 'running', 'cancelling'];
  * @returns Parsed response data; HTTP failures reject with code and details attached.
  */
 async function knowledgeV2Request(path, workspaceId, body, signal) {
-  const read = body === undefined || body === null;
-  const url = `${ROUTE}/knowledge-v2${path}${read ? `${path.includes('?') ? '&' : '?'}workspaceId=${encodeURIComponent(workspaceId)}` : ''}`;
-  const response = await fetch(
-    url,
-    read
-      ? { signal }
-      : {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...body, workspaceId }),
-          signal,
-        },
-  );
-  const data = await response.json();
-  if (!response.ok) {
-    const error = new Error(data.error?.code || `HTTP ${response.status}`);
-    error.code = data.error?.code;
-    error.details = data.error?.details;
-    error.retryable = data.error?.retryable;
-    throw error;
-  }
-  return data;
+  return clientApi.scopedRequest('knowledge-v2', path, workspaceId, body, signal);
 }
 
 /**
@@ -48,7 +28,7 @@ function knowledgeV2ErrorText(error) {
   if (code && hasLocaleKey(`kb.error.${code}`)) {
     return t(`kb.error.${code}`, error?.details);
   }
-  return t('kb.error.generic', { code: code || 'UNKNOWN' });
+  return t('kb.error.generic', { code: localizeMessage(error) || 'UNKNOWN' });
 }
 
 /**

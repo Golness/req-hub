@@ -1,11 +1,11 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const React = require('react');
 const { Input } = require('./shared/Input.js');
 const { Button } = require('./shared/Button.js');
 const { Menu } = require('./shared/controls.js');
 const { createIconComponents } = require('../icons.js');
 const { parseBranchName } = require('./CreateDirForm.js');
-const { ROUTE } = require('../constants.js');
 const { t } = require('../locale.js');
 const css = require('./SyncBranchPicker.module.css').default;
 const h = React.createElement;
@@ -54,12 +54,15 @@ function SyncBranchPicker({
     const timer = setTimeout(async () => {
       try {
         const endpoint = reference ? 'sync-design-references' : 'sync-branches';
-        const response = await fetch(
-          `${ROUTE}/${endpoint}?${new URLSearchParams({
-            workspaceId,
-            ...(reference ? { requirementId } : {}),
-            query,
-          })}`,
+        const response = await clientApi.request(
+          clientApi.endpoint(
+            endpoint,
+            `${new URLSearchParams({
+              workspaceId,
+              ...(reference ? { requirementId } : {}),
+              query,
+            })}`,
+          ),
           { signal: controller.signal },
         );
         const data = await response.json();

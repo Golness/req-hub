@@ -5,8 +5,20 @@ const require = createRequire(import.meta.url),
   React = require('react'),
   { act } = React;
 const { createRoot } = require('react-dom/client');
-const { DocsViewerBody } = require('../../src/client/components/DocsViewerBody.js');
+const {
+  DocsViewerBody: ViewerComponent,
+} = require('../../src/client/components/DocsViewerBody.js');
 const { FileKnowledgeAction } = require('../../src/client/components/FileKnowledgeAction.js');
+const { SessionSelectionContext } = require('../../src/client/context.js');
+let selectedSession = () => null;
+function DocsViewerBody(props) {
+  return React.createElement(
+    SessionSelectionContext.Provider,
+    { value: () => selectedSession() },
+    React.createElement(ViewerComponent, props),
+  );
+}
+
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let root, container;
 const req = { id: '2026-10-22-orders', path: 'alice/2026-10-22-orders', title: 'Orders' };
@@ -110,12 +122,15 @@ it.each(['main', 'master'])(
       return fallback(url, init);
     });
     vi.stubGlobal('fetch', fetch);
-    window.__DSH_CTX__ = {
-      get: (name) =>
-        name === 'uiWorkspace'
-          ? { selection: { getSnapshot: () => ({ sessionId: 'session' }) } }
-          : null,
-    };
+    selectedSession = () =>
+      ({
+        get: (name) =>
+          name === 'uiWorkspace'
+            ? { selection: { getSnapshot: () => ({ sessionId: 'session' }) } }
+            : null,
+      })
+        .get('uiWorkspace')
+        ?.selection?.getSnapshot()?.sessionId || null;
     try {
       const workspace = { id: 'ws', title: 'Workspace', path: '/repo' };
       await act(async () =>
@@ -146,7 +161,7 @@ it.each(['main', 'master'])(
       });
       expect(fetch.mock.calls.some(([url]) => /create-dir|delete/.test(String(url)))).toBe(false);
     } finally {
-      delete window.__DSH_CTX__;
+      selectedSession = () => null;
     }
   },
 );
@@ -261,31 +276,57 @@ it('refreshes the open creation page when locating again after a branch change',
     const path = new URL(String(url), 'http://localhost').pathname;
     if (path.endsWith('/session-info')) return response({ session: { cwd: '/repo' } });
     if (path.endsWith('/git-branch')) return response({ branch });
-    if (path.endsWith('/create-status')) return response({ branch, canUpdateMain: branch === 'main', existingRequirement: null });
+    if (path.endsWith('/create-status'))
+      return response({ branch, canUpdateMain: branch === 'main', existingRequirement: null });
     return fallback(url, init);
   });
   vi.stubGlobal('fetch', fetch);
-  window.__DSH_CTX__ = { get: name => name === 'uiWorkspace'
-    ? { selection: { getSnapshot: () => ({ sessionId: selection }) } } : null };
+  selectedSession = () =>
+    ({
+      get: (name) =>
+        name === 'uiWorkspace'
+          ? { selection: { getSnapshot: () => ({ sessionId: selection }) } }
+          : null,
+    })
+      .get('uiWorkspace')
+      ?.selection?.getSnapshot()?.sessionId || null;
   try {
     const workspace = { id: 'ws', title: 'Workspace', path: '/repo' };
-    await act(async () => root.render(React.createElement(DocsViewerBody, {
-      workspace, workspaces: [workspace], docsDir: 'docs', onConfigChange() {}, onSelectWorkspace() {},
-    })));
+    await act(async () =>
+      root.render(
+        React.createElement(DocsViewerBody, {
+          workspace,
+          workspaces: [workspace],
+          docsDir: 'docs',
+          onConfigChange() {},
+          onSelectWorkspace() {},
+        }),
+      ),
+    );
     const locate = container.querySelector('button[aria-label="定位到当前会话需求"]');
     await click(locate);
-    expect([...container.querySelectorAll('code')].some(node => node.textContent === 'test')).toBe(true);
+    expect(
+      [...container.querySelectorAll('code')].some((node) => node.textContent === 'test'),
+    ).toBe(true);
     branch = 'main';
     selection = 'new-session';
     await click(locate);
-    expect([...container.querySelectorAll('code')].some(node => node.textContent === 'main')).toBe(true);
-    expect([...container.querySelectorAll('code')].some(node => node.textContent === 'test')).toBe(false);
-    const calls = fetch.mock.calls.filter(([url]) => /\/(session-info|git-branch|create-status)\?/.test(String(url)));
+    expect(
+      [...container.querySelectorAll('code')].some((node) => node.textContent === 'main'),
+    ).toBe(true);
+    expect(
+      [...container.querySelectorAll('code')].some((node) => node.textContent === 'test'),
+    ).toBe(false);
+    const calls = fetch.mock.calls.filter(([url]) =>
+      /\/(session-info|git-branch|create-status)\?/.test(String(url)),
+    );
     expect(calls.every(([, init]) => init.cache === 'no-store')).toBe(true);
     expect(calls.filter(([url]) => String(url).includes('/git-branch?'))).toHaveLength(2);
-    expect(calls.filter(([url]) => String(url).includes('/session-info?')).at(-1)[0]).toContain('new-session');
+    expect(calls.filter(([url]) => String(url).includes('/session-info?')).at(-1)[0]).toContain(
+      'new-session',
+    );
   } finally {
-    delete window.__DSH_CTX__;
+    selectedSession = () => null;
   }
 });
 
@@ -294,59 +335,105 @@ it('ignores a superseded branch response after another locate click', async () =
   let resolveOld;
   let oldSignal;
   let branchReads = 0;
-  vi.stubGlobal('fetch', vi.fn(async (url, init) => {
-    const path = new URL(String(url), 'http://localhost').pathname;
-    if (path.endsWith('/session-info')) return response({ session: { cwd: '/repo' } });
-    if (path.endsWith('/git-branch')) {
-      if (branchReads++ === 0) {
-        oldSignal = init.signal;
-        return new Promise(resolve => { resolveOld = resolve; });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url, init) => {
+      const path = new URL(String(url), 'http://localhost').pathname;
+      if (path.endsWith('/session-info')) return response({ session: { cwd: '/repo' } });
+      if (path.endsWith('/git-branch')) {
+        if (branchReads++ === 0) {
+          oldSignal = init.signal;
+          return new Promise((resolve) => {
+            resolveOld = resolve;
+          });
+        }
+        return response({ branch: 'main' });
       }
-      return response({ branch: 'main' });
-    }
-    if (path.endsWith('/create-status')) return response({ branch: 'main', canUpdateMain: true });
-    return fallback(url, init);
-  }));
-  window.__DSH_CTX__ = { get: name => name === 'uiWorkspace'
-    ? { selection: { getSnapshot: () => ({ sessionId: 'session' }) } } : null };
+      if (path.endsWith('/create-status')) return response({ branch: 'main', canUpdateMain: true });
+      return fallback(url, init);
+    }),
+  );
+  selectedSession = () =>
+    ({
+      get: (name) =>
+        name === 'uiWorkspace'
+          ? { selection: { getSnapshot: () => ({ sessionId: 'session' }) } }
+          : null,
+    })
+      .get('uiWorkspace')
+      ?.selection?.getSnapshot()?.sessionId || null;
   try {
     const workspace = { id: 'ws', title: 'Workspace', path: '/repo' };
-    await act(async () => root.render(React.createElement(DocsViewerBody, {
-      workspace, workspaces: [workspace], docsDir: 'docs', onConfigChange() {}, onSelectWorkspace() {},
-    })));
+    await act(async () =>
+      root.render(
+        React.createElement(DocsViewerBody, {
+          workspace,
+          workspaces: [workspace],
+          docsDir: 'docs',
+          onConfigChange() {},
+          onSelectWorkspace() {},
+        }),
+      ),
+    );
     const locate = container.querySelector('button[aria-label="定位到当前会话需求"]');
     await click(locate);
     await click(locate);
     expect(oldSignal.aborted).toBe(true);
     await act(async () => resolveOld(response({ branch: 'test' })));
-    expect([...container.querySelectorAll('code')].some(node => node.textContent === 'main')).toBe(true);
-    expect([...container.querySelectorAll('code')].some(node => node.textContent === 'test')).toBe(false);
+    expect(
+      [...container.querySelectorAll('code')].some((node) => node.textContent === 'main'),
+    ).toBe(true);
+    expect(
+      [...container.querySelectorAll('code')].some((node) => node.textContent === 'test'),
+    ).toBe(false);
   } finally {
-    delete window.__DSH_CTX__;
+    selectedSession = () => null;
   }
 });
 
-it.each([false, true])('does not locate an unrelated workspace or fallback session (selected=%s)', async selected => {
-  const fallback = api();
-  const fetch = vi.fn(async (url, init) => {
-    if (String(url).includes('/session-info?')) return response({ session: { cwd: '/other/repo' } });
-    return fallback(url, init);
-  });
-  vi.stubGlobal('fetch', fetch);
-  window.__DSH_CTX__ = { get: name => name === 'uiWorkspace'
-    ? { selection: { getSnapshot: () => ({ sessionId: selected ? 'session' : undefined }) } }
-    : { list: { getSnapshot: () => ({ ids: ['old-session'] }) } } };
-  try {
-    const workspace = { id: 'ws', path: 'repo', title: 'Workspace' };
-    await act(async () => root.render(React.createElement(DocsViewerBody, {
-      workspace, workspaces: [workspace], docsDir: 'docs', onConfigChange() {}, onSelectWorkspace() {},
-    })));
-    await click(container.querySelector('button[aria-label="定位到当前会话需求"]'));
-    expect(fetch.mock.calls.some(([url]) => String(url).includes('/git-branch?'))).toBe(false);
-    if (!selected) {
-      expect(fetch.mock.calls.some(([url]) => String(url).includes('/session-info?'))).toBe(false);
+it.each([false, true])(
+  'does not locate an unrelated workspace or fallback session (selected=%s)',
+  async (selected) => {
+    const fallback = api();
+    const fetch = vi.fn(async (url, init) => {
+      if (String(url).includes('/session-info?'))
+        return response({ session: { cwd: '/other/repo' } });
+      return fallback(url, init);
+    });
+    vi.stubGlobal('fetch', fetch);
+    selectedSession = () =>
+      ({
+        get: (name) =>
+          name === 'uiWorkspace'
+            ? {
+                selection: { getSnapshot: () => ({ sessionId: selected ? 'session' : undefined }) },
+              }
+            : { list: { getSnapshot: () => ({ ids: ['old-session'] }) } },
+      })
+        .get('uiWorkspace')
+        ?.selection?.getSnapshot()?.sessionId || null;
+    try {
+      const workspace = { id: 'ws', path: 'repo', title: 'Workspace' };
+      await act(async () =>
+        root.render(
+          React.createElement(DocsViewerBody, {
+            workspace,
+            workspaces: [workspace],
+            docsDir: 'docs',
+            onConfigChange() {},
+            onSelectWorkspace() {},
+          }),
+        ),
+      );
+      await click(container.querySelector('button[aria-label="定位到当前会话需求"]'));
+      expect(fetch.mock.calls.some(([url]) => String(url).includes('/git-branch?'))).toBe(false);
+      if (!selected) {
+        expect(fetch.mock.calls.some(([url]) => String(url).includes('/session-info?'))).toBe(
+          false,
+        );
+      }
+    } finally {
+      selectedSession = () => null;
     }
-  } finally {
-    delete window.__DSH_CTX__;
-  }
-});
+  },
+);

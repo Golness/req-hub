@@ -1,20 +1,17 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { localizeMessage } = require('../utils/serverMessage.js');
 const { t } = require('../locale.js');
 const css = require('./SkillPreview.module.css').default;
 
 const React = require('react');
+const { useSelectedSessionId } = require('../context.js');
 const h = React.createElement;
 const { HeaderBack } = require('./shared/HeaderBack.js');
 const { Button } = require('./shared/Button.js');
 const { useState, useEffect, useLayoutEffect, useRef } = React;
 
-const {
-  ROUTE,
-  MARKED_SCRIPT_ID,
-  MERMAID_SCRIPT_ID,
-  HIGHLIGHT_SCRIPT_ID,
-} = require('../constants.js');
+const { MARKED_SCRIPT_ID, MERMAID_SCRIPT_ID, HIGHLIGHT_SCRIPT_ID } = require('../constants.js');
 const { useScript } = require('../hooks/useScript.js');
 const { getMermaidTheme } = require('../utils/getMermaidTheme.js');
 const { sanitizeHtml } = require('../utils/sanitizeHtml.js');
@@ -36,6 +33,7 @@ const { Spinner } = require('./Spinner.js');
  * @returns {JSX.Element}
  */
 function SkillPreview({ skillName, workspaceId, onBack, inlineBack = false }) {
+  const sessionId = useSelectedSessionId();
   const [text, setText] = useState('');
   const [description, setDescription] = useState('');
   const [error, setError] = useState(null);
@@ -61,61 +59,30 @@ function SkillPreview({ skillName, workspaceId, onBack, inlineBack = false }) {
   );
 
   useEffect(() => {
-    if (!document.getElementById('req-hub-hljs-css')) {
-      const link = document.createElement('link');
-      link.id = 'req-hub-hljs-css';
-      link.rel = 'stylesheet';
-      link.href =
-        'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-dark.min.css';
-      document.head.appendChild(link);
-    }
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        let sessionId = '';
-        try {
-          const ctx = window.__DSH_CTX__;
-          if (ctx) {
-            const uiWorkspace = ctx.get?.('uiWorkspace');
-            if (uiWorkspace?.selection && typeof uiWorkspace.selection.getSnapshot === 'function') {
-              const selection = uiWorkspace.selection.getSnapshot();
-              if (selection?.sessionId) {
-                sessionId = selection.sessionId;
-              }
-            }
-          }
-        } catch (e) {
-          // A missing live session falls back to the workspace-scoped skill lookup.
-        }
-
-        const url = sessionId
-          ? `${ROUTE}/skill-content?name=${encodeURIComponent(skillName)}&workspaceId=${encodeURIComponent(workspaceId || '')}&sessionId=${encodeURIComponent(sessionId)}`
-          : `${ROUTE}/skill-content?name=${encodeURIComponent(skillName)}&workspaceId=${encodeURIComponent(workspaceId || '')}`;
-
-        const res = await fetch(url);
-        const data = await res.json();
-        if (cancelled) {
-          return;
-        }
-        if (!res.ok) {
-          setError(localizeMessage(data.error) || t('common.loadFailed'));
-        } else {
+    const controller = new AbortController();
+    setError(null);
+    clientApi
+      .requestJson(
+        clientApi.endpoint('skill-content', {
+          name: skillName,
+          workspaceId: workspaceId || '',
+          sessionId: sessionId || undefined,
+        }),
+        { signal: controller.signal },
+      )
+      .then((data) => {
+        if (!controller.signal.aborted) {
           setText(data.content || '');
           setDescription(data.description || '');
         }
-      } catch (e) {
-        if (!cancelled) {
-          setError(String(e));
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setError(localizeMessage(error));
         }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [skillName, workspaceId]);
+      });
+    return () => controller.abort();
+  }, [skillName, workspaceId, sessionId]);
 
   useEffect(() => {
     if (mermaidLoaded && window.mermaid && !mermaidInitRef.current) {

@@ -1,4 +1,5 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { localizeMessage } = require('../utils/serverMessage.js');
 const { formatDateTime, useTimeZone } = require('../time.js');
 const disclosureCss = require('./shared/Disclosure.module.css').default;
@@ -15,7 +16,6 @@ const React = require('react');
 const { Select } = require('./shared/Select.js');
 const h = React.createElement;
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
-const { ROUTE } = require('../constants.js');
 const { getDocIcon } = require('../utils/getDocIcon.js');
 const { createIconComponents } = require('../icons.js');
 
@@ -317,8 +317,11 @@ function FileTreeSidebar({
     setTree([]);
     (async () => {
       try {
-        const res = await fetch(
-          `${ROUTE}/file-tree?workspaceId=${encodeURIComponent(workspaceId)}&requirementId=${encodeURIComponent(selectedReq.id)}&requirementPath=${encodeURIComponent(selectedReq.path || '')}`,
+        const res = await clientApi.request(
+          clientApi.endpoint(
+            'file-tree',
+            `workspaceId=${encodeURIComponent(workspaceId)}&requirementId=${encodeURIComponent(selectedReq.id)}&requirementPath=${encodeURIComponent(selectedReq.path || '')}`,
+          ),
         );
         if (!res.ok) {
           throw new Error(t('FileTreeSidebar.message004'));

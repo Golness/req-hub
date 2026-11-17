@@ -1,10 +1,10 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { localizeMessage } = require('../utils/serverMessage.js');
 const { Disclosure } = require('./shared/Disclosure.js');
 const React = require('react');
 const { createPortal } = require('react-dom');
 const layoutCss = require('./ConversationSources.module.css').default;
-const { ROUTE } = require('../constants.js');
 const { t } = require('../locale.js');
 const { Button } = require('./shared/Button.js');
 const { Input } = require('./shared/Input.js');
@@ -65,22 +65,34 @@ function DshSessionsSection({
     try {
       let data;
       if (refresh) {
-        const response = await fetch(`${ROUTE}/conversations-refresh`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: abort.signal,
-          body: JSON.stringify({ workspaceId, source: 'dsh', stream: true }),
-        });
-        data = await readConversationResponse(response, (value) => {
-          if (owner.current === generation) {
-            setProgress(value);
-          }
-        });
+        const response = await clientApi.requestStream(
+          clientApi.endpoint('conversations-refresh'),
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: abort.signal,
+            body: JSON.stringify({ workspaceId, source: 'dsh', stream: true }),
+          },
+        );
+        data = await readConversationResponse(
+          response,
+          (value) => {
+            if (owner.current === generation) {
+              setProgress(value);
+            }
+          },
+          { signal: abort.signal },
+        );
       } else {
         data = await readConversationResponse(
-          await fetch(`${ROUTE}/sessions?${new URLSearchParams({ workspaceId, limit: '200' })}`, {
-            signal: abort.signal,
-          }),
+          await clientApi.request(
+            clientApi.endpoint('sessions', `${new URLSearchParams({ workspaceId, limit: '200' })}`),
+            {
+              signal: abort.signal,
+            },
+          ),
+          undefined,
+          { signal: abort.signal },
         );
       }
       if (abort.signal.aborted || owner.current !== generation) {

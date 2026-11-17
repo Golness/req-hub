@@ -1,8 +1,8 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { formatDateTime, useTimeZone } = require('../time.js');
 const { PagedList } = require('./shared/PagedList.js');
 const React = require('react');
-const { ROUTE } = require('../constants.js');
 const { t, hasLocaleKey } = require('../locale.js');
 const { localizeMessage } = require('../utils/serverMessage.js');
 const { Button } = require('./shared/Button.js');
@@ -27,12 +27,7 @@ function TaskReportsPanel({ onClose, onNavigate }) {
   // Host-owned statuses may grow independently of the plugin dictionary.
   const label = (key) => (hasLocaleKey(`reports.${key}`) ? t(`reports.${key}`) : key);
   const request = async (query, signal) => {
-    const response = await fetch(`${ROUTE}/task-reports?${new URLSearchParams(query)}`, { signal });
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.error || 'REPORT_FAILED');
-    }
-    return result;
+    return clientApi.requestJson(clientApi.endpoint('task-reports', query), { signal });
   };
   React.useEffect(() => {
     const controller = new AbortController();

@@ -1,8 +1,8 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { clientError } = require('../utils/serverMessage.js');
 const { t } = require('../locale.js');
 const React = require('react');
-const { ROUTE } = require('../constants.js');
 const { isSyncActive } = require('../../shared/sync-task.cjs');
 const isActive = (task) => task && (isSyncActive(task) || task.status === 'preparing');
 
@@ -23,19 +23,25 @@ function useSyncMonitor() {
       task.snapshotDir || task.notificationId || task.id,
     ]);
   React.useEffect(() => {
+    const controller = new AbortController();
     let disposed = false;
     let fetching = false;
+    let failures = 0;
+    let nextPollAt = 0;
     const refresh = async () => {
       if (fetching) {
         return;
       }
       fetching = true;
       try {
-        const response = await fetch(`${ROUTE}/sync-overview`);
-        const data = await response.json();
-        if (!response.ok || data.error) {
+        const data = await clientApi.requestJson(clientApi.endpoint('sync-overview'), {
+          signal: controller.signal,
+        });
+        if (data.error) {
           throw clientError(data.error, t('useSyncMonitor.message001'));
         }
+        failures = 0;
+        nextPollAt = Date.now() + (isActive(data.active) ? 1500 : 6000);
         if (!disposed) {
           setState({
             ...data,
@@ -45,6 +51,8 @@ function useSyncMonitor() {
           });
         }
       } catch (error) {
+        failures++;
+        nextPollAt = Date.now() + Math.min(30000, 1500 * 2 ** Math.min(failures, 5));
         if (!disposed) {
           setState((previous) => ({ ...previous, error: t('useSyncMonitor.message002') }));
         }
@@ -53,7 +61,11 @@ function useSyncMonitor() {
       }
     };
     refreshRef.current = refresh;
-    const timer = setInterval(refresh, 1500);
+    const timer = setInterval(() => {
+      if (Date.now() >= nextPollAt) {
+        void refresh();
+      }
+    }, 1500);
     const removed = (event) => {
       const task = event.detail;
       removedTasks.current.add(taskKey(task));
@@ -76,6 +88,7 @@ function useSyncMonitor() {
     refresh();
     return () => {
       disposed = true;
+      controller.abort();
       clearInterval(timer);
       window.removeEventListener('req-hub-sync-deleted', removed);
       window.removeEventListener('req-hub-sync-change', refresh);

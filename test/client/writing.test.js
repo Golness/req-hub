@@ -26,9 +26,6 @@ beforeEach(() => {
     writingDraftKey('ws'),
     JSON.stringify({ requirement: before, design: '# 技术方案草稿' }),
   );
-  window.__DSH_CTX__ = {
-    get: () => ({ selection: { getSnapshot: () => ({ sessionId: 'parent' }) } }),
-  };
   fetchMock = vi.fn(async (url, options) => {
     let data;
     if (url.includes('/jobs?')) data = { jobs: [] };
@@ -71,7 +68,6 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   document.body.innerHTML = '';
-  delete window.__DSH_CTX__;
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });

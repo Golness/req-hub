@@ -1,9 +1,9 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { t } = require('../locale.js');
 const React = require('react');
 const { HoverCard } = require('./shared/controls.js');
 const { createIconComponents } = require('../icons.js');
-const { ROUTE } = require('../constants.js');
 const css = require('./TriggerButton.module.css').default;
 const h = React.createElement;
 const { IconReqHub } = createIconComponents(h);
@@ -15,7 +15,8 @@ const { IconReqHub } = createIconComponents(h);
 function TriggerButton({ onClick, wide }) {
   const [stats, setStats] = React.useState(null);
   const load = () => {
-    fetch(`${ROUTE}/stats`)
+    clientApi
+      .request(clientApi.endpoint('stats'))
       .then((res) => (res.ok ? res.json() : null))
       .then(setStats)
       .catch((error) => {

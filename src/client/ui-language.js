@@ -1,6 +1,6 @@
 'use strict';
+const clientApi = require('./api/index.js');
 const React = require('react');
-const { ROUTE } = require('./constants.js');
 const { DEFAULT_UI_LANGUAGE, normalizeUiLanguage } = require('../shared/general.cjs');
 
 let language = DEFAULT_UI_LANGUAGE;
@@ -47,7 +47,8 @@ function useUiLanguage() {
 function installUiLanguage() {
   const controller = new AbortController();
   const initialRevision = revision;
-  const pending = fetch(`${ROUTE}/config`, { signal: controller.signal })
+  const pending = clientApi
+    .request(clientApi.endpoint('config'), { signal: controller.signal })
     .then(async (response) => {
       if (!response.ok) {
         return;

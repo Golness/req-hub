@@ -1,4 +1,5 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { messageCode, localizeMessage } = require('../utils/serverMessage.js');
 const { Disclosure } = require('./shared/Disclosure.js');
 const { WritingKnowledge } = require('./WritingKnowledge.js');
@@ -12,7 +13,6 @@ const React = require('react');
 const { createPortal } = require('react-dom');
 const { Select } = require('./shared/Select.js');
 const h = React.createElement;
-const { ROUTE } = require('../constants.js');
 const { MilkdownEditor } = require('./MilkdownEditor.js');
 const {
   useDiffReview,
@@ -78,31 +78,22 @@ function writingError(code, details) {
   return code;
 }
 async function request(path, body, signal, sessionId) {
-  const response = await fetch(`${ROUTE}/writing${path}`, {
-    ...(body
-      ? {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(sessionId ? { 'x-session-id': sessionId } : {}),
-          },
-          body: JSON.stringify(body),
-        }
-      : {}),
-    signal,
-  });
-  const data = await response.json();
-  if (!response.ok) {
-    throw Object.assign(
-      new Error(
-        messageCode(data.error) === 'WRITING_SESSION_DENIED'
-          ? t('enhancement.sessionDenied')
-          : writingError(messageCode(data.error), data.details) || t('WritingPanel.message001'),
-      ),
-      { status: response.status, code: messageCode(data.error), details: data.details },
-    );
+  try {
+    return await clientApi.requestJson(clientApi.endpoint('writing', undefined, path), {
+      signal,
+      ...(body ? { json: body } : {}),
+      ...(sessionId ? { headers: { 'x-session-id': sessionId } } : {}),
+    });
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw error;
+    }
+    error.message =
+      error.code === 'WRITING_SESSION_DENIED'
+        ? t('enhancement.sessionDenied')
+        : writingError(error.code, error.details) || t('WritingPanel.message001');
+    throw error;
   }
-  return data;
 }
 function loadDraft(key) {
   try {

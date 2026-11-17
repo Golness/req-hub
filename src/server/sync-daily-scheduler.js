@@ -101,6 +101,12 @@ export async function runScheduledQuickSync(routes, input, parent, signal, onEve
   return { status, value, tasks: [...tasks.values()] };
 }
 
+function nativeTimeout(callback, delay) {
+  const timer = setTimeout(callback, delay);
+  timer.unref?.();
+  return () => clearTimeout(timer);
+}
+
 /** Own one abortable daily batch, processing registered workspaces and branches in sequence. */
 export class SyncDailyScheduler {
   constructor({
@@ -113,6 +119,7 @@ export class SyncDailyScheduler {
     clock = () => new Date(),
     listBranches = listSyncBranches,
     runQuick = runScheduledQuickSync,
+    scheduleTimeout = nativeTimeout,
   }) {
     Object.assign(this, {
       registry,
@@ -124,16 +131,37 @@ export class SyncDailyScheduler {
       clock,
       listBranches,
       runQuick,
+      scheduleTimeout,
     });
     this.pending = Promise.resolve();
     this.generation = 0;
     this.state = { state: 'not_started' };
   }
+  /**
+   * Change the optional Host timer backend without restarting an executing batch.
+   * @param schedule - Callback scheduler returning a disposer; omitted restores the native fallback.
+   * @returns No value; an existing idle wait is rearmed and remains scheduler-owned.
+   */
+  useTimeout(schedule = nativeTimeout) {
+    this.cancelTimer?.();
+    this.scheduleTimeout = schedule;
+    if (this.waiting && !this.closed) {
+      this.armTimer();
+    }
+  }
+  armTimer() {
+    this.waiting = true;
+    this.cancelTimer = this.scheduleTimeout(() => {
+      this.waiting = false;
+      void this.refresh();
+    }, 30000);
+  }
   refresh() {
     if (this.closed) {
       return Promise.resolve();
     }
-    clearTimeout(this.timer);
+    this.waiting = false;
+    this.cancelTimer?.();
     this.controller?.abort(new Error('SYNC_SCHEDULE_CANCELLED'));
     this.controller = new AbortController();
     const generation = ++this.generation;
@@ -151,8 +179,7 @@ export class SyncDailyScheduler {
           }
         } finally {
           if (!this.closed && generation === this.generation) {
-            this.timer = setTimeout(() => this.refresh(), 30000);
-            this.timer.unref?.();
+            this.armTimer();
           }
         }
       });
@@ -344,7 +371,8 @@ export class SyncDailyScheduler {
   }
   beginClose() {
     this.closed = true;
-    clearTimeout(this.timer);
+    this.waiting = false;
+    this.cancelTimer?.();
     this.controller?.abort(new Error('SYNC_SCHEDULE_CANCELLED'));
   }
   async close() {

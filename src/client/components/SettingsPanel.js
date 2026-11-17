@@ -1,4 +1,5 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { localizeMessage } = require('../utils/serverMessage.js');
 const { t } = require('../locale.js');
 const { setTimeZone } = require('../time.js');
@@ -27,7 +28,6 @@ const h = React.createElement;
 const { IconInfo } = require('../icons.js').createIconComponents(h);
 const form = require('./shared/SettingsForm.module.css').default;
 const { useState, useEffect } = React;
-const { ROUTE } = require('../constants.js');
 const { SessionSelectionContext } = require('../context.js');
 const { SkillPreview } = require('./SkillPreview.js');
 const { PromptManager } = require('./PromptManager.js');
@@ -84,7 +84,7 @@ function SettingsPanel({ workspaceId, onClose, initialTab = 'general', onKnowled
   const loadPromptRegistry = async () => {
     setPromptError(false);
     try {
-      const response = await fetch(`${ROUTE}/prompt-registry`);
+      const response = await clientApi.request(clientApi.endpoint('prompt-registry'));
       if (!response.ok) {
         throw new Error('load failed');
       }
@@ -99,7 +99,7 @@ function SettingsPanel({ workspaceId, onClose, initialTab = 'general', onKnowled
       const sessionId = selectedSession?.();
       try {
         // Fetch config
-        const configRes = await fetch(`${ROUTE}/config`, {
+        const configRes = await clientApi.request(clientApi.endpoint('config'), {
           headers: {
             ...(sessionId ? { 'x-session-id': sessionId } : {}),
             ...(workspaceId ? { 'x-workspace-id': workspaceId } : {}),
@@ -150,7 +150,7 @@ function SettingsPanel({ workspaceId, onClose, initialTab = 'general', onKnowled
       }
 
       try {
-        const llmRes = await fetch(`${ROUTE}/llm-config`);
+        const llmRes = await clientApi.request(clientApi.endpoint('llm-config'));
         if (llmRes.ok) {
           setLlmConfig(await llmRes.json());
         } else {
@@ -166,18 +166,21 @@ function SettingsPanel({ workspaceId, onClose, initialTab = 'general', onKnowled
       try {
         let skillsUrl;
         if (sessionId) {
-          skillsUrl = `${ROUTE}/skills?sessionId=${encodeURIComponent(sessionId)}`;
+          skillsUrl = clientApi.endpoint('skills', `sessionId=${encodeURIComponent(sessionId)}`);
           if (workspaceId) {
             skillsUrl += `&workspaceId=${encodeURIComponent(workspaceId)}`;
           }
         } else if (workspaceId) {
-          skillsUrl = `${ROUTE}/skills?workspaceId=${encodeURIComponent(workspaceId)}`;
+          skillsUrl = clientApi.endpoint(
+            'skills',
+            `workspaceId=${encodeURIComponent(workspaceId)}`,
+          );
         } else {
-          skillsUrl = `${ROUTE}/skills`;
+          skillsUrl = clientApi.endpoint('skills');
         }
 
         console.log('Fetching skills from:', skillsUrl);
-        const skillsRes = await fetch(skillsUrl);
+        const skillsRes = await clientApi.request(skillsUrl);
         if (skillsRes.ok) {
           const data = await skillsRes.json();
           console.log('Skills API response:', data);
@@ -212,7 +215,7 @@ function SettingsPanel({ workspaceId, onClose, initialTab = 'general', onKnowled
     setSaving(true);
     setMessage(null);
     try {
-      const res = await fetch(`${ROUTE}/config`, {
+      const res = await clientApi.request(clientApi.endpoint('config'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

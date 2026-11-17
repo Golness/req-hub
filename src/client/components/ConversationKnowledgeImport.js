@@ -1,4 +1,5 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { clientError } = require('../utils/serverMessage.js');
 const { formatDateTime, useTimeZone } = require('../time.js');
 const { PagedList } = require('./shared/PagedList.js');
@@ -7,7 +8,6 @@ const { ActionBar } = require('./shared/ActionBar.js');
 const { Skeleton } = require('./shared/Skeleton.js');
 const React = require('react');
 const { t } = require('../locale.js');
-const { ROUTE } = require('../constants.js');
 const { knowledgeV2Request, knowledgeV2ErrorText } = require('../hooks/useKnowledgeV2.js');
 const { Button } = require('./shared/Button.js');
 const { Input } = require('./shared/Input.js');
@@ -130,7 +130,7 @@ function ConversationKnowledgeImport({
     setPreviewFallback({ status: 'loading', turns: [] });
     (async () => {
       try {
-        const response = await fetch(`${ROUTE}/session-turns?${params}`, {
+        const response = await clientApi.request(clientApi.endpoint('session-turns', `${params}`), {
           signal: controller.signal,
         });
         const data = await response.json();

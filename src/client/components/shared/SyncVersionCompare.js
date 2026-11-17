@@ -1,11 +1,11 @@
 'use strict';
+const clientApi = require('../../api/index.js');
 const { localizeMessage, clientError } = require('../../utils/serverMessage.js');
 const { t } = require('../../locale.js');
 const css = require('./SyncVersionCompare.module.css').default;
 const { Button } = require('./Button.js');
 const React = require('react');
 const h = React.createElement;
-const { ROUTE } = require('../../constants.js');
 const { useDiffReview } = require('./DiffReviewPage.js');
 const { SyncDocTypeTabs } = require('./SyncDocTypeTabs.js');
 const { VersionSelect } = require('./VersionSelect.js');
@@ -66,7 +66,9 @@ function SyncVersionCompare({
         syncId1: oldId,
         syncId2: newId,
       });
-      const response = await fetch(`${ROUTE}/sync-version-diff?${params}`);
+      const response = await clientApi.request(
+        clientApi.endpoint('sync-version-diff', `${params}`),
+      );
       const data = await response.json();
       if (!response.ok) {
         throw clientError(data.error, t('SyncVersionCompare.message001'));

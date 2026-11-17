@@ -1,8 +1,8 @@
 'use strict';
+const clientApi = require('../../api/index.js');
 const React = require('react');
 const { Button } = require('./Button.js');
 const { SessionSelectionContext } = require('../../context.js');
-const { ROUTE } = require('../../constants.js');
 const { t } = require('../../locale.js');
 const { readSyncEvents } = require('../../utils/syncEvents.js');
 const { syncErrorText } = require('../../utils/syncFeedback.js');
@@ -30,7 +30,7 @@ function RetrySyncTaskButton({ task, phase, chunkIndex, onTask, className = '' }
     setError(null);
     try {
       const sessionId = selection?.();
-      const response = await fetch(`${ROUTE}/sync-retry`, {
+      const response = await clientApi.request(clientApi.endpoint('sync-retry'), {
         method: 'POST',
         signal: request.signal,
         headers: {
@@ -51,18 +51,22 @@ function RetrySyncTaskButton({ task, phase, chunkIndex, onTask, className = '' }
         const value = await response.json();
         throw new Error(value.error || 'SYNC_RETRY_FAILED');
       }
-      await readSyncEvents(response.body, (event) => {
-        if (request.signal.aborted) {
-          return;
-        }
-        if (event.sync) {
-          onTask?.(event.sync);
-          window.dispatchEvent(new Event('req-hub-sync-change'));
-        }
-        if (event.type === 'error') {
-          throw new Error(event.error || 'SYNC_RETRY_FAILED');
-        }
-      });
+      await readSyncEvents(
+        response.body,
+        (event) => {
+          if (request.signal.aborted) {
+            return;
+          }
+          if (event.sync) {
+            onTask?.(event.sync);
+            window.dispatchEvent(new Event('req-hub-sync-change'));
+          }
+          if (event.type === 'error') {
+            throw new Error(event.error || 'SYNC_RETRY_FAILED');
+          }
+        },
+        { signal: request.signal },
+      );
     } catch (error) {
       if (!request.signal.aborted) {
         setError(syncErrorText(error.message));

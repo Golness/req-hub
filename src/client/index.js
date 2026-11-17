@@ -17,7 +17,7 @@ const { installUiLanguage, useUiLanguage } = require('./ui-language.js');
 
 const React = require('react');
 const h = React.createElement;
-const { SessionSelectionContext } = require('./context.js');
+const { SessionSelectionContext, SessionSelectionStoreContext } = require('./context.js');
 
 // CSS imports are bundled into plugin-owned styles.
 require('./styles/tokens.css');
@@ -62,9 +62,6 @@ module.exports = {
           errors.push(error);
         }
       }
-      if (window.__DSH_CTX__ === ctx) {
-        delete window.__DSH_CTX__;
-      }
       if (errors.length) {
         throw new AggregateError(errors, 'ReqHub Client cleanup failed');
       }
@@ -75,9 +72,6 @@ module.exports = {
       disposers.push(ctx.effect(() => installLocale(ctx)));
       disposers.push(ctx.effect(() => installTimeZone()));
       disposers.push(ctx.effect(() => installUiLanguage()));
-
-      // Store context globally for components to access
-      window.__DSH_CTX__ = ctx;
 
       disposers.push(
         ctx.slots.inject('shell.overlay', () =>
@@ -100,10 +94,36 @@ module.exports = {
 
       const currentSessionId = () => {
         try {
-          return ctx.get?.('uiWorkspace')?.selection?.getSnapshot?.()?.sessionId || null;
+          return disposed
+            ? null
+            : ctx.get?.('uiWorkspace')?.selection?.getSnapshot?.()?.sessionId || null;
         } catch {
           return null;
         }
+      };
+      const selectionSubscriptions = new Set();
+      disposers.push(() => {
+        for (const dispose of selectionSubscriptions) {
+          dispose();
+        }
+        selectionSubscriptions.clear();
+      });
+      const selection = {
+        getSnapshot: currentSessionId,
+        subscribe(listener) {
+          if (disposed) {
+            return () => {};
+          }
+          const unsubscribe =
+            ctx.get?.('uiWorkspace')?.selection?.subscribe?.(listener) || (() => {});
+          const dispose = () => {
+            if (selectionSubscriptions.delete(dispose)) {
+              unsubscribe();
+            }
+          };
+          selectionSubscriptions.add(dispose);
+          return dispose;
+        },
       };
       function LocalizedTabBody() {
         React.useSyncExternalStore(
@@ -112,12 +132,16 @@ module.exports = {
         );
         useUiLanguage();
         return h(
-          SessionSelectionContext.Provider,
-          { value: currentSessionId },
+          SessionSelectionStoreContext.Provider,
+          { value: selection },
           h(
-            require('./components/shared/DiffReviewPage.js').DiffReviewProvider,
-            null,
-            h(TabBodyWrapper),
+            SessionSelectionContext.Provider,
+            { value: currentSessionId },
+            h(
+              require('./components/shared/DiffReviewPage.js').DiffReviewProvider,
+              null,
+              h(TabBodyWrapper),
+            ),
           ),
         );
       }

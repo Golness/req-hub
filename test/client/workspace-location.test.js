@@ -5,7 +5,19 @@ const require = createRequire(import.meta.url);
 const React = require('react');
 const { act } = React;
 const { createRoot } = require('react-dom/client');
-const { TabBodyWrapper } = require('../../src/client/components/TabBodyWrapper.js');
+const {
+  TabBodyWrapper: ViewerComponent,
+} = require('../../src/client/components/TabBodyWrapper.js');
+
+const { SessionSelectionContext } = require('../../src/client/context.js');
+let selectedSession = () => null;
+function TabBodyWrapper(props) {
+  return React.createElement(
+    SessionSelectionContext.Provider,
+    { value: () => selectedSession() },
+    React.createElement(ViewerComponent, props),
+  );
+}
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const workspaces = [
@@ -24,15 +36,18 @@ beforeEach(() => {
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
-  window.__DSH_CTX__ = {
-    get: () => ({ selection: { getSnapshot: () => ({ sessionId: 'current' }) } }),
-  };
+  selectedSession = () =>
+    ({
+      get: () => ({ selection: { getSnapshot: () => ({ sessionId: 'current' }) } }),
+    })
+      .get('uiWorkspace')
+      ?.selection?.getSnapshot()?.sessionId || null;
   vi.spyOn(console, 'log').mockImplementation(() => {});
 });
 afterEach(async () => {
   await act(async () => root.unmount());
   document.body.innerHTML = '';
-  delete window.__DSH_CTX__;
+  selectedSession = () => null;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });

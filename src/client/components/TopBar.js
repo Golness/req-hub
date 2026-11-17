@@ -1,4 +1,5 @@
 'use strict';
+const clientApi = require('../api/index.js');
 const { localizeMessage } = require('../utils/serverMessage.js');
 const { showToast } = require('./shared/ToastContainer.js');
 const { t } = require('../locale.js');
@@ -9,7 +10,6 @@ const css = require('./TopBar.module.css').default;
 const React = require('react');
 const h = React.createElement;
 const { useState } = React;
-const { ROUTE } = require('../constants.js');
 const { InputModal } = require('./InputModal.js');
 const { createIconComponents } = require('../icons.js');
 
@@ -67,7 +67,7 @@ function TopBar({
       return;
     }
     try {
-      const res = await fetch(`${ROUTE}/config`, {
+      const res = await clientApi.request(clientApi.endpoint('config'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ docsDir: newDir }),
@@ -86,7 +86,7 @@ function TopBar({
       return;
     }
     try {
-      const res = await fetch(`${ROUTE}/open-in-explorer`, {
+      const res = await clientApi.request(clientApi.endpoint('open-in-explorer'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -16,6 +16,23 @@
 .content {
   flex: 1;
 }
+.content :global(.hljs) {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-1);
+}
+.content :global(.hljs-keyword),
+.content :global(.hljs-selector-tag),
+.content :global(.hljs-title) {
+  color: var(--dsw-alias-state-business-primary);
+}
+.content :global(.hljs-comment),
+.content :global(.hljs-quote) {
+  color: var(--dsw-alias-label-secondary);
+}
+.content :global(.hljs-number),
+.content :global(.hljs-literal) {
+  color: var(--dsw-alias-state-warn-primary);
+}
 .row2 {
   font-weight: 500;
   font-size: var(--rh-font-size);

@@ -1,3 +1,4 @@
+import { ownedAgentListener } from './owned-agent-listener.js';
 import { runtimeForRequest } from './delegation-context.js';
 import { syncReadPage } from './sync-budget.js';
 import { randomUUID } from 'node:crypto';
@@ -241,6 +242,7 @@ export function installWritingTools(ctx) {
   const runtimes = new Map();
   const sessions = new Map();
   const disposers = [];
+  const scopedListeners = new Map();
   const properties = [
     { scopeId: { type: 'string' }, query: { type: 'string' } },
     { id: { type: 'string' }, offset: { type: 'integer', minimum: 0 } },
@@ -335,53 +337,47 @@ export function installWritingTools(ctx) {
   );
   // A one-shot may produce prose resembling tool calls and then stop. Only
   // tool receipts establish completion; never parse that prose into operations.
-  disposers.push(
-    ctx.on(
-      'agent/turn-stopping',
-      ({ agent, signal }) => {
-        const runtime = sessions.get(agent.session.id);
-        if (
-          !runtime ||
-          runtime.closed ||
-          runtime.failure ||
-          runtime.result ||
-          signal?.aborted ||
-          runtime.signal?.aborted ||
-          typeof agent.steer !== 'function'
-        ) {
-          return;
-        }
-        if ((runtime.completionReminders || 0) >= 3) {
-          runtime.failure = new Error('WRITING_RESULT_INCOMPLETE');
-          runtime.onFatal?.(runtime.failure);
-          return;
-        }
-        runtime.completionReminders = (runtime.completionReminders || 0) + 1;
-        runtime.recordActivity({
-          stage: 'repairing',
-          completionReminders: runtime.completionReminders,
-        });
-        const text =
-          'ReqHub has NOT received a successful req_hub_writing_submit result. This task is incomplete. Continue in the SAME turn using the actual callable tools or run_code SDK exposed to you. ' +
-          'Writing <function=...>, <parameter=...>, JSON calls, or tool result text in a normal answer does NOT execute tools. Do not repeat completed reads. ' +
-          JSON.stringify(runtime.completionState()) +
-          '. Search exact unsearchedScopes; read nextReads with req_hub_writing_read and follow nextOffset until eof. Then use req_hub_writing_submit with the complete optimized content and actually fully read evidenceIds. Do not claim that an output was submitted without a successful tool receipt.';
-        agent.steer(
-          Object.freeze({
-            id: randomUUID(),
-            role: 'user',
-            source: Object.freeze({
-              kind: 'req-hub-writing',
-              form: 'notice',
-              summary: 'Writing output not submitted',
-            }),
-            content: Object.freeze([Object.freeze({ type: 'text', text })]),
-          }),
-        );
-      },
-      { global: true },
-    ),
-  );
+  const beforeTurnStops = ({ agent, signal }) => {
+    const runtime = sessions.get(agent.session.id);
+    if (
+      !runtime ||
+      runtime.closed ||
+      runtime.failure ||
+      runtime.result ||
+      signal?.aborted ||
+      runtime.signal?.aborted ||
+      typeof agent.steer !== 'function'
+    ) {
+      return;
+    }
+    if ((runtime.completionReminders || 0) >= 3) {
+      runtime.failure = new Error('WRITING_RESULT_INCOMPLETE');
+      runtime.onFatal?.(runtime.failure);
+      return;
+    }
+    runtime.completionReminders = (runtime.completionReminders || 0) + 1;
+    runtime.recordActivity({
+      stage: 'repairing',
+      completionReminders: runtime.completionReminders,
+    });
+    const text =
+      'ReqHub has NOT received a successful req_hub_writing_submit result. This task is incomplete. Continue in the SAME turn using the actual callable tools or run_code SDK exposed to you. ' +
+      'Writing <function=...>, <parameter=...>, JSON calls, or tool result text in a normal answer does NOT execute tools. Do not repeat completed reads. ' +
+      JSON.stringify(runtime.completionState()) +
+      '. Search exact unsearchedScopes; read nextReads with req_hub_writing_read and follow nextOffset until eof. Then use req_hub_writing_submit with the complete optimized content and actually fully read evidenceIds. Do not claim that an output was submitted without a successful tool receipt.';
+    agent.steer(
+      Object.freeze({
+        id: randomUUID(),
+        role: 'user',
+        source: Object.freeze({
+          kind: 'req-hub-writing',
+          form: 'notice',
+          summary: 'Writing output not submitted',
+        }),
+        content: Object.freeze([Object.freeze({ type: 'text', text })]),
+      }),
+    );
+  };
   disposers.push(
     ctx.on(
       'llm/stream',
@@ -441,10 +437,20 @@ export function installWritingTools(ctx) {
   );
   return {
     add(runtime) {
-      runtime.bindSession = (id) => sessions.set(id, runtime);
+      runtime.bindSession = (id) => {
+        sessions.set(id, runtime);
+        if (!scopedListeners.has(runtime.id)) {
+          scopedListeners.set(
+            runtime.id,
+            ownedAgentListener(ctx, id, 'agent/turn-stopping', beforeTurnStops),
+          );
+        }
+      };
       runtimes.set(runtime.id, runtime);
     },
     close(runtime) {
+      scopedListeners.get(runtime.id)?.();
+      scopedListeners.delete(runtime.id);
       runtime.closed = true;
       runtimes.delete(runtime.id);
       if (runtime.sessionId) {
@@ -452,6 +458,13 @@ export function installWritingTools(ctx) {
       }
     },
     dispose() {
+      for (const runtime of runtimes.values()) {
+        runtime.closed = true;
+      }
+      for (const dispose of scopedListeners.values()) {
+        dispose();
+      }
+      scopedListeners.clear();
       for (const dispose of disposers.reverse()) {
         dispose();
       }
