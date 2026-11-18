@@ -41,11 +41,17 @@ export function createDailyReportRoutes(registry, reports) {
         files: group.files.slice(fileOffset, fileOffset + 50),
         nextFileOffset: group.files.length > fileOffset + 50 ? fileOffset + 50 : null,
       }));
+      const briefCounts = { completed: 0, failed: 0, running: 0, pending: 0, stale: 0 };
+      for (const group of report.groups) {
+        const status = group.brief?.status || 'pending';
+        briefCounts[status] = (briefCounts[status] || 0) + 1;
+      }
       return {
         status: 200,
         value: {
           ...report,
           groups,
+          briefCounts,
           nextOffset: !input.groupId && report.groups.length > offset + 10 ? offset + 10 : null,
         },
       };

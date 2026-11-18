@@ -2380,6 +2380,21 @@ module.exports = {
   'server.DAILY_CAPTURE_FAILED': 'Knowledge published, but daily collection failed.',
   'server.DAILY_SNAPSHOT_INVALID': 'File snapshot missing or invalid.',
   'server.DAILY_BRIEF_INVALID': 'Model brief failed validation.',
+  'server.DAILY_GROUP_INVALID':
+    'The brief group path is not a requirement directory. Refresh the file list.',
+  'daily.progress':
+    'Briefs: completed {completed} · failed {failed} · running {running} · pending {pending} · stale {stale}',
+  'daily.failureDetails': 'View brief failure details',
+  'daily.failureDetailsMissing':
+    'No detailed cause was recorded for this attempt. Retrying will retain tool validation or model execution diagnostics.',
+  'daily.error.ENOTDIR':
+    'A brief output path contains a regular file. Update the plugin and refresh the groups.',
+  'daily.error.KB_TOOL_FAILED':
+    'Brief tool validation failed. Review the failure details and retry.',
+  'daily.error.KB_MODEL_FAILED':
+    'The brief model execution failed. Review the failure details and retry.',
+  'daily.error.KB_RESULT_INCOMPLETE':
+    'The model did not submit a complete brief. The file list is preserved; retry when ready.',
   'server.DAILY_OUTPUT_CONFLICT':
     'Brief destination exists or was edited. Existing content was preserved.',
   'server.DAILY_INTERRUPTED': 'Brief interrupted; awaiting restart.',

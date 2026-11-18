@@ -89,6 +89,124 @@ it('groups all producers, deduplicates versions and reads current original files
   expect((await service.view('2026-11-18')).groups.flatMap((item) => item.files)).toHaveLength(1);
 });
 
+it('groups dated filenames as shared files and repairs recorded file-as-directory groups', async () => {
+  const files = ['author/2026-11-17-api-test.log', 'author/2026-11-17-excel-test.log'];
+  for (const path of files) {
+    await save(path, 'Confirmed test output');
+  }
+  // Reproduce rows written by the faulty grouping logic before this release.
+  for (const row of service.db.prepare('SELECT id,payload FROM daily_files').all()) {
+    const item = JSON.parse(row.payload);
+    item.group = item.path;
+    service.db
+      .prepare('UPDATE daily_files SET payload=? WHERE id=?')
+      .run(JSON.stringify(item), row.id);
+  }
+  const before = await previous();
+  expect(before.groups).toHaveLength(1);
+  expect(before.groups[0].group).toBe('');
+  now = new Date('2026-11-18T01:00:00Z');
+  await finish();
+  const group = (await previous()).groups[0];
+  expect(group.brief).toMatchObject({ status: 'completed', path: 'daily-reports/2026-11-17.md' });
+  expect(group.files.map((file) => file.path)).toEqual(files);
+  expect(generator).toHaveBeenCalledOnce();
+  expect(await readFile(join(workspace, 'docs', group.brief.path), 'utf8')).toContain('Summary');
+});
+
+it('counts all group statuses before paginating the daily report', async () => {
+  for (let index = 0; index < 12; index++) {
+    const group = 'author/2026-11-17-group-' + index;
+    await mkdir(join(workspace, 'docs', group));
+    await save(group + '/notes.md', 'Evidence');
+  }
+  const report = await previous();
+  report.groups.forEach((group, index) =>
+    service.saveBrief(group.id, {
+      digest: group.digest,
+      status: index < 10 ? 'failed' : 'completed',
+    }),
+  );
+  const routes = createDailyReportRoutes(registry, service);
+  const first = await routes[0].operation.execute({ day: '2026-11-17' }, { kind: 'user' });
+  expect(first.value.groups).toHaveLength(10);
+  expect(first.value.groups.every((group) => group.brief.status === 'failed')).toBe(true);
+  expect(first.value.briefCounts).toEqual({
+    completed: 2,
+    failed: 10,
+    running: 0,
+    pending: 0,
+    stale: 0,
+  });
+});
+
+it('retains tool failure diagnostics and clears the previous failure while retrying', async () => {
+  await save('session.md', 'Evidence');
+  generator.mockRejectedValueOnce(
+    Object.assign(new Error('KB_TOOL_FAILED'), {
+      code: 'KB_TOOL_FAILED',
+      details: {
+        cause: 'KB_EVIDENCE_NOT_FULLY_READ',
+        causeDetails: { unreadRequired: [{ id: 'one', offset: 0 }] },
+      },
+    }),
+  );
+  now = new Date('2026-11-18T01:00:00Z');
+  await finish();
+  const group = (await previous()).groups[0];
+  expect(group.brief).toMatchObject({
+    status: 'failed',
+    error: 'KB_TOOL_FAILED',
+    errorDetails: {
+      cause: 'KB_EVIDENCE_NOT_FULLY_READ',
+      unreadRequiredCount: 1,
+    },
+  });
+  await finish();
+  expect(generator).toHaveBeenCalledOnce();
+  let release;
+  generator.mockImplementationOnce(async (input) => {
+    await consume(input);
+    return new Promise((resolve) => {
+      release = resolve;
+    });
+  });
+  service.enqueue('2026-11-17', group.id);
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  expect((await previous()).groups[0].brief).toMatchObject({
+    status: 'running',
+    error: null,
+    errorDetails: null,
+  });
+  release('Recovered summary');
+  await service.execution;
+  expect((await previous()).groups[0].brief.status).toBe('completed');
+});
+
+it('recovers interrupted and older failed brief attempts once after restart', async () => {
+  await save('session.md', 'Evidence');
+  const group = (await previous()).groups[0];
+  service.saveBrief(group.id, { digest: group.digest, status: 'running', error: 'KB_TOOL_FAILED' });
+  await service.close();
+  service = new DailyReports({
+    registry,
+    directory: root,
+    configLoader: async () => config,
+    now: () => now,
+    generateBrief: generator,
+  });
+  expect((await previous()).groups[0].brief).toMatchObject({
+    status: 'stale',
+    error: 'DAILY_INTERRUPTED',
+  });
+  service.saveBrief(group.id, { digest: group.digest, status: 'failed', error: 'ENOTDIR' });
+  now = new Date('2026-11-18T01:00:00Z');
+  await finish();
+  await finish();
+  expect(generator).toHaveBeenCalledOnce();
+  expect((await previous()).groups[0].brief.status).toBe('completed');
+});
+
 it('waits for 08:00 in the configured zone and catches up once after restart', async () => {
   await save('session.md', 'frozen');
   now = new Date('2026-11-17T23:59:00Z');
@@ -274,6 +392,11 @@ it('handles DST calendar arithmetic and does not split multibyte evidence or omi
   expect(previousDay('2024-03-01')).toBe('2024-02-29');
   expect(() => previousDay('2026-02-30')).toThrow('DAILY_INPUT_INVALID');
   expect(requirementGroup('author/2026-11-17-change/nested/file.md')).toBe(
+    'author/2026-11-17-change',
+  );
+  expect(requirementGroup('author/2026-11-17-api-test.log')).toBe('');
+  expect(requirementGroup('2026-11-17-notes.md')).toBe('');
+  expect(requirementGroup('author\\2026-11-17-change\\2026-11-18-file.log')).toBe(
     'author/2026-11-17-change',
   );
   const body = '中文😀'.repeat(20000);

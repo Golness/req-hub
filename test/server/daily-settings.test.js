@@ -125,7 +125,10 @@ it('allows the user to save the opt-in and tools to preserve its existing value'
   expect(result.knowledgeV2.dailyImportConversations).toBe(true);
   expect(saveConfig).toHaveBeenCalledOnce();
 
-  loadConfig.mockResolvedValue({ knowledgeV2: { dailyImportConversations: true } });
+  loadConfig.mockResolvedValue({
+    docsDir: 'docs',
+    knowledgeV2: { dailyImportConversations: true },
+  });
   const operations = createOperations(routes);
   expect(
     await operations.execute(

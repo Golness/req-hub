@@ -7,6 +7,7 @@ const { Button } = require('./shared/Button.js');
 const { DatePicker } = require('./shared/DatePicker.js');
 const { ActionBar } = require('./shared/ActionBar.js');
 const { PagedList } = require('./shared/PagedList.js');
+const { Modal } = require('./shared/controls.js');
 const css = require('./DailyReportsPanel.module.css').default;
 const h = React.createElement;
 
@@ -18,6 +19,7 @@ function DailyReportsPanel({ onNavigate }) {
   const [busy, setBusy] = React.useState(false);
   const [revision, setRevision] = React.useState(0);
   const [retrying, setRetrying] = React.useState(false);
+  const [failure, setFailure] = React.useState(null);
   const requestOwner = React.useRef(null);
   const reportRef = React.useRef(null);
   reportRef.current = report;
@@ -165,6 +167,7 @@ function DailyReportsPanel({ onNavigate }) {
     ),
     h('p', { className: css.hint }, t('daily.schedule', { zone: report?.timeZone || '—' })),
     report?.enabled === false && h('p', { role: 'status' }, t('daily.disabled')),
+    report?.briefCounts && h('p', { role: 'status' }, t('daily.progress', report.briefCounts)),
     error && h('p', { role: 'alert' }, localizeMessage(error)),
     report?.scanErrors?.map(([id, code]) =>
       h('p', { key: id, role: 'alert' }, id, ' · ', localizeMessage(code)),
@@ -193,7 +196,20 @@ function DailyReportsPanel({ onNavigate }) {
               t('daily.count', { total: group.count, added: group.added, changed: group.changed }),
             ),
             h('p', { role: 'status' }, t(`daily.status.${group.brief?.status || 'pending'}`)),
-            group.brief?.error && h('p', { role: 'alert' }, localizeMessage(group.brief.error)),
+            group.brief?.error &&
+              group.brief.status !== 'running' &&
+              h('p', { role: 'alert' }, dailyError(group.brief.error)),
+            group.brief?.error &&
+              group.brief.status !== 'running' &&
+              h(
+                Button,
+                {
+                  size: 'sm',
+                  variant: 'ghost',
+                  onClick: () => setFailure(group.brief),
+                },
+                t('daily.failureDetails'),
+              ),
             group.brief?.reads?.some((file) => file.fileState === 'updated_since_collection') &&
               h('p', { className: css.hint }, t('daily.readUpdated')),
             group.brief?.reads?.some((file) =>
@@ -261,6 +277,30 @@ function DailyReportsPanel({ onNavigate }) {
           ),
         ),
       ),
+    h(
+      Modal,
+      { open: !!failure, title: t('daily.failureDetails'), onClose: () => setFailure(null) },
+      failure &&
+        h(
+          React.Fragment,
+          null,
+          h('p', null, dailyError(failure.error)),
+          !failure.errorDetails && h('p', null, t('daily.failureDetailsMissing')),
+          h(
+            'pre',
+            { className: css.diagnostic },
+            JSON.stringify({ code: failure.error, ...failure.errorDetails }, null, 2),
+          ),
+        ),
+    ),
   );
+}
+
+/** Render daily failures without referring users to the knowledge compiler task list. */
+function dailyError(code) {
+  if (['ENOTDIR', 'KB_TOOL_FAILED', 'KB_MODEL_FAILED', 'KB_RESULT_INCOMPLETE'].includes(code)) {
+    return t(`daily.error.${code}`);
+  }
+  return localizeMessage(code);
 }
 module.exports = { DailyReportsPanel };

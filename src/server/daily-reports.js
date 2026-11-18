@@ -15,6 +15,7 @@ const fail = (code, status = 400) => {
 };
 const payload = (row) => row && JSON.parse(row.payload);
 const textFile = /\.(md|markdown|txt|json|ya?ml|html?|csv|xml|log|[cm]?js|tsx?|css|sql)$/i;
+const BRIEF_VERSION = 2;
 
 /**
  * Return the previous calendar date without assuming a 24-hour zoned day.
@@ -40,7 +41,8 @@ export function previousDay(day) {
  * @returns Dated requirement path, or an empty shared-files group.
  */
 export function requirementGroup(path) {
-  const parts = path.replaceAll('\\', '/').split('/');
+  // The final component is always a file, even when its name starts with a date.
+  const parts = path.replaceAll('\\', '/').split('/').slice(0, -1);
   const index = parts.findIndex((part) => /^\d{4}-\d{2}-\d{2}[-_].+/.test(part));
   return index < 0 ? '' : parts.slice(0, index + 1).join('/');
 }
@@ -71,6 +73,12 @@ export class DailyReports {
       CREATE TABLE IF NOT EXISTS daily_seen(id TEXT PRIMARY KEY,payload TEXT);
       CREATE TABLE IF NOT EXISTS daily_errors(id TEXT PRIMARY KEY,scope TEXT,payload TEXT);
       CREATE TABLE IF NOT EXISTS daily_briefs(id TEXT PRIMARY KEY,payload TEXT);`);
+      for (const row of this.db.prepare('SELECT id,payload FROM daily_briefs').all()) {
+        const brief = payload(row);
+        if (brief.status === 'running') {
+          this.saveBrief(row.id, { ...brief, status: 'stale', error: 'DAILY_INTERRUPTED' });
+        }
+      }
       if (
         this.db
           .prepare('PRAGMA table_info(daily_files)')
@@ -338,6 +346,10 @@ export class DailyReports {
       if (!scopes.has(item.scope)) {
         continue;
       }
+      // Recompute file groups so previously misclassified dated filenames recover on read.
+      if (item.kind === 'file') {
+        item.group = requirementGroup(item.path);
+      }
       const id = hash(JSON.stringify([item.scope, day, item.group]));
       if (!groups.has(id)) {
         groups.set(id, {
@@ -471,12 +483,23 @@ export class DailyReports {
       }
       if (
         group.brief?.digest === group.digest &&
-        (group.brief.status === 'completed' || (group.brief.status === 'failed' && !retryId))
+        (group.brief.status === 'completed' ||
+          (group.brief.status === 'failed' &&
+            group.brief.generatorVersion === BRIEF_VERSION &&
+            !retryId))
       ) {
         continue;
       }
       const token = randomUUID();
-      const brief = { ...group.brief, digest: group.digest, status: 'running', token };
+      const brief = {
+        ...group.brief,
+        digest: group.digest,
+        status: 'running',
+        token,
+        generatorVersion: BRIEF_VERSION,
+        error: null,
+        errorDetails: null,
+      };
       this.saveBrief(group.id, brief);
       try {
         if (report.scanErrors.some(([id]) => !id || id === group.workspaceId)) {
@@ -484,6 +507,12 @@ export class DailyReports {
         }
         const config = await this.configLoader();
         const scope = await this.scope(group.workspaceId, config);
+        if (group.group) {
+          const directory = await safeDocumentPath(scope.root, group.group);
+          if (!(await stat(directory)).isDirectory()) {
+            fail('DAILY_GROUP_INVALID', 409);
+          }
+        }
         const evidence = group.files;
         const reads = new Map();
         const owner = this;
@@ -643,6 +672,7 @@ export class DailyReports {
           ...brief,
           status: 'failed',
           error: error.code || 'DAILY_GENERATION_FAILED',
+          errorDetails: briefErrorDetails(error),
         });
       }
     }
@@ -721,4 +751,30 @@ export class DailyReports {
     );
     return this.closing;
   }
+}
+
+/**
+ * Preserve bounded failure metadata without storing source bodies or model output.
+ * @param error - Model, tool or filesystem failure.
+ * @returns Diagnostic codes, validation reason and unread evidence count.
+ */
+function briefErrorDetails(error) {
+  const details = error.details || {};
+  const cause = details.causeDetails || details;
+  const result = {};
+  for (const key of ['cause', 'errorCode', 'stopReason']) {
+    if (typeof details[key] === 'string') {
+      result[key] = Array.from(details[key]).slice(0, 256).join('');
+    }
+  }
+  if (typeof cause.reason === 'string') {
+    result.reason = Array.from(cause.reason).slice(0, 500).join('');
+  }
+  if (Array.isArray(cause.unreadRequired)) {
+    result.unreadRequiredCount = cause.unreadRequired.length;
+  }
+  if (typeof cause.kind === 'string') {
+    result.kind = Array.from(cause.kind).slice(0, 64).join('');
+  }
+  return Object.keys(result).length ? result : null;
 }

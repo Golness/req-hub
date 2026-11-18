@@ -149,6 +149,36 @@ it('distinguishes disabled collection, empty dates and pending briefs from succe
   expect(container.textContent).not.toContain('简报已完成');
 });
 
+it('shows whole-day totals, daily-specific diagnostics and no stale failure during an active retry', async () => {
+  const value = report();
+  value.briefCounts = { completed: 2, failed: 23, running: 1, pending: 0, stale: 0 };
+  value.groups[0].brief = {
+    status: 'failed',
+    error: 'KB_TOOL_FAILED',
+    errorDetails: { cause: 'KB_EVIDENCE_NOT_FULLY_READ', unreadRequiredCount: 1 },
+  };
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => response(value)),
+  );
+  await act(async () => root.render(React.createElement(DailyReportsPanel)));
+  expect(container.textContent).toContain('成功 2 · 失败 23');
+  expect(container.textContent).toContain('简报工具校验失败');
+  expect(container.textContent).not.toContain('知识编译');
+  await click(button('查看简报失败详情'));
+  expect(document.querySelector('[role="dialog"]').textContent).toContain(
+    'KB_EVIDENCE_NOT_FULLY_READ',
+  );
+  await act(async () =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+  );
+  value.groups[0].brief.status = 'running';
+  await click(button('刷新'));
+  expect(container.textContent).toContain('正在生成简报');
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(button('查看简报失败详情')).toBeUndefined();
+});
+
 it('renders model HTML as inert text and does not silently combine changed file pages', async () => {
   const value = report();
   value.groups[0].brief.summary = '<img src=x onerror="alert(1)"><script>alert(1)</script>';

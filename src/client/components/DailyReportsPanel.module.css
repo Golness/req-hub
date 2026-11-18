@@ -31,6 +31,11 @@
   font-size: 12px;
   line-height: 18px;
 }
+.diagnostic {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--rh-font-code);
+}
 .summary {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

@@ -2139,6 +2139,16 @@ module.exports = {
   'server.DAILY_CAPTURE_FAILED': '知识库发布成功，但日报收集失败。',
   'server.DAILY_SNAPSHOT_INVALID': '文件版本快照缺失或损坏，无法生成完整简报。',
   'server.DAILY_BRIEF_INVALID': '模型简报未通过校验。',
+  'server.DAILY_GROUP_INVALID': '简报分组对应的路径不是需求目录，请刷新文件清单。',
+  'daily.progress':
+    '简报汇总：成功 {completed} · 失败 {failed} · 生成中 {running} · 待生成 {pending} · 待更新 {stale}',
+  'daily.failureDetails': '查看简报失败详情',
+  'daily.failureDetailsMissing':
+    '这次失败未记录详细原因；重试后会保留工具校验或模型执行的诊断信息。',
+  'daily.error.ENOTDIR': '简报输出路径包含普通文件，无法创建目录。请更新插件后刷新分组。',
+  'daily.error.KB_TOOL_FAILED': '简报工具校验失败，请查看失败详情后重试。',
+  'daily.error.KB_MODEL_FAILED': '简报模型执行失败，请查看失败详情后重试。',
+  'daily.error.KB_RESULT_INCOMPLETE': '模型未提交完整简报，文件清单已保留，可重试。',
   'server.DAILY_OUTPUT_CONFLICT': '简报目标已有其他内容或被用户修改，未覆盖原文件。',
   'server.DAILY_INTERRUPTED': '简报执行被中断，等待重新运行。',
   'server.DAILY_GENERATION_FAILED': '简报生成失败，可重试。',
