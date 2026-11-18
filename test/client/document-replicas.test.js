@@ -70,6 +70,7 @@ it('retries only the failed target and never calls generation or conversation re
     });
   });
   await render(fetcher);
+  await act(async () => button('查看分发记录').click());
   expect(document.body.textContent).toContain('待核实');
   expect(
     [...document.querySelectorAll('button')].filter((item) => item.textContent === '重试飞书同步'),

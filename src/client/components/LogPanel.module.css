@@ -30,9 +30,11 @@
   color: var(--dsw-alias-label-primary);
 }
 .body {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 .row {
   display: flex;
@@ -105,15 +107,8 @@
   color: var(--dsw-alias-label-secondary);
   white-space: pre-wrap;
   word-break: break-all;
-  max-height: 200px;
-  overflow-y: auto;
 }
 
-.body {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
 .body > :global(.rh-op-panel) {
   display: flex;
   flex: 1;

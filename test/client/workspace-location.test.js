@@ -96,6 +96,14 @@ const locate = () =>
   act(async () => container.querySelector('[aria-label="定位到当前会话需求"]').click());
 const topbar = () => container.querySelector('.rh-topbar');
 
+it('keeps the home empty state free of a document header', async () => {
+  setup({ requirements: [] });
+  await mount();
+  expect(container.textContent).toContain('请选择需求目录');
+  expect(container.querySelector('.rh-right-header')).toBeNull();
+  expect(topbar()).not.toBeNull();
+});
+
 it('finishes a delayed location before switching keyed workspaces and selects the matching directory on one click', async () => {
   const { fetch, resolveBranch } = setup();
   await mount();
@@ -225,6 +233,7 @@ it('transfers report artifact navigation across the keyed workspace remount', as
   ).toHaveLength(1);
   await act(async () => button('报告详情').click());
   await act(async () => button('产物').click());
+  expect(container.querySelector('.rh-right-header').textContent).toContain('design.md');
   expect(topbar().textContent).toContain('Second workspace');
   expect(topbar().querySelector(`[aria-label="需求目录: ${requirement.path}"]`)).not.toBeNull();
   expect(

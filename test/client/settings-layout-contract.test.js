@@ -52,3 +52,14 @@ it('keeps every settings stylesheet on the shared content boundary', () => {
     'Follow docs/ui-guidelines.md; extend the shared layout instead of overriding it.',
   ).toEqual([]);
 });
+
+it('keeps the application log main list free of a fixed height cap', () => {
+  const source = readFileSync(resolve(components, '../styles/components.css'), 'utf8');
+  const blocks = [...source.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(
+    ([, selector]) => selector.trim() === '.rh-log-list',
+  );
+  expect(blocks.length).toBeGreaterThan(0);
+  for (const [, , body] of blocks) {
+    expect(body).not.toMatch(/(?:^|;)\s*(?:height|max-height)\s*:\s*\d+(?:px|rem|em)\b/);
+  }
+});

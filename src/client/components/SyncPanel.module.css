@@ -69,11 +69,6 @@
   align-items: center;
   gap: 8px;
 }
-.spacing {
-  color: var(--dsw-alias-state-warn-primary);
-  font-size: var(--rh-font-size);
-  margin-bottom: 12px;
-}
 .spacing2 {
   margin-bottom: 12px;
 }

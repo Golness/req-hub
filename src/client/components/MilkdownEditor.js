@@ -40,6 +40,8 @@ function MilkdownEditor({
   useEffect(() => {
     let cancelled = false;
     let editor = null;
+    // Async plugins must keep their owner's root after React clears the ref during unmount.
+    const rootElement = editorRef.current;
 
     // Bundle official packages locally; no runtime CDN dependencies.
     const loadMilkdown = async () => {
@@ -68,7 +70,7 @@ function MilkdownEditor({
         markdownRef.current = propsRef.current.content || '';
         editor = Editor.make()
           .config((ctx) => {
-            ctx.set(rootCtx, editorRef.current);
+            ctx.set(rootCtx, rootElement);
             ctx.set(defaultValueCtx, markdownRef.current);
             ctx.update(editorViewOptionsCtx, (options) => ({
               ...options,

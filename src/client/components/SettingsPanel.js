@@ -669,7 +669,7 @@ function SettingsPanel({ workspaceId, onClose, initialTab = 'general', onKnowled
               role: 'tabpanel',
               'aria-labelledby': `settings-tab-${id}`,
               hidden: tab !== id,
-              className: css.content,
+              className: `${css.content} ${['dependencies', 'knowledge'].includes(id) ? css.nested : ''}`,
               tabIndex: 0,
             },
             visited.includes(id) &&
@@ -683,7 +683,7 @@ function SettingsPanel({ workspaceId, onClose, initialTab = 'general', onKnowled
       ),
       h(
         'div',
-        { ref: setActionTarget, className: css.actionDock },
+        { ref: setActionTarget, className: css.actionDock, 'data-settings-dock': '' },
         (tab === 'general' || tab === 'prompts') &&
           h(
             SettingsActionBar,

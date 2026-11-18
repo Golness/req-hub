@@ -10,7 +10,7 @@ const SettingsActionScope = React.createContext({ active: true, target: null });
  * @param props - Actions, optional status and page placement; inactive tabs contribute nothing.
  * @returns A shared action bar, inline outside a settings panel and portalled inside one.
  */
-function SettingsActionBar({ children, status, placement = 'section', className = '' }) {
+function SettingsActionBar({ children, leading, status, placement = 'section', className = '' }) {
   const scope = React.useContext(SettingsActionScope);
   if (!scope.active) {
     return null;
@@ -21,6 +21,7 @@ function SettingsActionBar({ children, status, placement = 'section', className 
       className,
       placement,
       status,
+      leading,
       'data-settings-actions': placement,
     },
     children,

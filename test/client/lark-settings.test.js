@@ -86,22 +86,23 @@ it('shows connection network failures with safe details and leaves save disabled
   expect(button('保存连接').disabled).toBe(true);
 });
 
-it('separates connection and target controls and keeps credentials under the connection section', async () => {
+it('separates connection, publication targets and replicas without stacking page actions', async () => {
   await render(vi.fn(async () => response({})));
-  const headings = [...document.querySelectorAll('h3')];
-  const connection = headings.find((node) => node.textContent === '飞书连接').closest('section');
-  const targets = headings.find((node) => node.textContent === '发布到飞书').closest('section');
-  expect(connection).not.toBe(targets);
-  expect(connection.contains(button('检查连接'))).toBe(true);
-  expect(targets.contains(button('检查连接'))).toBe(false);
-  const setup = [...document.querySelectorAll('[data-rh-disclosure-trigger]')].find(
-    (node) => node.textContent === '设置飞书连接',
+  const tabs = [...document.querySelectorAll('[role="tab"]')];
+  expect(tabs.map((node) => node.textContent)).toEqual([
+    '飞书连接',
+    '发布到飞书',
+    '工作区资料副本',
+  ]);
+  expect(document.querySelector('input[type="password"]')).toBeNull();
+  expect(button('检查连接').closest('[data-settings-actions="page"]')).not.toBeNull();
+  await click(tabs[1]);
+  expect(document.querySelector('[role="tabpanel"]:not([hidden])').textContent).toContain(
+    '发布到飞书',
   );
-  expect(connection.contains(setup)).toBe(true);
-  expect(setup.getAttribute('aria-expanded')).toBe('false');
-  const help = document.querySelector('button[aria-label="连接检测说明"]');
-  await act(async () => help.focus());
-  expect(document.querySelector('[role="tooltip"]').textContent).toContain('在线凭据');
+  expect(button('检查连接')).toBeUndefined();
+  await click(tabs[0]);
+  expect(button('检查连接')).toBeDefined();
 });
 
 it('checks unsaved settings before saving and invalidates verification on edit', async () => {
@@ -204,15 +205,12 @@ it('keeps application secrets out of plugin settings and clears the input after 
     return response({});
   });
   await render(fetcher);
-  const setup = [...document.querySelectorAll('[data-rh-disclosure-trigger]')].find(
-    (node) => node.textContent === '设置飞书连接',
-  );
-  expect(setup.getAttribute('aria-expanded')).toBe('false');
-  expect(document.body.textContent).toContain('可选：配置飞书发布到知识库。');
-  expect(
-    button('检查连接').compareDocumentPosition(setup) & Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
+  const setup = button('设置飞书连接');
+  expect(document.querySelector('input[type="password"]')).toBeNull();
   await click(setup);
+  expect(document.querySelector('[role="dialog"]').textContent).toContain(
+    '可选：配置飞书发布到知识库。',
+  );
   const help = document.querySelector('button[aria-label="应用 App ID说明"]');
   await act(async () => help.focus());
   expect(document.querySelector('[role="tooltip"]').textContent).toContain('应用 App ID');

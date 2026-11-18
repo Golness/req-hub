@@ -16,9 +16,21 @@ const {
 } = require('../../src/client/components/WritingPanel.js');
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let root, container, fetchMock, requests, job;
+let pendingTimeouts, editorFactory;
+const nativeSetTimeout = globalThis.setTimeout;
 const before = '# 订单\n\n原始规则\n\n## 验收\n\n原始验收\n';
 const after = '# 订单\n\n知识库规则\n\n## 验收\n\n可验证验收\n';
 beforeEach(() => {
+  pendingTimeouts = new Set();
+  vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, delay, ...args) => {
+    const timer = nativeSetTimeout(() => {
+      pendingTimeouts.delete(timer);
+      callback(...args);
+    }, delay);
+    pendingTimeouts.add(timer);
+    return timer;
+  });
+  editorFactory = vi.spyOn(Editor, 'make');
   localStorage.clear();
   requests = [];
   job = 0;
@@ -67,6 +79,16 @@ beforeEach(() => {
 });
 afterEach(async () => {
   await act(async () => root.unmount());
+  await vi.waitFor(() => {
+    for (const { value: editor } of editorFactory.mock.results) {
+      expect(editor.status).toBe('Destroyed');
+    }
+  });
+  // Milkdown 7.5 leaves resolved timer callbacks scheduled after editor destruction.
+  // Clear this test's remaining callbacks before jsdom removes its event APIs.
+  for (const timer of pendingTimeouts) {
+    clearTimeout(timer);
+  }
   document.body.innerHTML = '';
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -75,7 +97,14 @@ const button = (text) =>
   [...container.querySelectorAll('button')].find((b) => b.textContent === text);
 const click = async (node) => act(async () => node.click());
 async function renderScopes(props = {}) {
-  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({ width: 1000, height: 600, top: 0, left: 0, right: 1000, bottom: 600 }));
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({
+    width: 1000,
+    height: 600,
+    top: 0,
+    left: 0,
+    right: 1000,
+    bottom: 600,
+  }));
   await render(props);
   await click(button('调整范围'));
 }
@@ -169,18 +198,24 @@ it('supplies the selected parent session when saving the requirement draft', asy
   const original = fetchMock.getMockImplementation();
   fetchMock.mockImplementation(async (url, options) => {
     if (url.endsWith('/save')) {
-      return { ok: true, json: async () => ({
-        path: 'alice/2026-10-23-orders/requirement.md',
-      }) };
+      return {
+        ok: true,
+        json: async () => ({
+          path: 'alice/2026-10-23-orders/requirement.md',
+        }),
+      };
     }
     return original(url, options);
   });
-  localStorage.setItem(writingDraftKey('ws', 'alice/2026-10-23-orders'),
-    JSON.stringify({ requirement: before }));
+  localStorage.setItem(
+    writingDraftKey('ws', 'alice/2026-10-23-orders'),
+    JSON.stringify({ requirement: before }),
+  );
   await render({ requirement: { id: '2026-10-23-orders', path: 'alice/2026-10-23-orders' } });
   await click(button('保存'));
-  expect(fetchMock.mock.calls.find(([url]) => url.endsWith('/save'))[1].headers['x-session-id'])
-    .toBe('parent');
+  expect(
+    fetchMock.mock.calls.find(([url]) => url.endsWith('/save'))[1].headers['x-session-id'],
+  ).toBe('parent');
   expect(container.querySelector('.ProseMirror').textContent).toContain('原始规则');
 });
 it('keeps the draft editable with visible status while cancellation waits for the child', async () => {

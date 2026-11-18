@@ -28,9 +28,11 @@
   overflow-x: auto;
 }
 .body {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   scrollbar-gutter: stable;
 }
 .actionDock {
@@ -40,8 +42,20 @@
   scrollbar-gutter: stable;
 }
 .content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   padding: var(--rh-panel-padding);
   min-width: 0;
+}
+.content[hidden] {
+  display: none;
+}
+.nested {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
 }
 .actions:global(.rh-settings-actions) {
   position: static;

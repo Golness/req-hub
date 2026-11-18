@@ -1,10 +1,11 @@
 'use strict';
+const { ActionBar } = require('./shared/ActionBar.js');
 const React = require('react');
 const clientApi = require('../api/index.js');
 const { t, hasLocaleKey } = require('../locale.js');
 const { Button } = require('./shared/Button.js');
 const { SettingsActionBar } = require('./shared/SettingsActionBar.js');
-const { Checkbox } = require('./shared/controls.js');
+const { Checkbox, Modal } = require('./shared/controls.js');
 const css = require('./shared/SettingsForm.module.css').default;
 const h = React.createElement;
 
@@ -14,6 +15,7 @@ const h = React.createElement;
  * @returns A section with preserved drafts, paged records and failed-target retries.
  */
 function DocumentReplicaSettings({ workspaceId, disabled = false }) {
+  const [recordsOpen, setRecordsOpen] = React.useState(false);
   const [config, setConfig] = React.useState(null);
   const [enabled, setEnabled] = React.useState(false);
   const [data, setData] = React.useState(null);
@@ -155,7 +157,15 @@ function DocumentReplicaSettings({ workspaceId, disabled = false }) {
     h('p', { className: css.muted }, text('versions')),
     h(
       SettingsActionBar,
-      { status: notice ? text(notice) : '' },
+      {
+        placement: 'page',
+        leading: h(
+          Button,
+          { variant: 'ghost', disabled: !data, onClick: () => setRecordsOpen(true) },
+          text('records'),
+        ),
+        status: notice ? text(notice) : '',
+      },
       h(
         Button,
         {
@@ -192,48 +202,18 @@ function DocumentReplicaSettings({ workspaceId, disabled = false }) {
         h('code', null, data.scanError),
       ),
     !config && !error && h('p', { role: 'status' }, text('loading')),
-    data &&
-      h(
-        'div',
-        null,
-        !data.items.length && h('p', { role: 'status', className: css.muted }, text('empty')),
-        ...data.items.map((item) =>
+    h(
+      Modal,
+      {
+        open: recordsOpen,
+        title: text('records'),
+        onClose: () => setRecordsOpen(false),
+        footer:
+          data &&
+          (offset > 0 || data.nextOffset !== null) &&
           h(
-            'div',
-            { key: item.path, className: css.section },
-            h('p', { className: css.path }, item.path),
-            h('p', null, text(`state.${item.status}`)),
-            item.error &&
-              h(
-                'p',
-                { className: css.error },
-                errorText(item.error),
-                ' ',
-                h('code', null, item.error),
-              ),
-            item.result?.url &&
-              h(
-                'a',
-                { href: item.result.url, target: '_blank', rel: 'noopener noreferrer' },
-                text('open'),
-              ),
-            item.status === 'failed' &&
-              h(
-                Button,
-                {
-                  size: 'sm',
-                  tone: 'business',
-                  disabled: busy || disabled,
-                  onClick: () => perform('retry', item.path),
-                },
-                text('retry'),
-              ),
-          ),
-        ),
-        (offset > 0 || data.nextOffset !== null) &&
-          h(
-            SettingsActionBar,
-            null,
+            ActionBar,
+            { placement: 'page' },
             h(
               Button,
               {
@@ -253,7 +233,55 @@ function DocumentReplicaSettings({ workspaceId, disabled = false }) {
               text('next'),
             ),
           ),
-      ),
+      },
+      error &&
+        h(
+          'p',
+          { role: 'alert', className: css.error },
+          errorText(error),
+          ' ',
+          h('code', null, error),
+        ),
+      data &&
+        h(
+          'div',
+          null,
+          !data.items.length && h('p', { role: 'status', className: css.muted }, text('empty')),
+          ...data.items.map((item) =>
+            h(
+              'div',
+              { key: item.path, className: css.section },
+              h('p', { className: css.path }, item.path),
+              h('p', null, text(`state.${item.status}`)),
+              item.error &&
+                h(
+                  'p',
+                  { className: css.error },
+                  errorText(item.error),
+                  ' ',
+                  h('code', null, item.error),
+                ),
+              item.result?.url &&
+                h(
+                  'a',
+                  { href: item.result.url, target: '_blank', rel: 'noopener noreferrer' },
+                  text('open'),
+                ),
+              item.status === 'failed' &&
+                h(
+                  Button,
+                  {
+                    size: 'sm',
+                    tone: 'business',
+                    disabled: busy || disabled,
+                    onClick: () => perform('retry', item.path),
+                  },
+                  text('retry'),
+                ),
+            ),
+          ),
+        ),
+    ),
   );
 }
 

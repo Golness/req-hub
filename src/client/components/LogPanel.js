@@ -2,7 +2,7 @@
 const clientApi = require('../api/index.js');
 const { formatTime, useTimeZone } = require('../time.js');
 const { PagedList } = require('./shared/PagedList.js');
-const { Checkbox } = require('./shared/controls.js');
+const { Checkbox, Modal } = require('./shared/controls.js');
 const { t } = require('../locale.js');
 const css = require('./LogPanel.module.css').default;
 const { cssValue } = require('./shared/presentation.js');
@@ -24,6 +24,7 @@ const { localizeMessage } = require('../utils/serverMessage.js');
  * @returns {JSX.Element} A log viewer panel with level/tag filters and a scrollable log list
  */
 function ApplicationLogs({ onClose }) {
+  const [selectedLog, setSelectedLog] = useState(null);
   useTimeZone();
   const [logs, setLogs] = useState([]);
   const [logMeta, setLogMeta] = useState({ levels: {}, tags: {} });
@@ -337,7 +338,11 @@ function ApplicationLogs({ onClose }) {
         ? h('div', { className: 'rh-empty' }, emptyMessage)
         : h(
             PagedList,
-            { resetKey: selectedLevels.join(',') + selectedTags.join(',') },
+            {
+              resetKey: selectedLevels.join(',') + selectedTags.join(','),
+              inspect: false,
+              plainRows: true,
+            },
             filteredLogs.map((log, idx) =>
               h(
                 'div',
@@ -372,17 +377,37 @@ function ApplicationLogs({ onClose }) {
 
                 log.data &&
                   h(
-                    'div',
-                    {
-                      className: css.mutedText3,
-                    },
-                    typeof log.data === 'object'
-                      ? JSON.stringify(log.data, null, 2)
-                      : String(log.data),
+                    Button,
+                    { size: 'sm', variant: 'ghost', onClick: () => setSelectedLog(log) },
+                    t('pagination.details'),
                   ),
               ),
             ),
           ),
+    ),
+    h(
+      Modal,
+      { open: !!selectedLog, title: t('pagination.details'), onClose: () => setSelectedLog(null) },
+      selectedLog &&
+        h(
+          React.Fragment,
+          null,
+          h(
+            'p',
+            null,
+            formatTime(selectedLog.timestamp),
+            ' · ',
+            localizeMessage(logMeta.tags[selectedLog.tag] || selectedLog.tag),
+          ),
+          h('p', null, localizeMessage(selectedLog.message)),
+          h(
+            'pre',
+            { className: css.mutedText3 },
+            typeof selectedLog.data === 'object'
+              ? JSON.stringify(selectedLog.data, null, 2)
+              : String(selectedLog.data || ''),
+          ),
+        ),
     ),
   );
 }

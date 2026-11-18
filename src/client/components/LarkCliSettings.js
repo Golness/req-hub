@@ -1,4 +1,7 @@
 'use strict';
+const { SettingsTabs } = require('./shared/SettingsTabs.js');
+const { ActionBar } = require('./shared/ActionBar.js');
+const { Modal } = require('./shared/controls.js');
 const clientApi = require('../api/index.js');
 const { clientError } = require('../utils/serverMessage.js');
 const React = require('react');
@@ -23,6 +26,7 @@ const { IconInfo } = require('../icons.js').createIconComponents(h);
  * @returns A form that preserves drafts and verifies drafts before saving configuration.
  */
 function LarkCliSettings({ workspaceId } = {}) {
+  const [applicationOpen, setApplicationOpen] = React.useState(false);
   const [values, setValues] = React.useState(null);
   const [saved, setSaved] = React.useState(null);
   const [busy, setBusy] = React.useState(null);
@@ -293,181 +297,224 @@ function LarkCliSettings({ workspaceId } = {}) {
           }),
         ),
     );
-  return h(
-    'section',
-    { className: `${css.panel} ${layout.page}`, 'aria-label': t('settings.tab.lark') },
-    h(
-      'section',
-      { className: `${layout.group} ${layout.connection}`, 'aria-labelledby': `${id}-connection` },
-      h(
-        'div',
-        { className: layout.header },
-        h('h3', { id: `${id}-connection` }, text('connectionTitle')),
-        h(HoverCard, {
-          surfaceClassName: css.helpBubble,
-          anchor: h(
-            Button,
-            {
-              variant: 'ghost',
-              size: 'sm',
-              className: css.helpButton,
-              'aria-label': text('connectionHelp'),
-            },
-            h(IconInfo, { size: 14 }),
-          ),
-          content: text('checkScope'),
-        }),
-      ),
-      field('executable', input('executable', { maxLength: 1024 })),
-      field(
-        'identity',
-        h(Select, {
-          id: `${id}-identity`,
-          'aria-label': text('identity'),
-          className: css.zoneSelect,
-          value: values.identity,
-          disabled: !!busy,
-          searchable: false,
-          options: ['user', 'bot'].map((key) => ({ id: key, label: text(key) })),
-          onChange: (event) => update('identity', event.target.value),
-        }),
-      ),
-      h(
-        Disclosure,
-        { title: text('advanced'), compact: true },
-        h(
-          'div',
-          { className: css.section },
-          field('profile', input('profile', { maxLength: 64 })),
-          field(
-            'timeout',
-            h(Input, {
-              id: `${id}-timeout`,
-              className: css.numberInput,
-              type: 'number',
-              min: 1,
-              max: 120,
-              step: 1,
-              disabled: !!busy,
-              value: values.timeoutMs === '' ? '' : values.timeoutMs / 1000,
-              onChange: (event) =>
-                update(
-                  'timeoutMs',
-                  event.target.value === '' ? '' : Number(event.target.value) * 1000,
-                ),
-            }),
-          ),
-        ),
-      ),
-      !valid && h('p', { className: css.error, role: 'alert' }, errorText('LARK_CONFIG_INVALID')),
-      error &&
-        !isApplicationResult &&
-        h('p', { className: css.error, role: 'alert' }, errorText(error)),
-      h(
-        SettingsActionBar,
-        null,
-        h(
-          Button,
-          { disabled: !!busy || !valid, onClick: () => perform('check') },
-          text(busy === 'check' ? 'checking' : 'check'),
-        ),
-        h(
-          Button,
-          {
-            variant: 'primary',
-            disabled: !!busy || !valid || !dirty || !settingsChecked,
-            onClick: () => perform('save'),
-          },
-          text('saveConnection'),
-        ),
-        h('span', { className: css.saveNotice, role: 'status' }, notice ? text('saved') : ''),
-      ),
-      dirty && !settingsChecked && h('p', { className: css.muted }, text('checkFirst')),
-      !isApplicationResult && feedback,
-      h(
-        Disclosure,
-        { title: text('setup'), compact: true },
-        h(
-          'div',
-          { className: css.section },
-          h('p', { className: css.muted }, text('setupOptional')),
-          h('p', { className: css.muted }, text('credentials')),
-          field(
-            'appId',
-            h(Input, {
-              id: `${id}-appId`,
-              className: css.usernameInput,
-              autoComplete: 'off',
-              maxLength: 132,
-              value: application.appId,
-              disabled: !!busy,
-              onChange: (event) => updateApplication('appId', event.target.value),
-            }),
-          ),
-          field(
-            'appSecret',
-            h(Input, {
-              id: `${id}-appSecret`,
-              className: css.usernameInput,
-              type: 'password',
-              autoComplete: 'new-password',
-              maxLength: 512,
-              value: application.appSecret,
-              disabled: !!busy,
-              onChange: (event) => updateApplication('appSecret', event.target.value),
-            }),
-          ),
-          field(
-            'brand',
-            h(Select, {
-              id: `${id}-brand`,
-              'aria-label': text('brand'),
-              className: css.zoneSelect,
-              value: application.brand,
-              searchable: false,
-              disabled: !!busy,
-              options: ['feishu', 'lark'].map((key) => ({ id: key, label: text(key) })),
-              onChange: (event) => updateApplication('brand', event.target.value),
-            }),
-          ),
+  return h(SettingsTabs, {
+    label: t('dependencies.lark'),
+    tabs: [
+      {
+        id: 'connection',
+        label: text('connectionTitle'),
+        render: () =>
           h(
-            SettingsActionBar,
-            null,
+            'section',
+            { className: css.panel },
             h(
-              Button,
-              { disabled: !!busy || !valid || !appValid, onClick: () => perform('app-check') },
-              text(busy === 'app-check' ? 'appChecking' : 'appCheck'),
-            ),
-            h(
-              Button,
+              'section',
               {
-                variant: 'primary',
-                disabled: !!busy || !valid || !appValid || !appChecked,
-                onClick: () => perform('configure'),
+                className: `${layout.group} ${layout.connection}`,
+                'aria-labelledby': `${id}-connection`,
               },
-              text(busy === 'configure' ? 'configuring' : 'configure'),
+              h(
+                'div',
+                { className: layout.header },
+                h('h3', { id: `${id}-connection` }, text('connectionTitle')),
+                h(HoverCard, {
+                  surfaceClassName: css.helpBubble,
+                  anchor: h(
+                    Button,
+                    {
+                      variant: 'ghost',
+                      size: 'sm',
+                      className: css.helpButton,
+                      'aria-label': text('connectionHelp'),
+                    },
+                    h(IconInfo, { size: 14 }),
+                  ),
+                  content: text('checkScope'),
+                }),
+              ),
+              field('executable', input('executable', { maxLength: 1024 })),
+              field(
+                'identity',
+                h(Select, {
+                  id: `${id}-identity`,
+                  'aria-label': text('identity'),
+                  className: css.zoneSelect,
+                  value: values.identity,
+                  disabled: !!busy,
+                  searchable: false,
+                  options: ['user', 'bot'].map((key) => ({ id: key, label: text(key) })),
+                  onChange: (event) => update('identity', event.target.value),
+                }),
+              ),
+              h(
+                Disclosure,
+                { title: text('advanced'), compact: true },
+                h(
+                  'div',
+                  { className: css.section },
+                  field('profile', input('profile', { maxLength: 64 })),
+                  field(
+                    'timeout',
+                    h(Input, {
+                      id: `${id}-timeout`,
+                      className: css.numberInput,
+                      type: 'number',
+                      min: 1,
+                      max: 120,
+                      step: 1,
+                      disabled: !!busy,
+                      value: values.timeoutMs === '' ? '' : values.timeoutMs / 1000,
+                      onChange: (event) =>
+                        update(
+                          'timeoutMs',
+                          event.target.value === '' ? '' : Number(event.target.value) * 1000,
+                        ),
+                    }),
+                  ),
+                ),
+              ),
+              !valid &&
+                h('p', { className: css.error, role: 'alert' }, errorText('LARK_CONFIG_INVALID')),
+              error &&
+                !isApplicationResult &&
+                h('p', { className: css.error, role: 'alert' }, errorText(error)),
+              h(
+                SettingsActionBar,
+                {
+                  placement: 'page',
+                  leading: h(
+                    Button,
+                    { variant: 'outline', onClick: () => setApplicationOpen(true) },
+                    text('setup'),
+                  ),
+                  status: notice ? text('saved') : '',
+                },
+                h(
+                  Button,
+                  { disabled: !!busy || !valid, onClick: () => perform('check') },
+                  text(busy === 'check' ? 'checking' : 'check'),
+                ),
+                h(
+                  Button,
+                  {
+                    variant: 'primary',
+                    disabled: !!busy || !valid || !dirty || !settingsChecked,
+                    onClick: () => perform('save'),
+                  },
+                  text('saveConnection'),
+                ),
+              ),
+              dirty && !settingsChecked && h('p', { className: css.muted }, text('checkFirst')),
+              !isApplicationResult && feedback,
+              h(
+                Modal,
+                {
+                  open: applicationOpen,
+                  title: text('setup'),
+                  onClose: () => setApplicationOpen(false),
+                  className: layout.applicationDialog,
+                  footer: h(
+                    ActionBar,
+                    { placement: 'page' },
+                    h(
+                      Button,
+                      {
+                        disabled: !!busy || !valid || !appValid,
+                        onClick: () => perform('app-check'),
+                      },
+                      text(busy === 'app-check' ? 'appChecking' : 'appCheck'),
+                    ),
+                    h(
+                      Button,
+                      {
+                        variant: 'primary',
+                        disabled: !!busy || !valid || !appValid || !appChecked,
+                        onClick: () => perform('configure'),
+                      },
+                      text(busy === 'configure' ? 'configuring' : 'configure'),
+                    ),
+                  ),
+                },
+                h(
+                  'div',
+                  { className: css.section },
+                  h('p', { className: css.muted }, text('setupOptional')),
+                  h('p', { className: css.muted }, text('credentials')),
+                  field(
+                    'appId',
+                    h(Input, {
+                      id: `${id}-appId`,
+                      className: css.usernameInput,
+                      autoComplete: 'off',
+                      maxLength: 132,
+                      value: application.appId,
+                      disabled: !!busy,
+                      onChange: (event) => updateApplication('appId', event.target.value),
+                    }),
+                  ),
+                  field(
+                    'appSecret',
+                    h(Input, {
+                      id: `${id}-appSecret`,
+                      className: css.usernameInput,
+                      type: 'password',
+                      autoComplete: 'new-password',
+                      maxLength: 512,
+                      value: application.appSecret,
+                      disabled: !!busy,
+                      onChange: (event) => updateApplication('appSecret', event.target.value),
+                    }),
+                  ),
+                  field(
+                    'brand',
+                    h(Select, {
+                      id: `${id}-brand`,
+                      'aria-label': text('brand'),
+                      className: css.zoneSelect,
+                      value: application.brand,
+                      searchable: false,
+                      disabled: !!busy,
+                      options: ['feishu', 'lark'].map((key) => ({ id: key, label: text(key) })),
+                      onChange: (event) => updateApplication('brand', event.target.value),
+                    }),
+                  ),
+
+                  isApplicationResult && feedback,
+                  isApplicationResult &&
+                    error &&
+                    h('p', { className: css.error, role: 'alert' }, errorText(error)),
+                  h(
+                    'div',
+                    { className: css.helpContent },
+                    values.identity === 'user' &&
+                      h(
+                        'code',
+                        null,
+                        `lark-cli${profileArg} auth login --domain docs --domain drive`,
+                      ),
+                  ),
+                ),
+              ),
             ),
           ),
-          isApplicationResult && feedback,
-          isApplicationResult &&
-            error &&
-            h('p', { className: css.error, role: 'alert' }, errorText(error)),
-          h(
-            'div',
-            { className: css.helpContent },
-            values.identity === 'user' &&
-              h('code', null, `lark-cli${profileArg} auth login --domain docs --domain drive`),
-          ),
-        ),
-      ),
-    ),
-    h(LarkTargetSettings, {
-      workspaceId,
-      connectionKey: saved + ':' + connectionEpoch,
-      disabled: !!busy || dirty,
-      connectionBusy: !!busy,
-    }),
-    h(DocumentReplicaSettings, { workspaceId, disabled: !!busy || dirty }),
-  );
+      },
+      {
+        id: 'targets',
+        label: text('publishTitle'),
+        render: () =>
+          h(LarkTargetSettings, {
+            workspaceId,
+            connectionKey: saved + ':' + connectionEpoch,
+            disabled: !!busy || dirty,
+            connectionBusy: !!busy,
+          }),
+      },
+      {
+        id: 'replicas',
+        label: t('documents.title'),
+        render: () => h(DocumentReplicaSettings, { workspaceId, disabled: !!busy || dirty }),
+      },
+    ],
+  });
 }
 module.exports = { LarkCliSettings };

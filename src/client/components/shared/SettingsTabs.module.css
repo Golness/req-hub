@@ -1,0 +1,36 @@
+.panel,
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.tabs {
+  flex-shrink: 0;
+  padding-inline: var(--rh-panel-padding, 16px);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+}
+.content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--rh-panel-padding, 16px);
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+.nested {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.content[hidden] {
+  display: none;
+}
+.dock {
+  flex-shrink: 0;
+  min-width: 0;
+}

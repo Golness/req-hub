@@ -89,10 +89,19 @@ const focusables = (node) =>
   );
 /**
  * Own modal chrome, focus and dismissal; headless callers provide their own layout.
- * @param props - Data, state and callbacks supplied by the owning surface.
+ * @param props - Content, dismissal callback and optional footer outside the scrolling body.
  * @returns The rendered component content.
  */
-function Modal({ open, title, onClose, className, children, role = 'dialog', headless = false }) {
+function Modal({
+  open,
+  title,
+  onClose,
+  className,
+  children,
+  footer,
+  role = 'dialog',
+  headless = false,
+}) {
   const dialog = React.useRef(null);
   const titleId = React.useId();
   const close = React.useRef(onClose);
@@ -189,7 +198,10 @@ function Modal({ open, title, onClose, className, children, role = 'dialog', hea
                   t('common.close'),
                 ),
               ),
-            headless ? children : h('div', { className: css.dialogBody }, children),
+            headless
+              ? children
+              : h('div', { className: css.dialogBody, 'data-rh-modal-body': '' }, children),
+            footer && h('div', { className: css.dialogFooter, 'data-rh-modal-footer': '' }, footer),
           ),
         ),
         document.body,

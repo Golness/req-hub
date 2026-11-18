@@ -7,6 +7,7 @@ const clientApi = require('../../api/index.js');
 const { t } = require('../../locale.js');
 const css = require('../SyncPanel.module.css').default;
 const { Button } = require('../shared/Button.js');
+const { EmptyState } = require('../shared/EmptyState.js');
 const React = require('react');
 const h = React.createElement;
 const { useState, useEffect, useRef } = React;
@@ -22,10 +23,9 @@ const { DocsViewerContext, SessionSelectionContext } = require('../../context.js
  * @param {Object} props - Component props
  * @param {string} props.workspaceId - The workspace ID for sync operations
  * @param {Object|null} props.selectedReq - The currently selected requirement object, or null if none selected
- * @param {Function} props.onClose - Callback invoked to close the panel
  * @returns {JSX.Element}
  */
-function CustomSyncPanel({ workspaceId, selectedReq, onClose }) {
+function CustomSyncPanel({ workspaceId, selectedReq }) {
   const [syncDocType, setSyncDocType] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const [view, setView] = useState('main');
@@ -91,12 +91,10 @@ function CustomSyncPanel({ workspaceId, selectedReq, onClose }) {
   }
 
   if (!selectedReq) {
-    return h(
-      'div',
-      { className: 'rh-op-panel' },
-      h('div', { className: css.spacing }, t('SyncPanel.message001')),
-      h(Button, { className: 'rh-btn', onClick: onClose }, t('common.close')),
-    );
+    return h(EmptyState, {
+      title: t('DocsViewerBody.message065'),
+      description: t('SyncPanel.message001'),
+    });
   }
 
   // View sync detail

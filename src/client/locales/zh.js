@@ -23,6 +23,7 @@ module.exports = {
   'server.KB_SOURCE_SUMMARY_MISSING': '当前发布缺少来源摘要，需重新编译未完成的来源。',
   'server.REPORT_ITEM_FAILED': '任务未完成，请查看报告明细。',
   'server.REPORT_SOURCE_FILE_MISSING': '来源文件已不存在，请检查是否已删除或移动。',
+  'documents.records': '查看分发记录',
   'documents.title': '工作区资料副本',
   'documents.scope':
     '启用后，所有已登记工作区 docs 下新增或修改的正式文件自动保存飞书副本，包含手动资料、同步生成文档、同步会话和写作文档，以及每日任务产物。启用前文件不回填；未绑定飞书目标的工作区显示失败并等待配置。',
@@ -550,7 +551,7 @@ module.exports = {
   'sync.quick.branchInvalid': '请选择当前工作区分支：feature/开发者/YYYY-MM-DD-需求标题。',
   'sync.quick.baseMissing': '当前工作区没有本地 main 或 master 分支，无法快捷同步。',
   'sync.quick.directoryMissing': '未找到需求目录，请重试。',
-  'SyncPanel.message001': '请先在左侧目录树中选择一个需求目录',
+  'SyncPanel.message001': '通过顶部的“需求目录”选择需要同步或查看历史的需求。',
   'SyncPanel.message002': '已有同步任务在后台运行，完成后可启动新的同步。',
   'SyncPanel.message003': '同步需求文档',
   'SyncPanel.message004': '同步技术方案',

@@ -16,6 +16,7 @@ const { useState, useEffect, useRef } = React;
 const { SyncVersionCompare } = require('../shared/SyncVersionCompare.js');
 const { SyncStorageUsage } = require('../SyncStorageUsage.js');
 const { FilePreview } = require('../FilePreview.js');
+const { EmptyState } = require('../shared/EmptyState.js');
 // ─── SyncHistoryView - List of past syncs ───────────────────────
 /**
  * @component
@@ -199,7 +200,10 @@ function SyncHistoryPanel({ workspaceId, selectedReq, focusedSync, active }) {
     return () => window.removeEventListener('req-hub-sync-deleted', removed);
   }, [workspaceId, selectedSync?.id]);
   if (!selectedReq) {
-    return h('div', { className: 'rh-op-panel' }, t('SyncPanel.message001'));
+    return h(EmptyState, {
+      title: t('DocsViewerBody.message065'),
+      description: t('SyncPanel.message001'),
+    });
   }
   if (selectedSync) {
     return h(SyncDetailView, {

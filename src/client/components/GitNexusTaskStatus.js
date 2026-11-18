@@ -65,6 +65,7 @@ function GitNexusTaskStatus({ job, busy, onCancel }) {
           ),
         ),
         running &&
+          onCancel &&
           h(
             Button,
             {

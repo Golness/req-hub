@@ -618,16 +618,6 @@ function LarkTargetSettings({ workspaceId, connectionKey, disabled, connectionBu
             })
           : text('notBound'),
       ),
-      values?.binding &&
-        h(
-          SettingsActionBar,
-          null,
-          h(
-            Button,
-            { tone: 'danger', disabled: locked, onClick: () => bind(true) },
-            text('targetRemove'),
-          ),
-        ),
     ),
     values &&
       !values.binding &&
@@ -687,26 +677,6 @@ function LarkTargetSettings({ workspaceId, connectionKey, disabled, connectionBu
         defaultWiki ? defaultPicker : manualPicker,
         busy === 'browse' &&
           h('p', { role: 'status', className: form.muted }, text('browseLoading')),
-        (defaultWiki || (values && !values.binding)) &&
-          h(
-            SettingsActionBar,
-            null,
-            h(
-              Button,
-              {
-                variant: 'primary',
-                disabled: locked || !values || !activeSelection,
-                onClick: () => bind(),
-              },
-              text(defaultWiki ? 'defaultWikiSaveAll' : 'targetSave'),
-            ),
-            busy === 'save' &&
-              h(
-                'span',
-                { role: 'status', className: form.muted },
-                text(defaultWiki ? 'defaultWikiSaving' : 'targetSaving'),
-              ),
-          ),
       ),
     disabled &&
       h(
@@ -721,29 +691,6 @@ function LarkTargetSettings({ workspaceId, connectionKey, disabled, connectionBu
         h('p', { className: form.error }, message(error.message || error)),
         h(LarkErrorDetails, { code: error.message, details: error.details }),
       ),
-    error &&
-      h(
-        SettingsActionBar,
-        null,
-        h(
-          Button,
-          {
-            disabled: locked,
-            onClick: () => {
-              if (error.retryBinding) {
-                void bind(error.retryBinding.remove);
-                return;
-              }
-              if (!workspaces) {
-                setWorkspaceReload((value) => value + 1);
-              } else {
-                setReload((value) => value + 1);
-              }
-            },
-          },
-          retryLabel,
-        ),
-      ),
     result &&
       h(
         'p',
@@ -755,6 +702,52 @@ function LarkTargetSettings({ workspaceId, connectionKey, disabled, connectionBu
               reused: result.reused,
             })
           : message(result.code),
+      ),
+    (error || values?.binding || workspaces?.length > 0) &&
+      h(
+        SettingsActionBar,
+        {
+          placement: 'page',
+          status: busy === 'save' ? text(defaultWiki ? 'defaultWikiSaving' : 'targetSaving') : '',
+          leading:
+            !defaultWiki &&
+            values?.binding &&
+            h(
+              Button,
+              { tone: 'danger', disabled: locked, onClick: () => bind(true) },
+              text('targetRemove'),
+            ),
+        },
+        error &&
+          h(
+            Button,
+            {
+              disabled: locked,
+              onClick: () => {
+                if (error.retryBinding) {
+                  void bind(error.retryBinding.remove);
+                  return;
+                }
+                if (!workspaces) {
+                  setWorkspaceReload((value) => value + 1);
+                } else {
+                  setReload((value) => value + 1);
+                }
+              },
+            },
+            retryLabel,
+          ),
+        workspaces?.length > 0 &&
+          (defaultWiki || (values && !values.binding)) &&
+          h(
+            Button,
+            {
+              variant: 'primary',
+              disabled: locked || !values || !activeSelection,
+              onClick: () => bind(),
+            },
+            text(defaultWiki ? 'defaultWikiSaveAll' : 'targetSave'),
+          ),
       ),
   );
 }

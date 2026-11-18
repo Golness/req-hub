@@ -6,6 +6,7 @@ const React = require('react');
 const { t } = require('../../locale.js');
 const { Button } = require('../shared/Button.js');
 const { SettingsActionBar } = require('../shared/SettingsActionBar.js');
+const { ActionBar } = require('../shared/ActionBar.js');
 const { Checkbox, HoverCard, Modal } = require('../shared/controls.js');
 const { Select } = require('../shared/Select.js');
 const { GitNexusTaskStatus } = require('../GitNexusTaskStatus.js');
@@ -29,6 +30,7 @@ function EnhancementSettings({ workspaceId }) {
   const api = useAssist(workspaceId, undefined, undefined, codeJobKinds);
   const data = api.data;
   const formId = React.useId();
+  const [taskOpen, setTaskOpen] = React.useState(false);
   const [saveNotice, setSaveNotice] = React.useState(null);
   React.useEffect(() => {
     if (!saveNotice) {
@@ -168,10 +170,25 @@ function EnhancementSettings({ workspaceId }) {
                 ),
               h(
                 SettingsActionBar,
-                null,
+                {
+                  placement: 'page',
+                  status:
+                    api.job &&
+                    h(
+                      Button,
+                      { size: 'sm', variant: 'ghost', onClick: () => setTaskOpen(true) },
+                      t('assist.settings.currentTask'),
+                    ),
+                },
                 h(
                   Button,
-                  { disabled: api.locked, onClick: () => api.start('code-refresh') },
+                  {
+                    disabled: api.locked,
+                    onClick: () => {
+                      setTaskOpen(true);
+                      api.start('code-refresh');
+                    },
+                  },
                   t('enhancement.refreshCode'),
                 ),
                 h(
@@ -179,25 +196,47 @@ function EnhancementSettings({ workspaceId }) {
                   {
                     variant: 'primary',
                     disabled: api.locked,
-                    onClick: () => api.start('code-index'),
+                    onClick: () => {
+                      setTaskOpen(true);
+                      api.start('code-index');
+                    },
                   },
                   t('enhancement.updateIndex'),
                 ),
               ),
               h('p', { className: formCss.muted }, t('assist.settings.operationsHelp')),
             ),
-            api.job &&
-              h(
-                'section',
-                { className: settingsCss.group, 'aria-labelledby': `${formId}-task` },
-                h('h3', { id: `${formId}-task` }, t('assist.settings.currentTask')),
+            h(
+              Modal,
+              {
+                open: taskOpen,
+                title: t('assist.settings.currentTask'),
+                onClose: () => setTaskOpen(false),
+                footer:
+                  active(api.job) &&
+                  h(
+                    ActionBar,
+                    { placement: 'page' },
+                    h(
+                      Button,
+                      {
+                        tone: 'warning',
+                        disabled: api.busy || api.job.status === 'cancelling',
+                        onClick: api.cancel,
+                      },
+                      t('enhancement.cancel'),
+                    ),
+                  ),
+              },
+              !api.job && h('p', { role: 'status' }, t('common.loading')),
+              api.error && h('p', { role: 'alert' }, t('enhancement.error', { code: api.error })),
+              api.job &&
                 h(GitNexusTaskStatus, {
                   key: api.job.id,
                   job: api.job,
                   busy: api.busy,
-                  onCancel: api.cancel,
                 }),
-              ),
+            ),
           ),
         ),
   );

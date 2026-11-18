@@ -5,6 +5,7 @@ const { Button } = require('../shared/Button.js');
 const { Input } = require('../shared/Input.js');
 const { Select } = require('../shared/Select.js');
 const { Checkbox, HoverCard } = require('../shared/controls.js');
+const { SettingsTabs } = require('../shared/SettingsTabs.js');
 const { SettingsActionBar } = require('../shared/SettingsActionBar.js');
 const { showToast } = require('../shared/ToastContainer.js');
 const { showConfirm } = require('../shared/ConfirmDialog.js');
@@ -192,150 +193,196 @@ function KnowledgeSettings({ workspaceId, onChanged }) {
       h('p', { className: css.muted }, t(`kb.settings.${key}Help`)),
     );
   const status = (text) => h('span', { role: 'status', className: css.saveNotice }, text || '');
-  return h(
-    'section',
-    { className: css.panel, 'aria-label': t('kb.settings.title') },
-    !data && !error && h('p', { role: 'status' }, t('common.loading')),
-    error && h('p', { role: 'alert', className: css.error }, knowledgeV2ErrorText(error)),
-    error &&
-      !data &&
-      h(
-        Button,
-        {
-          variant: 'outline',
-          tone: 'business',
-          onClick: () => setReload((value) => value + 1),
-        },
-        t('common.retry'),
-      ),
-    data &&
-      h(
-        React.Fragment,
-        null,
-        h(
-          'section',
-          { className: css.section, 'aria-labelledby': `${formId}-sync` },
-          sectionTitle(`${formId}-sync`, t('kb.settings.syncTitle')),
-          toggle('autoManage'),
-          field(
-            'autoManageDelayMs',
-            h(Input, {
-              type: 'number',
-              min: 0,
-              max: 3600000,
-              step: 1000,
-              value: data.sync.autoManageDelayMs,
-              disabled: busy || syncBusy || !data.sync.autoManage,
-              'aria-labelledby': `${formId}-autoManageDelayMs`,
-              onChange: (event) => updateSync('autoManageDelayMs', Number(event.target.value)),
-            }),
-          ),
-          toggle('dailyUpdateEnabled'),
-          field(
-            'dailyUpdateTime',
-            h(Input, {
-              type: 'time',
-              step: 60,
-              value: data.sync.dailyUpdateTime,
-              disabled: busy || syncBusy || !data.sync.dailyUpdateEnabled,
-              'aria-labelledby': `${formId}-dailyUpdateTime`,
-              onChange: (event) => updateSync('dailyUpdateTime', event.target.value),
-            }),
-          ),
-          toggle('dailyImportConversations', !data.sync.dailyUpdateEnabled),
-          toggle('larkPushEnabled'),
+  return h(SettingsTabs, {
+    label: t('kb.settings.title'),
+    tabs: [
+      {
+        id: 'sync',
+        label: t('kb.settings.syncTitle'),
+        render: () =>
           h(
-            'p',
-            { className: css.muted, role: 'status' },
-            t(`kb.settings.schedule.${data.schedule?.state || 'idle'}`) +
-              (data.schedule?.lastRunAt ? ` · ${data.schedule.lastRunAt}` : ''),
-          ),
-          h(
-            SettingsActionBar,
-            { placement: 'section', status: status(syncNotice) },
+            'section',
+            { className: css.panel },
             h(
-              Button,
-              {
-                type: 'button',
-                variant: 'primary',
-                disabled: busy || syncBusy,
-                onClick: saveSync,
-              },
-              syncBusy ? t('kb.settings.saving') : t('common.save'),
+              React.Fragment,
+              null,
+              !data && !error && h('p', { role: 'status' }, t('common.loading')),
+              error && h('p', { role: 'alert', className: css.error }, knowledgeV2ErrorText(error)),
+              error &&
+                !data &&
+                h(Button, { onClick: () => setReload((value) => value + 1) }, t('common.retry')),
             ),
+            data &&
+              h(
+                'section',
+                { className: css.section, 'aria-labelledby': `${formId}-sync` },
+                sectionTitle(`${formId}-sync`, t('kb.settings.syncTitle')),
+                toggle('autoManage'),
+                field(
+                  'autoManageDelayMs',
+                  h(Input, {
+                    type: 'number',
+                    min: 0,
+                    max: 3600000,
+                    step: 1000,
+                    value: data.sync.autoManageDelayMs,
+                    disabled: busy || syncBusy || !data.sync.autoManage,
+                    'aria-labelledby': `${formId}-autoManageDelayMs`,
+                    onChange: (event) =>
+                      updateSync('autoManageDelayMs', Number(event.target.value)),
+                  }),
+                ),
+                toggle('dailyUpdateEnabled'),
+                field(
+                  'dailyUpdateTime',
+                  h(Input, {
+                    type: 'time',
+                    step: 60,
+                    value: data.sync.dailyUpdateTime,
+                    disabled: busy || syncBusy || !data.sync.dailyUpdateEnabled,
+                    'aria-labelledby': `${formId}-dailyUpdateTime`,
+                    onChange: (event) => updateSync('dailyUpdateTime', event.target.value),
+                  }),
+                ),
+                toggle('dailyImportConversations', !data.sync.dailyUpdateEnabled),
+                toggle('larkPushEnabled'),
+                h(
+                  'p',
+                  { className: css.muted, role: 'status' },
+                  t(`kb.settings.schedule.${data.schedule?.state || 'idle'}`) +
+                    (data.schedule?.lastRunAt ? ` · ${data.schedule.lastRunAt}` : ''),
+                ),
+                h(
+                  SettingsActionBar,
+                  { placement: 'page', status: status(syncNotice) },
+                  h(
+                    Button,
+                    {
+                      type: 'button',
+                      variant: 'primary',
+                      disabled: busy || syncBusy,
+                      onClick: saveSync,
+                    },
+                    syncBusy ? t('kb.settings.saving') : t('common.save'),
+                  ),
+                ),
+              ),
           ),
-        ),
-        h(
-          'section',
-          { className: css.section, 'aria-labelledby': `${formId}-rules` },
-          sectionTitle(`${formId}-rules`, t('kb.settings.rulesTitle')),
-          field(
-            'purpose',
-            h('textarea', {
-              className: kCss.editor,
-              rows: 5,
-              value: data.purpose,
-              disabled: busy || syncBusy,
-              'aria-labelledby': `${formId}-purpose`,
-              onChange: (event) => update('purpose', event.target.value),
-            }),
-          ),
-          field(
-            'schema',
-            h('textarea', {
-              className: kCss.editor,
-              rows: 8,
-              value: data.schema,
-              disabled: busy || syncBusy,
-              'aria-labelledby': `${formId}-schema`,
-              onChange: (event) => update('schema', event.target.value),
-            }),
-          ),
-          field(
-            'language',
-            h(Select, {
-              value: data.language,
-              disabled: busy || syncBusy,
-              'aria-labelledby': `${formId}-language`,
-              options: ['auto', 'zh', 'en'].map((id) => ({
-                id,
-                label: t(`kb.settings.language.${id}`),
-              })),
-              onChange: (event) => update('language', event.target.value),
-            }),
-          ),
-          h('p', { className: css.muted }, t('kb.settings.rebuildHint')),
+      },
+      {
+        id: 'rules',
+        label: t('kb.settings.rulesTitle'),
+        render: () =>
           h(
-            SettingsActionBar,
-            { placement: 'section', status: status(notice) },
+            'section',
+            { className: css.panel },
             h(
-              Button,
-              { type: 'button', variant: 'primary', disabled: busy || syncBusy, onClick: save },
-              busy ? t('kb.settings.saving') : t('common.save'),
+              React.Fragment,
+              null,
+              !data && !error && h('p', { role: 'status' }, t('common.loading')),
+              error && h('p', { role: 'alert', className: css.error }, knowledgeV2ErrorText(error)),
+              error &&
+                !data &&
+                h(Button, { onClick: () => setReload((value) => value + 1) }, t('common.retry')),
             ),
+            data &&
+              h(
+                'section',
+                { className: css.section, 'aria-labelledby': `${formId}-rules` },
+                sectionTitle(`${formId}-rules`, t('kb.settings.rulesTitle')),
+                field(
+                  'purpose',
+                  h('textarea', {
+                    className: kCss.editor,
+                    rows: 5,
+                    value: data.purpose,
+                    disabled: busy || syncBusy,
+                    'aria-labelledby': `${formId}-purpose`,
+                    onChange: (event) => update('purpose', event.target.value),
+                  }),
+                ),
+                field(
+                  'schema',
+                  h('textarea', {
+                    className: kCss.editor,
+                    rows: 8,
+                    value: data.schema,
+                    disabled: busy || syncBusy,
+                    'aria-labelledby': `${formId}-schema`,
+                    onChange: (event) => update('schema', event.target.value),
+                  }),
+                ),
+                field(
+                  'language',
+                  h(Select, {
+                    value: data.language,
+                    disabled: busy || syncBusy,
+                    'aria-labelledby': `${formId}-language`,
+                    options: ['auto', 'zh', 'en'].map((id) => ({
+                      id,
+                      label: t(`kb.settings.language.${id}`),
+                    })),
+                    onChange: (event) => update('language', event.target.value),
+                  }),
+                ),
+                h('p', { className: css.muted }, t('kb.settings.rebuildHint')),
+                h(
+                  SettingsActionBar,
+                  { placement: 'page', status: status(notice) },
+                  h(
+                    Button,
+                    {
+                      type: 'button',
+                      variant: 'primary',
+                      disabled: busy || syncBusy,
+                      onClick: save,
+                    },
+                    busy ? t('kb.settings.saving') : t('common.save'),
+                  ),
+                ),
+              ),
           ),
-        ),
-        h(
-          'section',
-          { className: css.section, 'aria-labelledby': `${formId}-reset` },
-          sectionTitle(`${formId}-reset`, t('kb.settings.resetTitle')),
-          h(SettingsActionBar, {
-            placement: 'section',
-            leading: h(
-              Button,
-              {
-                type: 'button',
-                variant: 'outline',
-                tone: 'danger',
-                disabled: busy || syncBusy,
-                onClick: reset,
-              },
-              t('kb.settings.reset'),
+      },
+      {
+        id: 'reset',
+        label: t('kb.settings.resetTitle'),
+        render: () =>
+          h(
+            'section',
+            { className: css.panel },
+            h(
+              React.Fragment,
+              null,
+              !data && !error && h('p', { role: 'status' }, t('common.loading')),
+              error && h('p', { role: 'alert', className: css.error }, knowledgeV2ErrorText(error)),
+              error &&
+                !data &&
+                h(Button, { onClick: () => setReload((value) => value + 1) }, t('common.retry')),
             ),
-            status: h('span', { className: css.muted }, t('kb.settings.resetHint')),
-          }),
-        ),
-      ),
-  );
+            data &&
+              h(
+                'section',
+                { className: css.section, 'aria-labelledby': `${formId}-reset` },
+                sectionTitle(`${formId}-reset`, t('kb.settings.resetTitle')),
+                h(SettingsActionBar, {
+                  placement: 'page',
+                  leading: h(
+                    Button,
+                    {
+                      type: 'button',
+                      variant: 'outline',
+                      tone: 'danger',
+                      disabled: busy || syncBusy,
+                      onClick: reset,
+                    },
+                    t('kb.settings.reset'),
+                  ),
+                  status: h('span', { className: css.muted }, t('kb.settings.resetHint')),
+                }),
+              ),
+          ),
+      },
+    ],
+  });
 }
 module.exports = { KnowledgeSettings };

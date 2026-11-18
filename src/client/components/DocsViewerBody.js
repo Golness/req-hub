@@ -910,7 +910,8 @@ function DocsViewerBody({
               {
                 className: 'rh-right-panel' + ' ' + css.content,
               },
-              activePanel !== 'sync' &&
+              (activePanel || selectedFile) &&
+                activePanel !== 'sync' &&
                 activePanel !== 'log' &&
                 activePanel !== 'settings' &&
                 activePanel !== 'reports' &&

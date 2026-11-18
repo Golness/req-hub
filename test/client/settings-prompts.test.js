@@ -229,7 +229,7 @@ it('groups every registered prompt by rail feature and supports keyboard tabs', 
   await renderSettings();
   expect(
     [...document.querySelectorAll('.rh-prompt-tabs [role="tab"]')].map((el) => el.textContent),
-  ).toEqual(['同步10', '知识库5', '写作1']);
+  ).toEqual(['同步10', '知识库6', '写作1']);
   expect(document.querySelectorAll('.rh-prompt-item')).toHaveLength(10);
   expect(document.querySelectorAll('textarea')).toHaveLength(1);
   expect(document.body.textContent).not.toContain('Prompt 结构说明');
@@ -451,9 +451,12 @@ it('hosts knowledge settings in its own tab and keeps drafts while switching', a
   expect(panel.textContent).toContain('自动整理与每日更新');
   expect(panel.textContent).toContain('整理规则');
   expect(panel.textContent).toContain('清空知识库');
-  // Each section owns its save; this tab does not contribute a page-level action bar.
-  expect(panel.querySelectorAll('[data-settings-actions="section"]')).toHaveLength(3);
-  expect(document.querySelector('.rh-settings-actions')).toBeNull();
+  expect(panel.querySelectorAll('[data-settings-actions="section"]')).toHaveLength(0);
+  expect(document.querySelectorAll('[data-settings-actions="page"]')).toHaveLength(1);
+  expect(panel.querySelector('[data-settings-actions="page"]')).toBeNull();
+  await click(
+    [...panel.querySelectorAll('[role="tab"]')].find((node) => node.textContent === '整理规则'),
+  );
   const purpose = panel.querySelector('textarea');
   await act(async () => {
     Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(
@@ -472,10 +475,11 @@ it('notifies the owning view after knowledge rules are saved', async () => {
   const onKnowledgeChanged = vi.fn();
   await renderSettings(null, 'general', { onKnowledgeChanged });
   await click(document.querySelector('#settings-tab-knowledge'));
-  const bars = document.querySelectorAll(
-    '#settings-content-knowledge [data-settings-actions="section"]',
+  const panel = document.querySelector('#settings-content-knowledge');
+  await click(
+    [...panel.querySelectorAll('[role="tab"]')].find((node) => node.textContent === '整理规则'),
   );
-  await click(bars[1].querySelector('button'));
+  await click(document.querySelector('[data-settings-actions="page"] button'));
   expect(onKnowledgeChanged).toHaveBeenCalledOnce();
 });
 

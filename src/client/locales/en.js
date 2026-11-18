@@ -29,6 +29,7 @@ module.exports = {
   'server.REPORT_ITEM_FAILED': 'The task did not complete. Review its report details.',
   'server.REPORT_SOURCE_FILE_MISSING':
     'The source file no longer exists. Check whether it was deleted or moved.',
+  'documents.records': 'View distribution records',
   'documents.title': 'Workspace document copies',
   'documents.scope':
     'After enabling, new and changed formal files under docs in every registered workspace are copied to its bound Lark target. This includes user files, generated documents, synchronized conversations, writing and daily jobs. Existing files are not backfilled. Missing targets remain failed until configured.',
@@ -611,7 +612,8 @@ module.exports = {
   'sync.quick.baseMissing':
     'The current workspace has no local main or master branch, so quick sync is unavailable.',
   'sync.quick.directoryMissing': 'Requirement directory not found. Please retry.',
-  'SyncPanel.message001': 'Please select a requirement directory in the left tree first.',
+  'SyncPanel.message001':
+    'Choose a requirement directory from the top bar to synchronize documents or view history.',
   'SyncPanel.message002':
     'A sync task is already running in the background. You can start a new sync once it finishes.',
   'SyncPanel.message003': 'Sync requirement document',
