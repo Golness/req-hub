@@ -11,7 +11,7 @@ const { Modal } = require('./shared/controls.js');
 const css = require('./DailyReportsPanel.module.css').default;
 const h = React.createElement;
 
-/** Browse complete day groups without substituting current files for frozen evidence. */
+/** Browse one daily brief with source sections in an on-demand dialog. */
 function DailyReportsPanel({ onNavigate }) {
   const [day, setDay] = React.useState('');
   const [report, setReport] = React.useState(null);
@@ -20,6 +20,7 @@ function DailyReportsPanel({ onNavigate }) {
   const [revision, setRevision] = React.useState(0);
   const [retrying, setRetrying] = React.useState(false);
   const [failure, setFailure] = React.useState(null);
+  const [filesOpen, setFilesOpen] = React.useState(false);
   const requestOwner = React.useRef(null);
   const reportRef = React.useRef(null);
   reportRef.current = report;
@@ -41,10 +42,11 @@ function DailyReportsPanel({ onNavigate }) {
           setReport(result);
           setError(null);
           if (
-            result.groups.some((group) => group.brief?.status === 'running') ||
+            result.brief?.status === 'running' ||
             (result.enabled &&
               result.currentTarget &&
-              result.groups.some((group) => !group.brief || group.brief.status === 'stale'))
+              result.groups.length > 0 &&
+              (!result.brief || result.brief.status === 'stale'))
           ) {
             timer = setTimeout(load, 3000);
           }
@@ -111,7 +113,7 @@ function DailyReportsPanel({ onNavigate }) {
       }
     }
   };
-  const retry = async (group) => {
+  const retry = async () => {
     const signal = requestOwner.current.signal;
     setRetrying(true);
     try {
@@ -119,7 +121,7 @@ function DailyReportsPanel({ onNavigate }) {
         method: 'POST',
         signal,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ day: report.day, id: group.id, workspaceId: group.workspaceId }),
+        body: JSON.stringify({ day: report.day, id: report.id }),
       });
       if (!signal.aborted) {
         setRevision((value) => value + 1);
@@ -134,6 +136,7 @@ function DailyReportsPanel({ onNavigate }) {
       }
     }
   };
+  const brief = report?.brief;
   return h(
     'div',
     { className: css.panel },
@@ -150,6 +153,7 @@ function DailyReportsPanel({ onNavigate }) {
             disabled: busy || retrying,
             onChange: (event) => {
               setReport(null);
+              setFilesOpen(false);
               setDay(event.target.value);
             },
           }),
@@ -167,85 +171,100 @@ function DailyReportsPanel({ onNavigate }) {
     ),
     h('p', { className: css.hint }, t('daily.schedule', { zone: report?.timeZone || '—' })),
     report?.enabled === false && h('p', { role: 'status' }, t('daily.disabled')),
-    report?.briefCounts && h('p', { role: 'status' }, t('daily.progress', report.briefCounts)),
     error && h('p', { role: 'alert' }, localizeMessage(error)),
     report?.scanErrors?.map(([id, code]) =>
       h('p', { key: id, role: 'alert' }, id, ' · ', localizeMessage(code)),
     ),
     busy && h('p', { role: 'status' }, t('reports.loading')),
-    report && !report.groups.length && h('p', null, t('daily.empty')),
+    h(
+      'article',
+      { className: css.content, 'aria-label': t('daily.title') },
+      h('h3', null, report?.day, ' · ', t('daily.title')),
+      report && !report.groups.length && h('p', null, t('daily.empty')),
+      report &&
+        report.groups.length > 0 &&
+        h('p', { role: 'status' }, t(`daily.status.${brief?.status || 'pending'}`)),
+      brief?.error &&
+        brief.status !== 'running' &&
+        h('p', { role: 'alert' }, dailyError(brief.error)),
+      brief?.reads?.some((file) => file.fileState === 'updated_since_collection') &&
+        h('p', { className: css.hint }, t('daily.readUpdated')),
+      brief?.reads?.some((file) => ['unavailable', 'unreadable_text'].includes(file.fileState)) &&
+        h('p', { className: css.hint }, t('daily.readUnavailable')),
+      brief?.summary && h('div', { className: css.summary }, brief.summary),
+    ),
     report &&
       h(
-        PagedList,
+        ActionBar,
         {
-          resetKey: report.day,
-          plainRows: true,
-          inspect: false,
-          hasMore: report.nextOffset !== null,
-          onMore: () => more(),
-          busy,
+          placement: 'page',
+          leading: h(
+            Button,
+            {
+              variant: 'ghost',
+              disabled: !report.groups.length,
+              onClick: () => setFilesOpen(true),
+            },
+            t('daily.files'),
+          ),
         },
-        report.groups.map((group) =>
+        brief?.error &&
+          brief.status !== 'running' &&
           h(
-            'article',
-            { key: group.id, className: css.group },
-            h('h3', null, group.workspaceTitle, ' / ', group.group || t('daily.public')),
+            Button,
+            { variant: 'ghost', onClick: () => setFailure(brief) },
+            t('daily.failureDetails'),
+          ),
+        brief?.path &&
+          onNavigate &&
+          h(
+            Button,
+            {
+              onClick: () =>
+                onNavigate({ kind: 'file', workspaceId: brief.workspaceId, path: brief.path }),
+            },
+            t('daily.openBrief'),
+          ),
+        ['failed', 'stale'].includes(brief?.status) &&
+          h(
+            Button,
+            {
+              variant: 'primary',
+              disabled: busy || retrying || report.enabled === false,
+              onClick: retry,
+            },
+            t('daily.retry'),
+          ),
+      ),
+    h(
+      Modal,
+      { open: filesOpen, title: t('daily.files'), onClose: () => setFilesOpen(false) },
+      report &&
+        h(
+          PagedList,
+          {
+            resetKey: report.day,
+            plainRows: true,
+            inspect: false,
+            fitContent: true,
+            hasMore: report.nextOffset !== null,
+            onMore: () => more(),
+            busy,
+          },
+          report.groups.map((group) =>
             h(
-              'p',
-              null,
-              t('daily.count', { total: group.count, added: group.added, changed: group.changed }),
-            ),
-            h('p', { role: 'status' }, t(`daily.status.${group.brief?.status || 'pending'}`)),
-            group.brief?.error &&
-              group.brief.status !== 'running' &&
-              h('p', { role: 'alert' }, dailyError(group.brief.error)),
-            group.brief?.error &&
-              group.brief.status !== 'running' &&
+              'section',
+              { key: group.id, className: css.group },
+              h('h3', null, group.workspaceTitle, ' / ', group.group || t('daily.public')),
               h(
-                Button,
-                {
-                  size: 'sm',
-                  variant: 'ghost',
-                  onClick: () => setFailure(group.brief),
-                },
-                t('daily.failureDetails'),
+                'p',
+                null,
+                t('daily.count', {
+                  total: group.count,
+                  added: group.added,
+                  changed: group.changed,
+                }),
               ),
-            group.brief?.reads?.some((file) => file.fileState === 'updated_since_collection') &&
-              h('p', { className: css.hint }, t('daily.readUpdated')),
-            group.brief?.reads?.some((file) =>
-              ['unavailable', 'unreadable_text'].includes(file.fileState),
-            ) && h('p', { className: css.hint }, t('daily.readUnavailable')),
-            group.brief?.summary && h('div', { className: css.summary }, group.brief.summary),
-            group.brief?.path &&
-              onNavigate &&
-              h(
-                Button,
-                {
-                  size: 'sm',
-                  onClick: () =>
-                    onNavigate({
-                      kind: 'file',
-                      workspaceId: group.workspaceId,
-                      path: group.brief.path,
-                    }),
-                },
-                t('daily.openBrief'),
-              ),
-            ['failed', 'stale'].includes(group.brief?.status) &&
-              h(
-                Button,
-                {
-                  size: 'sm',
-                  tone: 'business',
-                  disabled: busy || retrying || report.enabled === false,
-                  onClick: () => retry(group),
-                },
-                t('daily.retry'),
-              ),
-            h(
-              'details',
-              null,
-              h('summary', null, t('daily.files')),
               h(
                 PagedList,
                 {
@@ -276,7 +295,7 @@ function DailyReportsPanel({ onNavigate }) {
             ),
           ),
         ),
-      ),
+    ),
     h(
       Modal,
       { open: !!failure, title: t('daily.failureDetails'), onClose: () => setFailure(null) },

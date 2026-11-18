@@ -2348,12 +2348,14 @@ module.exports = {
   'reports.daily': 'Daily',
   'daily.date': 'File date',
   'daily.schedule':
-    'Collect the previous day in {zone} and generate briefs at 08:00. Runs after startup if the Host was offline. Briefs exclude themselves.',
+    'Collect the previous day in {zone} and generate one consolidated brief at 08:00, with workspace and requirement sections. Runs after startup if the Host was offline. The brief excludes itself.',
   'daily.disabled': 'Automatic briefs are disabled. File collection continues.',
   'daily.empty': 'No files collected for this date.',
   'daily.public': 'Shared files (no requirement)',
   'daily.count': '{total} files · {added} new · {changed} updated',
   'daily.status.pending': 'Scheduled for 08:00',
+  'daily.title': 'Daily consolidated brief',
+  'server.DAILY_USER_REQUIRED': 'Only the user can operate on the cross-workspace brief.',
   'daily.status.running': 'Generating brief',
   'daily.status.completed': 'Brief completed',
   'daily.status.failed': 'Brief failed',
@@ -2371,7 +2373,7 @@ module.exports = {
   'daily.source.conversation': 'Conversation file',
   'daily.source.knowledge': 'Knowledge page',
   'server.PROMPT_DAILY_BRIEF': 'Daily brief',
-  'server.PROMPT_DAILY_BRIEF_DESC': 'Daily file brief grouped by workspace and requirement',
+  'server.PROMPT_DAILY_BRIEF_DESC': 'One daily brief with workspace and requirement sections',
   'server.DAILY_INPUT_INVALID': 'Invalid daily report input.',
   'server.DAILY_WORKSPACE_MISSING': 'Workspace unavailable.',
   'server.DAILY_STORAGE_LIMIT': 'Snapshot storage budget reached; collection is incomplete.',
@@ -2382,8 +2384,6 @@ module.exports = {
   'server.DAILY_BRIEF_INVALID': 'Model brief failed validation.',
   'server.DAILY_GROUP_INVALID':
     'The brief group path is not a requirement directory. Refresh the file list.',
-  'daily.progress':
-    'Briefs: completed {completed} · failed {failed} · running {running} · pending {pending} · stale {stale}',
   'daily.failureDetails': 'View brief failure details',
   'daily.failureDetailsMissing':
     'No detailed cause was recorded for this attempt. Retrying will retain tool validation or model execution diagnostics.',

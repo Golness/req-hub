@@ -82,7 +82,7 @@ it('groups all producers, deduplicates versions and reads current original files
     fileState: 'updated_since_collection',
   });
   await finish();
-  expect(generator).toHaveBeenCalledTimes(2);
+  expect(generator).toHaveBeenCalledTimes(1);
   expect(
     generator.mock.calls.flatMap(([input]) => input.observedEvidence).map((file) => file.body),
   ).toEqual(expect.arrayContaining(['today', 'conversation']));
@@ -108,36 +108,87 @@ it('groups dated filenames as shared files and repairs recorded file-as-director
   now = new Date('2026-11-18T01:00:00Z');
   await finish();
   const group = (await previous()).groups[0];
-  expect(group.brief).toMatchObject({ status: 'completed', path: 'daily-reports/2026-11-17.md' });
+  expect((await previous()).brief).toMatchObject({
+    status: 'completed',
+    path: 'daily-reports/2026-11-17-summary.md',
+  });
   expect(group.files.map((file) => file.path)).toEqual(files);
   expect(generator).toHaveBeenCalledOnce();
-  expect(await readFile(join(workspace, 'docs', group.brief.path), 'utf8')).toContain('Summary');
+  expect(await readFile(join(workspace, 'docs', (await previous()).brief.path), 'utf8')).toContain(
+    'Summary',
+  );
 });
 
-it('counts all group statuses before paginating the daily report', async () => {
+it('generates one brief for all sections and ignores legacy per-section brief records', async () => {
   for (let index = 0; index < 12; index++) {
-    const group = 'author/2026-11-17-group-' + index;
-    await mkdir(join(workspace, 'docs', group));
-    await save(group + '/notes.md', 'Evidence');
+    const directory = 'author/2026-11-17-group-' + index;
+    await mkdir(join(workspace, 'docs', directory));
+    await save(directory + '/notes.md', 'Evidence ' + index);
   }
   const report = await previous();
-  report.groups.forEach((group, index) =>
+  for (const group of report.groups) {
     service.saveBrief(group.id, {
       digest: group.digest,
-      status: index < 10 ? 'failed' : 'completed',
-    }),
-  );
+      status: 'completed',
+      summary: 'Legacy brief',
+    });
+  }
+  now = new Date('2026-11-18T01:00:00Z');
+  await finish();
   const routes = createDailyReportRoutes(registry, service);
   const first = await routes[0].operation.execute({ day: '2026-11-17' }, { kind: 'user' });
   expect(first.value.groups).toHaveLength(10);
-  expect(first.value.groups.every((group) => group.brief.status === 'failed')).toBe(true);
-  expect(first.value.briefCounts).toEqual({
-    completed: 2,
-    failed: 10,
-    running: 0,
-    pending: 0,
-    stale: 0,
-  });
+  expect(first.value.groups.every((group) => !('brief' in group))).toBe(true);
+  expect(first.value.brief.status).toBe('completed');
+  expect(first.value.brief.summary).not.toBe('Legacy brief');
+  expect(generator).toHaveBeenCalledOnce();
+  expect(generator.mock.calls[0][0].observedEvidence).toHaveLength(12);
+});
+
+it('reads identically named files from their own workspaces and publishes one daily artifact', async () => {
+  const other = join(root, 'other');
+  await mkdir(join(other, 'docs/author/2026-11-17-change'), { recursive: true });
+  registry.list = () => [
+    { id: 'ws', title: 'Workspace', path: workspace },
+    { id: 'other', title: 'Other', path: other },
+  ];
+  const path = 'author/2026-11-17-change/requirement.md';
+  await save(path, 'Workspace one requirement');
+  await writeFile(join(other, 'docs', path), 'Workspace two requirement');
+  await service.committed('other', path, 'writing');
+  config.workspaceId = 'other';
+  service.onBrief = vi.fn();
+  now = new Date('2026-11-18T01:00:00Z');
+  await finish();
+  const report = await previous();
+  expect(report.groups).toHaveLength(2);
+  expect(report.brief).toMatchObject({ status: 'completed', workspaceId: 'other' });
+  expect(report.brief.reads.map((file) => file.workspaceId)).toEqual(['ws', 'other']);
+  expect(generator).toHaveBeenCalledOnce();
+  expect(generator.mock.calls[0][0].observedEvidence.map((file) => file.body)).toEqual([
+    'Workspace one requirement',
+    'Workspace two requirement',
+  ]);
+  expect(await readFile(join(other, 'docs', report.brief.path), 'utf8')).toContain('Summary');
+  expect(
+    await readFile(join(workspace, 'docs', report.brief.path)).catch((error) => error.code),
+  ).toBe('ENOENT');
+  expect(service.onBrief).toHaveBeenCalledExactlyOnceWith('other', report.brief.path);
+  const routes = createDailyReportRoutes(registry, service);
+  const scoped = await routes[0].operation.execute(
+    { day: report.day, workspaceId: 'ws' },
+    {
+      kind: 'agent',
+      agent: { session: { header: { cwd: workspace } } },
+    },
+  );
+  expect(scoped.value.groups).toHaveLength(1);
+  expect(scoped.value.brief).toBeNull();
+  expect(scoped.value.id).toBeUndefined();
+  config.workspaceId = 'ws';
+  await finish();
+  expect(generator).toHaveBeenCalledOnce();
+  expect((await previous()).brief.workspaceId).toBe('other');
 });
 
 it('retains tool failure diagnostics and clears the previous failure while retrying', async () => {
@@ -154,7 +205,7 @@ it('retains tool failure diagnostics and clears the previous failure while retry
   now = new Date('2026-11-18T01:00:00Z');
   await finish();
   const group = (await previous()).groups[0];
-  expect(group.brief).toMatchObject({
+  expect((await previous()).brief).toMatchObject({
     status: 'failed',
     error: 'KB_TOOL_FAILED',
     errorDetails: {
@@ -171,22 +222,26 @@ it('retains tool failure diagnostics and clears the previous failure while retry
       release = resolve;
     });
   });
-  service.enqueue('2026-11-17', group.id);
+  service.enqueue('2026-11-17', (await previous()).id);
   await vi.waitFor(() => expect(release).toBeTypeOf('function'));
-  expect((await previous()).groups[0].brief).toMatchObject({
+  expect((await previous()).brief).toMatchObject({
     status: 'running',
     error: null,
     errorDetails: null,
   });
   release('Recovered summary');
   await service.execution;
-  expect((await previous()).groups[0].brief.status).toBe('completed');
+  expect((await previous()).brief.status).toBe('completed');
 });
 
 it('recovers interrupted and older failed brief attempts once after restart', async () => {
   await save('session.md', 'Evidence');
   const group = (await previous()).groups[0];
-  service.saveBrief(group.id, { digest: group.digest, status: 'running', error: 'KB_TOOL_FAILED' });
+  service.saveBrief((await previous()).id, {
+    digest: (await previous()).digest,
+    status: 'running',
+    error: 'KB_TOOL_FAILED',
+  });
   await service.close();
   service = new DailyReports({
     registry,
@@ -195,16 +250,20 @@ it('recovers interrupted and older failed brief attempts once after restart', as
     now: () => now,
     generateBrief: generator,
   });
-  expect((await previous()).groups[0].brief).toMatchObject({
+  expect((await previous()).brief).toMatchObject({
     status: 'stale',
     error: 'DAILY_INTERRUPTED',
   });
-  service.saveBrief(group.id, { digest: group.digest, status: 'failed', error: 'ENOTDIR' });
+  service.saveBrief((await previous()).id, {
+    digest: (await previous()).digest,
+    status: 'failed',
+    error: 'ENOTDIR',
+  });
   now = new Date('2026-11-18T01:00:00Z');
   await finish();
   await finish();
   expect(generator).toHaveBeenCalledOnce();
-  expect((await previous()).groups[0].brief.status).toBe('completed');
+  expect((await previous()).brief.status).toBe('completed');
 });
 
 it('waits for 08:00 in the configured zone and catches up once after restart', async () => {
@@ -215,7 +274,7 @@ it('waits for 08:00 in the configured zone and catches up once after restart', a
   now = new Date('2026-11-18T00:00:00Z');
   await finish();
   expect(generator).toHaveBeenCalledTimes(1);
-  const brief = (await previous()).groups[0].brief;
+  const brief = (await previous()).brief;
   expect(brief.status).toBe('completed');
   expect(await readFile(join(workspace, 'docs', brief.path), 'utf8')).toContain('Summary');
   await service.close();
@@ -279,16 +338,18 @@ it('retains the old brief and protects user edits when yesterday gains another f
   now = new Date('2026-11-18T01:00:00Z');
   await finish();
   const group = (await previous()).groups[0];
-  await writeFile(join(workspace, 'docs', group.brief.path), 'user edited');
+  await writeFile(join(workspace, 'docs', (await previous()).brief.path), 'user edited');
   now = new Date('2026-11-17T05:00:00Z');
   await save('another.md', 'late');
   now = new Date('2026-11-18T01:00:00Z');
   await finish();
-  const next = (await previous()).groups[0];
+  const next = await previous();
   expect(next.brief.status).toBe('failed');
   expect(next.brief.error).toBe('DAILY_OUTPUT_CONFLICT');
   expect(next.brief.summary).toBe('Summary of confirmed files.');
-  expect(await readFile(join(workspace, 'docs', group.brief.path), 'utf8')).toBe('user edited');
+  expect(await readFile(join(workspace, 'docs', (await previous()).brief.path), 'utf8')).toBe(
+    'user edited',
+  );
 });
 
 it('does not publish stale model results and retries a newer input version', async () => {
@@ -308,9 +369,9 @@ it('does not publish stale model results and retries a newer input version', asy
   now = new Date('2026-11-18T01:00:00Z');
   release('stale summary');
   await service.execution;
-  expect((await previous()).groups[0].brief.status).toBe('stale');
+  expect((await previous()).brief.status).toBe('stale');
   await finish();
-  expect((await previous()).groups[0].brief.status).toBe('completed');
+  expect((await previous()).brief.status).toBe('completed');
 });
 
 it('waits for actual cancellation before closing storage and never writes a canceled result', async () => {
@@ -334,7 +395,7 @@ it('waits for actual cancellation before closing storage and never writes a canc
   release('canceled');
   await closing;
   expect(
-    await readFile(join(workspace, 'docs/daily-reports/2026-11-17.md')).catch(
+    await readFile(join(workspace, 'docs/daily-reports/2026-11-17-summary.md')).catch(
       (error) => error.code,
     ),
   ).toBe('ENOENT');
@@ -352,13 +413,16 @@ it('keeps failed jobs terminal until explicit retry and authorizes retry scope',
   const operation = routes[1].operation.execute;
   await expect(
     operation(
-      { day: '2026-11-17', id: group.id, workspaceId: 'ws' },
+      { day: '2026-11-17', id: (await previous()).id, workspaceId: 'ws' },
       { kind: 'agent', agent: { session: { header: { cwd: root } } } },
     ),
-  ).rejects.toThrow('CALLER_WORKSPACE_MISMATCH');
-  await operation({ day: '2026-11-17', id: group.id, workspaceId: 'ws' }, { kind: 'user' });
+  ).rejects.toThrow('DAILY_USER_REQUIRED');
+  await operation(
+    { day: '2026-11-17', id: (await previous()).id, workspaceId: 'ws' },
+    { kind: 'user' },
+  );
   await service.execution;
-  expect((await previous()).groups[0].brief.status).toBe('completed');
+  expect((await previous()).brief.status).toBe('completed');
 });
 
 it('rejects traversal and junction escapes without imposing a source-file content quota', async () => {
@@ -473,9 +537,9 @@ it('cancels and awaits the actual model operation when automatic briefs are disa
   config.dailyReports = { enabled: false };
   await service.refresh();
   expect(canceled).toBe(true);
-  expect((await previous()).groups[0].brief.status).toBe('stale');
+  expect((await previous()).brief.status).toBe('stale');
   expect(
-    await readFile(join(workspace, 'docs/daily-reports/2026-11-17.md')).catch(
+    await readFile(join(workspace, 'docs/daily-reports/2026-11-17-summary.md')).catch(
       (error) => error.code,
     ),
   ).toBe('ENOENT');
@@ -490,7 +554,7 @@ it('records binary metadata and retains the file list when model generation fail
   );
   now = new Date('2026-11-18T01:00:00Z');
   await finish();
-  expect((await previous()).groups[0].brief).toMatchObject({
+  expect((await previous()).brief).toMatchObject({
     status: 'failed',
     error: 'DAILY_INPUT_LIMIT',
   });
@@ -507,9 +571,9 @@ it('updates an owned brief when late evidence arrives and never includes that br
   generator.mockImplementationOnce((input) => consume(input, 'Updated summary'));
   await finish();
   const group = (await previous()).groups[0];
-  expect(group.brief.status).toBe('completed');
+  expect((await previous()).brief.status).toBe('completed');
   expect(group.files).toHaveLength(2);
-  expect(await readFile(join(workspace, 'docs', group.brief.path), 'utf8')).toContain(
+  expect(await readFile(join(workspace, 'docs', (await previous()).brief.path), 'utf8')).toContain(
     'Updated summary',
   );
   expect((await service.view('2026-11-18')).groups).toHaveLength(0);
@@ -565,8 +629,8 @@ it('reports missing originals explicitly and never reconstructs their bodies fro
   now = new Date('2026-11-18T01:00:00Z');
   await finish();
   const group = (await previous()).groups[0];
-  expect(group.brief.status).toBe('completed');
-  expect(group.brief.reads[0].fileState).toBe('unavailable');
+  expect((await previous()).brief.status).toBe('completed');
+  expect((await previous()).brief.reads[0].fileState).toBe('unavailable');
   expect(generator.mock.calls[0][0].observedEvidence[0]).toMatchObject({
     body: null,
     contentAvailable: false,
@@ -589,7 +653,7 @@ it('streams a large original in bounded chunks and closes its handle on cancella
   await writeFile(join(workspace, 'docs/large.md'), 'replaced');
 });
 
-it('finishes all local briefs while an independent output consumer remains busy', async () => {
+it('finishes the single daily brief while an independent output consumer remains busy', async () => {
   await save('shared.md', 'shared');
   await save('author/2026-11-17-change/requirement.md', 'requirement');
   const releases = [];
@@ -601,7 +665,7 @@ it('finishes all local briefs while an independent output consumer remains busy'
   );
   now = new Date('2026-11-18T01:00:00Z');
   await finish();
-  expect((await previous()).groups.every((group) => group.brief.status === 'completed')).toBe(true);
-  expect(service.onBrief).toHaveBeenCalledTimes(2);
+  expect((await previous()).brief.status).toBe('completed');
+  expect(service.onBrief).toHaveBeenCalledOnce();
   releases.forEach((release) => release());
 });

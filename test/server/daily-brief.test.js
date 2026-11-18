@@ -101,3 +101,44 @@ it('processes all source chunks across batches even when total content exceeds o
     .filter((document) => document.id.startsWith('chunk-'));
   expect(originals).toHaveLength(60);
 });
+
+it('retains workspace and requirement provenance when summarizing a consolidated day', async () => {
+  const data = input();
+  data.group.groups = [
+    { workspaceId: 'one', workspaceTitle: 'One', group: 'author/2026-11-17-first' },
+    { workspaceId: 'two', workspaceTitle: 'Two', group: '' },
+  ];
+  data.evidence = data.group.groups.map((section) => ({
+    ...section,
+    id: section.workspaceId,
+    path: 'notes.md',
+    body: 'Confirmed content',
+    version: 'v1',
+    contentAvailable: true,
+  }));
+  await createDailyBriefGenerator({}, {})(data);
+  const options = mocks.run.mock.calls[0][0];
+  expect(JSON.parse(options.instruction)).toMatchObject({
+    scope: 'all-workspaces',
+    sections: data.group.groups.map(({ workspaceId, workspaceTitle, group }) => ({
+      workspaceId,
+      workspace: workspaceTitle,
+      requirement: group,
+    })),
+  });
+  const metadata = options.documents.map((doc) => JSON.parse(doc.body.split('\n')[0]));
+  expect(metadata.map((file) => file.workspaceId)).toEqual(['one', 'two']);
+});
+
+it('converges to a single brief even when every batch returns a maximum-size summary', async () => {
+  const data = input();
+  data.evidence[0].body = 'x'.repeat(60000);
+  mocks.run.mockImplementation(async (options) => {
+    const result = { answer: 'x'.repeat(12000), citations: [] };
+    options.validateResult(result);
+    return result;
+  });
+  expect(await createDailyBriefGenerator({}, {})(data)).toHaveLength(12000);
+  expect(mocks.run.mock.calls.length).toBeLessThan(10);
+  expect(mocks.run.mock.calls.at(-1)[0].documents).toHaveLength(2);
+});

@@ -12,17 +12,22 @@ export function createDailyReportRoutes(registry, reports) {
     const method = action === 'list' ? 'GET' : 'POST';
     const execute = async (input, caller = {}) => {
       if (caller.kind === 'agent') {
+        if (action === 'retry') {
+          throw Object.assign(new Error('DAILY_USER_REQUIRED'), { status: 403 });
+        }
         const workspace = registry.list().find((item) => item.id === input.workspaceId);
         await assertWorkspaceCaller(caller, workspace);
       }
       caller.signal?.throwIfAborted();
-      const report = await reports.view(input.day, input.workspaceId);
+      const report = await reports.view(
+        input.day,
+        caller.kind === 'agent' ? input.workspaceId : undefined,
+      );
       if (action === 'retry') {
-        const group = report.groups.find((item) => item.id === input.id);
-        if (!group || !['failed', 'stale'].includes(group.brief?.status)) {
+        if (report.id !== input.id || !['failed', 'stale'].includes(report.brief?.status)) {
           throw Object.assign(new Error('DAILY_INPUT_INVALID'), { status: 400 });
         }
-        reports.enqueue(report.day, group.id);
+        reports.enqueue(report.day, report.id);
         return { status: 202, value: { queued: true } };
       }
       const offset = Number(input.offset || 0);
@@ -41,17 +46,11 @@ export function createDailyReportRoutes(registry, reports) {
         files: group.files.slice(fileOffset, fileOffset + 50),
         nextFileOffset: group.files.length > fileOffset + 50 ? fileOffset + 50 : null,
       }));
-      const briefCounts = { completed: 0, failed: 0, running: 0, pending: 0, stale: 0 };
-      for (const group of report.groups) {
-        const status = group.brief?.status || 'pending';
-        briefCounts[status] = (briefCounts[status] || 0) + 1;
-      }
       return {
         status: 200,
         value: {
           ...report,
           groups,
-          briefCounts,
           nextOffset: !input.groupId && report.groups.length > offset + 10 ? offset + 10 : null,
         },
       };

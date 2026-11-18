@@ -15,7 +15,7 @@ const fail = (code, status = 400) => {
 };
 const payload = (row) => row && JSON.parse(row.payload);
 const textFile = /\.(md|markdown|txt|json|ya?ml|html?|csv|xml|log|[cm]?js|tsx?|css|sql)$/i;
-const BRIEF_VERSION = 2;
+const BRIEF_VERSION = 3;
 
 /**
  * Return the previous calendar date without assuming a 24-hour zoned day.
@@ -366,7 +366,23 @@ export class DailyReports {
         .get(id)
         .files.set(identity, { ...item, change: previous?.change === 'new' ? 'new' : item.change });
     }
+    const sections = [...groups.values()].map((group) => {
+      const files = [...group.files.values()].sort((a, b) => a.path.localeCompare(b.path));
+      return {
+        ...group,
+        files,
+        digest: hash(JSON.stringify(files.map((file) => [file.kind, file.path, file.version]))),
+      };
+    });
+    const digest = hash(JSON.stringify(sections.map((group) => [group.id, group.digest]).sort()));
+    const id = hash(JSON.stringify(['daily-total-v1', day]));
+    const brief =
+      !workspaceId &&
+      payload(this.db.prepare('SELECT payload FROM daily_briefs WHERE id=?').get(id));
     return {
+      id: workspaceId ? undefined : id,
+      digest,
+      brief: brief ? { ...brief, status: brief.digest !== digest ? 'stale' : brief.status } : null,
       day,
       timeZone: zone,
       schedule: '08:00',
@@ -375,24 +391,7 @@ export class DailyReports {
       scanErrors: [...new Map([...this.scanErrors, ...scopeErrors])].filter(
         ([id]) => !workspaceId || id === workspaceId,
       ),
-      groups: [...groups.values()].map((group) => {
-        const files = [...group.files.values()].sort((a, b) => a.path.localeCompare(b.path));
-        const digest = hash(
-          JSON.stringify(files.map((file) => [file.kind, file.path, file.version])),
-        );
-        const brief = payload(
-          this.db.prepare('SELECT payload FROM daily_briefs WHERE id=?').get(group.id),
-        );
-        return {
-          ...group,
-          files,
-          digest,
-          brief: brief && {
-            ...brief,
-            status: brief.digest !== digest ? 'stale' : brief.status,
-          },
-        };
-      }),
+      groups: sections,
     };
   }
 
@@ -404,9 +403,9 @@ export class DailyReports {
    */
   async *evidence(group, signal = this.controller.signal) {
     const config = await this.configLoader();
-    const scope = await this.scope(group.workspaceId, config);
     for (const file of group.files) {
       signal.throwIfAborted();
+      const scope = await this.scope(file.workspaceId || group.workspaceId, config);
       let location;
       let observed;
       try {
@@ -472,209 +471,227 @@ export class DailyReports {
       .run(id, JSON.stringify(brief));
   }
 
+  /**
+   * Generate one consolidated artifact per day; section pagination never limits evidence.
+   * @param day - Calendar date to summarize.
+   * @param retryId - Optional identity of the single daily task being retried.
+   * @param signal - Generation ownership; abort before publishing or notifying consumers.
+   * @returns Completion after all source versions and output ownership have been checked.
+   */
   async generate(day, retryId, signal = this.controller.signal) {
     const report = await this.view(day);
-    if (!report.enabled || !this.generateBrief) {
+    if (!report.enabled || !this.generateBrief || !report.groups.length) {
       return;
     }
-    for (const group of report.groups) {
-      if (retryId && group.id !== retryId) {
-        continue;
+    const settings = await this.configLoader();
+    const workspaces = this.registry.list();
+    const outputWorkspaceId =
+      report.brief?.workspaceId ||
+      workspaces.find((workspace) => workspace.id === settings.workspaceId)?.id ||
+      workspaces[0]?.id;
+    const group = {
+      id: report.id,
+      digest: report.digest,
+      brief: report.brief,
+      workspaceId: outputWorkspaceId,
+      groups: report.groups,
+      files: report.groups.flatMap((section) => section.files),
+    };
+    if (retryId && group.id !== retryId) {
+      return;
+    }
+    if (
+      group.brief?.digest === group.digest &&
+      (group.brief.status === 'completed' ||
+        (group.brief.status === 'failed' &&
+          group.brief.generatorVersion === BRIEF_VERSION &&
+          !retryId))
+    ) {
+      return;
+    }
+    const token = randomUUID();
+    const brief = {
+      ...group.brief,
+      digest: group.digest,
+      status: 'running',
+      token,
+      generatorVersion: BRIEF_VERSION,
+      workspaceId: group.workspaceId,
+      error: null,
+      errorDetails: null,
+    };
+    this.saveBrief(group.id, brief);
+    try {
+      if (report.scanErrors.length) {
+        fail('DAILY_COLLECTION_INCOMPLETE', 409);
       }
-      if (
-        group.brief?.digest === group.digest &&
-        (group.brief.status === 'completed' ||
-          (group.brief.status === 'failed' &&
-            group.brief.generatorVersion === BRIEF_VERSION &&
-            !retryId))
-      ) {
-        continue;
-      }
-      const token = randomUUID();
-      const brief = {
-        ...group.brief,
-        digest: group.digest,
-        status: 'running',
-        token,
-        generatorVersion: BRIEF_VERSION,
-        error: null,
-        errorDetails: null,
-      };
-      this.saveBrief(group.id, brief);
-      try {
-        if (report.scanErrors.some(([id]) => !id || id === group.workspaceId)) {
-          fail('DAILY_COLLECTION_INCOMPLETE', 409);
-        }
-        const config = await this.configLoader();
-        const scope = await this.scope(group.workspaceId, config);
-        if (group.group) {
-          const directory = await safeDocumentPath(scope.root, group.group);
-          if (!(await stat(directory)).isDirectory()) {
-            fail('DAILY_GROUP_INVALID', 409);
-          }
-        }
-        const evidence = group.files;
-        const reads = new Map();
-        const owner = this;
-        const readEvidence = async function* () {
-          for await (const file of owner.evidence(group, signal)) {
-            reads.set(JSON.stringify([file.kind, file.path]), {
-              kind: file.kind,
-              path: file.path,
-              version: file.version,
-              readVersion: file.readVersion,
-              fileState: file.fileState,
-            });
-            yield file;
-          }
-        };
-        const summary = await this.generateBrief({
-          group,
-          evidence,
-          readEvidence,
-          scope,
-          config,
-          day: report.day,
-          signal,
-        });
-        signal.throwIfAborted();
-        if (reads.size !== evidence.length) {
-          fail('DAILY_EVIDENCE_INCOMPLETE', 409);
-        }
-        for (const reference of reads.values()) {
-          if (!reference.readVersion) {
-            continue;
-          }
-          const original = evidence.find(
-            (file) => file.kind === reference.kind && file.path === reference.path,
-          );
-          const location =
-            original.kind === 'knowledge'
-              ? await this.knowledgeFile(original)
-              : { root: scope.root, path: original.path };
-          const latest = await documentMetadata(location.root, location.path, signal);
-          if (hash(latest.version) !== reference.readVersion) {
-            fail('DAILY_SOURCE_CHANGED', 409);
-          }
-        }
-        if (typeof summary !== 'string' || !summary.trim() || Buffer.byteLength(summary) > 120000) {
-          fail('DAILY_BRIEF_INVALID');
-        }
-        const fresh = await this.view(report.day, group.workspaceId);
-        if (
-          payload(this.db.prepare('SELECT payload FROM daily_briefs WHERE id=?').get(group.id))
-            ?.token !== token
-        ) {
-          continue;
-        }
-        const currentConfig = await this.configLoader();
-        if (currentConfig.dailyReports?.enabled === false) {
-          fail('DAILY_MODEL_DISABLED', 409);
-        }
-        const currentScope = await this.scope(group.workspaceId, currentConfig);
-        if (
-          currentScope.id !== scope.id ||
-          fresh.groups.find((item) => item.id === group.id)?.digest !== group.digest
-        ) {
-          this.saveBrief(group.id, { ...brief, status: 'stale' });
-          continue;
-        }
-        const path = [group.group, 'daily-reports', report.day + '.md'].filter(Boolean).join('/');
-        const target = await safeDocumentPath(scope.root, path, { allowMissing: true });
-        // Source paths remain literal text; no model-supplied destination or executable markup.
-        const text =
-          `# ${report.day}\n\n${summary}\n\n` +
-          [...reads.values()]
-            .map(
-              (file) =>
-                `- ${file.kind}: ${JSON.stringify(file.path)} (${file.readVersion || file.version}; ${file.fileState})`,
-            )
-            .join('\n') +
-          '\n';
-        const outputLimit = Number.MAX_SAFE_INTEGER;
-        if (Buffer.byteLength(text) > outputLimit) {
-          fail('DAILY_INPUT_LIMIT', 413);
-        }
-        await withDocumentLock(target, async () => {
-          signal.throwIfAborted();
-          let current;
-          try {
-            current = await readReplicaFile(scope.root, path, outputLimit, signal);
-          } catch (error) {
-            if (error.code !== 'ENOENT') {
-              throw error;
-            }
-          }
-          if (current && hash(current.bytes) !== brief.outputHash) {
-            fail('DAILY_OUTPUT_CONFLICT', 409);
-          }
-          await mkdir(dirname(target), { recursive: true });
-          await safeDocumentPath(scope.root, path, { allowMissing: true });
-          await this.run(() => {
-            const key = hash(JSON.stringify([scope.id, path]));
-            const seen = payload(
-              this.db.prepare('SELECT payload FROM daily_seen WHERE id=?').get(key),
-            );
-            this.db
-              .prepare('INSERT OR REPLACE INTO daily_seen VALUES(?,?)')
-              .run(key, JSON.stringify({ ...seen, excluded: true }));
+      const config = await this.configLoader();
+      const scope = await this.scope(group.workspaceId, config);
+      const evidence = group.files;
+      const reads = new Map();
+      const owner = this;
+      const readEvidence = async function* () {
+        for await (const file of owner.evidence(group, signal)) {
+          reads.set(JSON.stringify([file.workspaceId, file.kind, file.path]), {
+            workspaceId: file.workspaceId,
+            workspaceTitle: file.workspaceTitle,
+            group: file.group,
+            kind: file.kind,
+            path: file.path,
+            version: file.version,
+            readVersion: file.readVersion,
+            fileState: file.fileState,
           });
-          if (current) {
-            await atomicWrite(target, text, signal, () => {
-              signal.throwIfAborted();
-              const info = statSync(target, { bigint: true });
-              const fingerprint = [info.dev, info.ino, info.size, info.mtimeNs, info.ctimeNs]
-                .map(String)
-                .join(':');
-              if (
-                fingerprint !== current.fingerprint ||
-                realpathSync(target) !== target ||
-                realpathSync(scope.root) !== scope.root
-              ) {
-                fail('DAILY_OUTPUT_CONFLICT', 409);
-              }
-            });
-          } else {
-            signal.throwIfAborted();
-            await writeFile(target, text, { flag: 'wx' });
-          }
-          // Exclusion is persisted before discovery can observe the output.
-          await this.committed(group.workspaceId, path, 'daily-brief');
-        });
-        signal.throwIfAborted();
-        this.saveBrief(group.id, {
-          ...brief,
-          status: 'completed',
-          summary,
-          reads: [...reads.values()],
-          path,
-          outputHash: hash(text),
-          completedAt: this.now().toISOString(),
-          error: null,
-        });
-        // Output consumers own their queue and errors; they cannot stall the next brief.
-        const notification = Promise.resolve().then(() => this.onBrief?.(group.workspaceId, path));
-        void notification.catch(() => {
-          // Independent consumers retain their own failed registration status.
-        });
-      } catch (error) {
-        if (
-          payload(this.db.prepare('SELECT payload FROM daily_briefs WHERE id=?').get(group.id))
-            ?.token !== token
-        ) {
+          yield file;
+        }
+      };
+      const summary = await this.generateBrief({
+        group,
+        evidence,
+        readEvidence,
+        scope,
+        config,
+        day: report.day,
+        signal,
+      });
+      signal.throwIfAborted();
+      if (reads.size !== evidence.length) {
+        fail('DAILY_EVIDENCE_INCOMPLETE', 409);
+      }
+      for (const reference of reads.values()) {
+        if (!reference.readVersion) {
           continue;
         }
-        if (signal.aborted) {
-          this.saveBrief(group.id, { ...brief, status: 'stale', error: 'DAILY_INTERRUPTED' });
-          return;
+        const original = evidence.find(
+          (file) =>
+            file.workspaceId === reference.workspaceId &&
+            file.kind === reference.kind &&
+            file.path === reference.path,
+        );
+        const sourceScope = await this.scope(original.workspaceId, config);
+        const location =
+          original.kind === 'knowledge'
+            ? await this.knowledgeFile(original)
+            : { root: sourceScope.root, path: original.path };
+        const latest = await documentMetadata(location.root, location.path, signal);
+        if (hash(latest.version) !== reference.readVersion) {
+          fail('DAILY_SOURCE_CHANGED', 409);
         }
-        this.saveBrief(group.id, {
-          ...brief,
-          status: 'failed',
-          error: error.code || 'DAILY_GENERATION_FAILED',
-          errorDetails: briefErrorDetails(error),
-        });
       }
+      if (typeof summary !== 'string' || !summary.trim() || Buffer.byteLength(summary) > 120000) {
+        fail('DAILY_BRIEF_INVALID');
+      }
+      const fresh = await this.view(report.day);
+      if (
+        payload(this.db.prepare('SELECT payload FROM daily_briefs WHERE id=?').get(group.id))
+          ?.token !== token
+      ) {
+        return;
+      }
+      const currentConfig = await this.configLoader();
+      if (currentConfig.dailyReports?.enabled === false) {
+        fail('DAILY_MODEL_DISABLED', 409);
+      }
+      const currentScope = await this.scope(group.workspaceId, currentConfig);
+      if (currentScope.id !== scope.id || fresh.digest !== group.digest) {
+        this.saveBrief(group.id, { ...brief, status: 'stale' });
+        return;
+      }
+      const path = 'daily-reports/' + report.day + '-summary.md';
+      const target = await safeDocumentPath(scope.root, path, { allowMissing: true });
+      // Source paths remain literal text; no model-supplied destination or executable markup.
+      const text =
+        `# ${report.day}\n\n${summary}\n\n` +
+        [...reads.values()]
+          .map(
+            (file) =>
+              `- ${file.workspaceTitle} / ${file.kind}: ${JSON.stringify(file.path)} (${file.readVersion || file.version}; ${file.fileState})`,
+          )
+          .join('\n') +
+        '\n';
+      const outputLimit = Number.MAX_SAFE_INTEGER;
+      if (Buffer.byteLength(text) > outputLimit) {
+        fail('DAILY_INPUT_LIMIT', 413);
+      }
+      await withDocumentLock(target, async () => {
+        signal.throwIfAborted();
+        let current;
+        try {
+          current = await readReplicaFile(scope.root, path, outputLimit, signal);
+        } catch (error) {
+          if (error.code !== 'ENOENT') {
+            throw error;
+          }
+        }
+        if (current && hash(current.bytes) !== brief.outputHash) {
+          fail('DAILY_OUTPUT_CONFLICT', 409);
+        }
+        await mkdir(dirname(target), { recursive: true });
+        await safeDocumentPath(scope.root, path, { allowMissing: true });
+        await this.run(() => {
+          const key = hash(JSON.stringify([scope.id, path]));
+          const seen = payload(
+            this.db.prepare('SELECT payload FROM daily_seen WHERE id=?').get(key),
+          );
+          this.db
+            .prepare('INSERT OR REPLACE INTO daily_seen VALUES(?,?)')
+            .run(key, JSON.stringify({ ...seen, excluded: true }));
+        });
+        if (current) {
+          await atomicWrite(target, text, signal, () => {
+            signal.throwIfAborted();
+            const info = statSync(target, { bigint: true });
+            const fingerprint = [info.dev, info.ino, info.size, info.mtimeNs, info.ctimeNs]
+              .map(String)
+              .join(':');
+            if (
+              fingerprint !== current.fingerprint ||
+              realpathSync(target) !== target ||
+              realpathSync(scope.root) !== scope.root
+            ) {
+              fail('DAILY_OUTPUT_CONFLICT', 409);
+            }
+          });
+        } else {
+          signal.throwIfAborted();
+          await writeFile(target, text, { flag: 'wx' });
+        }
+        // Exclusion is persisted before discovery can observe the output.
+        await this.committed(group.workspaceId, path, 'daily-brief');
+      });
+      signal.throwIfAborted();
+      this.saveBrief(group.id, {
+        ...brief,
+        status: 'completed',
+        summary,
+        reads: [...reads.values()],
+        path,
+        outputHash: hash(text),
+        completedAt: this.now().toISOString(),
+        error: null,
+      });
+      // Output consumers own their queue and errors; they cannot stall the next brief.
+      const notification = Promise.resolve().then(() => this.onBrief?.(group.workspaceId, path));
+      void notification.catch(() => {
+        // Independent consumers retain their own failed registration status.
+      });
+    } catch (error) {
+      if (
+        payload(this.db.prepare('SELECT payload FROM daily_briefs WHERE id=?').get(group.id))
+          ?.token !== token
+      ) {
+        return;
+      }
+      if (signal.aborted) {
+        this.saveBrief(group.id, { ...brief, status: 'stale', error: 'DAILY_INTERRUPTED' });
+        return;
+      }
+      this.saveBrief(group.id, {
+        ...brief,
+        status: 'failed',
+        error: error.code || 'DAILY_GENERATION_FAILED',
+        errorDetails: briefErrorDetails(error),
+      });
     }
   }
 

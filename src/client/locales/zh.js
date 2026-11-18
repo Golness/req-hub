@@ -2107,12 +2107,14 @@ module.exports = {
   'reports.daily': '日报',
   'daily.date': '文件日期',
   'daily.schedule':
-    '按 {zone} 时间收集前一天的文件，每天 08:00 生成简报；宿主未运行时于下次启动后补执行。日报自身不参与汇总。',
+    '按 {zone} 时间收集前一天的文件，每天 08:00 生成一份总简报，内部按工作区、需求目录分章节；宿主未运行时于下次启动后补执行。日报自身不参与汇总。',
   'daily.disabled': '自动简报已关闭，文件仍会继续收集。',
   'daily.empty': '这一天尚未收集到文件。',
   'daily.public': '公共资料（未归属需求）',
   'daily.count': '共 {total} 个文件 · 新增 {added} · 更新 {changed}',
   'daily.status.pending': '等待每天 08:00 生成',
+  'daily.title': '每日总简报',
+  'server.DAILY_USER_REQUIRED': '跨工作区总简报只能由用户操作。',
   'daily.status.running': '正在生成简报',
   'daily.status.completed': '简报已完成',
   'daily.status.failed': '简报生成失败',
@@ -2130,7 +2132,7 @@ module.exports = {
   'daily.source.conversation': '会话文件',
   'daily.source.knowledge': '知识库页面',
   'server.PROMPT_DAILY_BRIEF': '日报简报',
-  'server.PROMPT_DAILY_BRIEF_DESC': '按工作区与需求目录汇总文件的每日简报',
+  'server.PROMPT_DAILY_BRIEF_DESC': '每天一份总简报，内部按工作区与需求目录分章节',
   'server.DAILY_INPUT_INVALID': '日报参数无效。',
   'server.DAILY_WORKSPACE_MISSING': '工作区不可用。',
   'server.DAILY_STORAGE_LIMIT': '日报快照存储已达到预算，文件尚未完整收集。',
@@ -2140,8 +2142,6 @@ module.exports = {
   'server.DAILY_SNAPSHOT_INVALID': '文件版本快照缺失或损坏，无法生成完整简报。',
   'server.DAILY_BRIEF_INVALID': '模型简报未通过校验。',
   'server.DAILY_GROUP_INVALID': '简报分组对应的路径不是需求目录，请刷新文件清单。',
-  'daily.progress':
-    '简报汇总：成功 {completed} · 失败 {failed} · 生成中 {running} · 待生成 {pending} · 待更新 {stale}',
   'daily.failureDetails': '查看简报失败详情',
   'daily.failureDetailsMissing':
     '这次失败未记录详细原因；重试后会保留工具校验或模型执行的诊断信息。',

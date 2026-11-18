@@ -5,14 +5,18 @@ import { runModelStep } from './knowledge-v2/compiler.js';
 /**
  * Build bounded, lossless model batches; binary files contribute explicit metadata only.
  * @param evidence - File chunks read from source files for this generation only.
+ * @param maxCharacters - Batch character target; reduction batches must fit two bounded summaries.
  * @returns Batches whose text never splits a Unicode code point.
  */
-export function briefBatches(evidence) {
+export function briefBatches(evidence, maxCharacters = 20000) {
   const batches = [];
   let batch = [];
   let size = 0;
   for (const file of evidence) {
     const metadata = JSON.stringify({
+      workspaceId: file.workspaceId,
+      workspace: file.workspaceTitle,
+      requirement: file.group,
       path: file.path,
       version: file.readVersion || file.version,
       recordedVersion: file.version,
@@ -25,7 +29,7 @@ export function briefBatches(evidence) {
     const characters = Array.from(file.body ?? 'Content unavailable. Describe metadata only.');
     for (let offset = 0; offset < Math.max(characters.length, 1); offset += 16000) {
       const body = metadata + '\n' + characters.slice(offset, offset + 16000).join('');
-      if (size + body.length > 20000 && batch.length) {
+      if (size + body.length > maxCharacters && batch.length) {
         batches.push(batch);
         batch = [];
         size = 0;
@@ -48,7 +52,7 @@ export function briefBatches(evidence) {
 }
 
 /**
- * Adapt the existing controlled Host task runner to one workspace's daily brief.
+ * Consolidate all workspace evidence into one daily brief with workspace and requirement sections.
  * @param ctx - Injected Host services.
  * @param installation - Plugin-owned frozen-evidence tools; never registered twice.
  * @returns A cancellable generator that releases its background Agent in finally.
@@ -92,8 +96,12 @@ export function createDailyBriefGenerator(ctx, installation) {
           budget,
           instruction: JSON.stringify({
             day,
-            workspace: group.workspaceTitle,
-            requirement: group.group,
+            scope: 'all-workspaces',
+            sections: group.groups?.map((section) => ({
+              workspaceId: section.workspaceId,
+              workspace: section.workspaceTitle,
+              requirement: section.group,
+            })),
             deliveryLanguage: config.general?.contentLanguage || 'zh',
           }),
           description: 'ReqHub daily brief',
@@ -136,6 +144,7 @@ export function createDailyBriefGenerator(ctx, installation) {
             contentAvailable: true,
             sources: ['daily-summary'],
           })),
+          32000,
         );
         for (const documents of batches) {
           next.push(await summarize(documents));

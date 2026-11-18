@@ -24,7 +24,15 @@ const button = (label) =>
   [...container.querySelectorAll('button')].find((item) => item.textContent.trim() === label);
 const click = (node) => act(async () => node.click());
 const report = () => ({
+  id: 'daily',
   day: '2026-11-17',
+  brief: {
+    workspaceId: 'ws',
+    status: 'failed',
+    error: 'DAILY_MODEL_DISABLED',
+    summary: 'Earlier summary',
+    path: 'daily-reports/2026-11-17-summary.md',
+  },
   timeZone: 'Asia/Shanghai',
   enabled: true,
   scanErrors: [],
@@ -50,12 +58,6 @@ const report = () => ({
           sources: ['writing'],
         },
       ],
-      brief: {
-        status: 'failed',
-        error: 'DAILY_MODEL_DISABLED',
-        summary: 'Earlier summary',
-        path: 'author/2026-11-17-change/daily-reports/2026-11-17.md',
-      },
     },
   ],
 });
@@ -73,7 +75,8 @@ it('uses all three tabs with End, Home and cyclic arrow navigation without query
   );
   expect(tabs[2].getAttribute('aria-selected')).toBe('true');
   expect(document.activeElement).toBe(tabs[2]);
-  expect(container.textContent).toContain('Workspace / author/2026-11-17-change');
+  expect(container.textContent).toContain('每日总简报');
+  expect(container.querySelectorAll('article')).toHaveLength(1);
   expect(fetch.mock.calls.some(([url]) => String(url).includes('kind=daily'))).toBe(false);
   await act(async () =>
     tabs[2].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })),
@@ -97,19 +100,23 @@ it('keeps content on refresh errors, retries the authorized group and opens the 
   vi.stubGlobal('fetch', fetch);
   await act(async () => root.render(React.createElement(DailyReportsPanel, { onNavigate })));
   expect(container.textContent).toContain('Earlier summary');
-  expect(container.textContent).toContain('写作产物');
-  expect(container.textContent).toContain('frozen-hash');
+  await click(button('展开文件清单与版本'));
+  expect(document.querySelector('[role="dialog"]').textContent).toContain('写作产物');
+  expect(document.querySelector('[role="dialog"]').textContent).toContain('frozen-hash');
+  await act(async () =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+  );
   expect(container.textContent).toContain('AI 已关闭');
   await click(button('查看简报文件'));
   expect(onNavigate).toHaveBeenCalledWith({
     kind: 'file',
     workspaceId: 'ws',
-    path: report().groups[0].brief.path,
+    path: report().brief.path,
   });
   await click(button('重试简报'));
   expect(
     JSON.parse(fetch.mock.calls.find(([, options]) => options?.method === 'POST')[1].body),
-  ).toEqual({ day: '2026-11-17', id: 'group', workspaceId: 'ws' });
+  ).toEqual({ day: '2026-11-17', id: 'daily' });
   fetch.mockResolvedValueOnce(response({ error: 'DAILY_FAILED' }, false));
   await click(button('刷新'));
   expect(container.textContent).toContain('Earlier summary');
@@ -141,18 +148,18 @@ it('distinguishes disabled collection, empty dates and pending briefs from succe
   expect(container.textContent).toContain('自动简报已关闭');
   expect(container.textContent).toContain('尚未收集到文件');
   fetch.mockResolvedValueOnce(
-    response({ ...report(), groups: [{ ...report().groups[0], group: '', brief: null }] }),
+    response({ ...report(), brief: null, groups: [{ ...report().groups[0], group: '' }] }),
   );
   await click(button('刷新'));
-  expect(container.textContent).toContain('公共资料');
+  expect(container.textContent).not.toContain('公共资料');
   expect(container.textContent).toContain('等待每天 08:00 生成');
   expect(container.textContent).not.toContain('简报已完成');
 });
 
-it('shows whole-day totals, daily-specific diagnostics and no stale failure during an active retry', async () => {
+it('shows one daily status and diagnostic action regardless of the number of source groups', async () => {
   const value = report();
-  value.briefCounts = { completed: 2, failed: 23, running: 1, pending: 0, stale: 0 };
-  value.groups[0].brief = {
+  value.groups.push({ ...value.groups[0], id: 'other', workspaceTitle: 'Other workspace' });
+  value.brief = {
     status: 'failed',
     error: 'KB_TOOL_FAILED',
     errorDetails: { cause: 'KB_EVIDENCE_NOT_FULLY_READ', unreadRequiredCount: 1 },
@@ -162,7 +169,8 @@ it('shows whole-day totals, daily-specific diagnostics and no stale failure duri
     vi.fn(async () => response(value)),
   );
   await act(async () => root.render(React.createElement(DailyReportsPanel)));
-  expect(container.textContent).toContain('成功 2 · 失败 23');
+  expect(container.querySelectorAll('article')).toHaveLength(1);
+  expect(container.textContent).not.toContain('Other workspace');
   expect(container.textContent).toContain('简报工具校验失败');
   expect(container.textContent).not.toContain('知识编译');
   await click(button('查看简报失败详情'));
@@ -172,7 +180,7 @@ it('shows whole-day totals, daily-specific diagnostics and no stale failure duri
   await act(async () =>
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
   );
-  value.groups[0].brief.status = 'running';
+  value.brief.status = 'running';
   await click(button('刷新'));
   expect(container.textContent).toContain('正在生成简报');
   expect(container.querySelector('[role="alert"]')).toBeNull();
@@ -181,7 +189,7 @@ it('shows whole-day totals, daily-specific diagnostics and no stale failure duri
 
 it('renders model HTML as inert text and does not silently combine changed file pages', async () => {
   const value = report();
-  value.groups[0].brief.summary = '<img src=x onerror="alert(1)"><script>alert(1)</script>';
+  value.brief.summary = '<img src=x onerror="alert(1)"><script>alert(1)</script>';
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => response(value)),
@@ -193,10 +201,7 @@ it('renders model HTML as inert text and does not silently combine changed file 
 
 it('explains current-file reads and unavailable originals without promising historical copies', async () => {
   const value = report();
-  value.groups[0].brief.reads = [
-    { fileState: 'updated_since_collection' },
-    { fileState: 'unavailable' },
-  ];
+  value.brief.reads = [{ fileState: 'updated_since_collection' }, { fileState: 'unavailable' }];
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => response(value)),
