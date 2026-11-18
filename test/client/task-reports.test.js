@@ -25,6 +25,40 @@ const button = (text) =>
   [...container.querySelectorAll('button')].find((item) => item.textContent.trim() === text);
 const click = (node) => act(async () => node.click());
 const mount = (element) => act(async () => root.render(element));
+it('renders partial reports and all counters without unresolved keys or placeholders', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      response({
+        items: [
+          {
+            id: 'knowledge',
+            day: '2026-11-17',
+            status: 'partial',
+            stats: {
+              documents: 0,
+              sessions: 158,
+              workspaces: 6,
+              total: 158,
+              failed: 106,
+              succeeded: 45,
+              skipped: 7,
+              pending: 0,
+              failedJobs: 1,
+              failureGroups: [{ code: 'KB_SESSION_PROVENANCE_INVALID', jobId: null, count: 69 }],
+            },
+          },
+        ],
+      }),
+    ),
+  );
+  await mount(React.createElement(TaskReportsPanel));
+  expect(container.textContent).toContain('部分失败');
+  expect(container.textContent).toContain('会话 158');
+  expect(container.textContent).toContain('影响 69 项');
+  expect(container.textContent).not.toMatch(/status\.|\{(?:wiki|sources|sessions|skipped)\}/);
+});
+
 it('shows workspace groups and DSH/Codex labels with source, history and artifact navigation', async () => {
   const task = { id: 'sync', docType: 'design', status: 'completed' };
   vi.stubGlobal(
@@ -101,7 +135,7 @@ it('shows workspace groups and DSH/Codex labels with source, history and artifac
   });
   const tabs = container.querySelectorAll('[role="tab"]');
   await act(async () =>
-    tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })),
+    tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })),
   );
   expect(tabs[1].getAttribute('aria-selected')).toBe('true');
   expect(document.activeElement).toBe(tabs[1]);

@@ -7,6 +7,17 @@ import { configFilePath } from './config.js';
 import { json } from './utils.js';
 
 const ACTIVE = new Set(['queued', 'running']);
+const FAILED = new Set([
+  'failed',
+  'aborted',
+  'cancelled',
+  'interrupted',
+  'rejected',
+  'rolled_back',
+  'partial',
+]);
+const SUCCEEDED = new Set(['completed', 'published']);
+const SKIPPED = new Set(['skipped', 'warning']);
 
 /** Persistent scheduled-run reports; individual items survive cancellation and process restart. */
 export class TaskReports {
@@ -175,35 +186,56 @@ export class TaskReports {
       .filter((item) => !visible || allowed.has(item.workspaceId));
   }
   stats(items) {
+    const detailedWorkspaces = new Set(
+      items.filter((item) => item.kind !== 'workspace').map((item) => item.workspaceId),
+    );
+    const outcomes = items.filter(
+      (item) => item.kind !== 'workspace' || !detailedWorkspaces.has(item.workspaceId),
+    );
+    const counted = outcomes.filter(
+      (item) => item.kind !== 'workspace' || item.status !== 'skipped',
+    );
+    const failures = new Map();
+    for (const item of counted.filter((entry) => FAILED.has(entry.status))) {
+      let code = typeof item.error === 'object' ? item.error?.code : item.error;
+      if (/ENOENT/.test(code || '')) {
+        code = item.source === 'codex' ? 'CODEX_SOURCE_FILE_MISSING' : 'REPORT_SOURCE_FILE_MISSING';
+      } else if (/Cannot read properties of undefined.*status/.test(code || '')) {
+        code = 'KB_SESSION_PROVENANCE_INVALID';
+      }
+      code ||= 'REPORT_ITEM_FAILED';
+      const key = item.jobId || code;
+      const reason =
+        item.error?.details?.cause || item.error?.details?.errorCode || item.error?.details?.reason;
+      const group = failures.get(key) || {
+        code,
+        jobId: item.jobId || null,
+        count: 0,
+        ...(reason ? { reason } : {}),
+      };
+      group.count++;
+      failures.set(key, group);
+    }
     return {
       workspaces: new Set(items.map((item) => item.workspaceId)).size,
-      total: items.filter((item) => item.kind !== 'workspace' || item.status !== 'skipped').length,
-      succeeded: items.filter(
+      total: counted.length,
+      succeeded: counted.filter((item) => SUCCEEDED.has(item.status)).length,
+      failed: counted.filter((item) => FAILED.has(item.status)).length,
+      skipped: counted.filter((item) => SKIPPED.has(item.status)).length,
+      pending: counted.filter(
         (item) =>
-          item.kind !== 'workspace' && ['completed', 'published', 'skipped'].includes(item.status),
+          !SUCCEEDED.has(item.status) && !FAILED.has(item.status) && !SKIPPED.has(item.status),
       ).length,
-      failed: items.filter((item) =>
-        ['failed', 'aborted', 'cancelled', 'interrupted', 'rejected', 'rolled_back'].includes(
-          item.status,
-        ),
-      ).length,
-      pending: items.filter(
-        (item) =>
-          ![
-            'completed',
-            'published',
-            'skipped',
-            'failed',
-            'aborted',
-            'cancelled',
-            'interrupted',
-            'rejected',
-            'rolled_back',
-          ].includes(item.status),
-      ).length,
-      documents: items.filter((item) => item.kind === 'document').length,
-      sessions: items.filter((item) => item.kind === 'session').length,
-      branches: items.filter((item) => item.kind === 'branch').length,
+      documents: counted.filter((item) => item.kind === 'document').length,
+      sessions: counted.filter((item) => item.kind === 'session').length,
+      branches: counted.filter((item) => item.kind === 'branch').length,
+      failedJobs: new Set(
+        counted
+          .filter((item) => FAILED.has(item.status))
+          .map((item) => item.jobId)
+          .filter(Boolean),
+      ).size,
+      failureGroups: [...failures.values()],
     };
   }
   reconcile(id) {
@@ -220,6 +252,8 @@ export class TaskReports {
         report.status = 'waiting_session';
       } else if (!report.stats.failed && rows.some((item) => item.status === 'pending_review')) {
         report.status = 'pending_review';
+      } else if (report.stats.pending) {
+        report.status = 'running';
       } else {
         report.status = report.stats.failed ? 'partial' : 'completed';
         report.completedAt = new Date().toISOString();
@@ -258,7 +292,38 @@ export class TaskReports {
       sessionId: source.origin.sessionId,
       originWorkspace: workspace.title,
       status: 'queued',
+      jobId: null,
+      error: null,
     });
+  }
+  /** Bind only this report's source revisions to its actual compile, before observing updates. */
+  bindKnowledgeJob(id, job) {
+    this.get(id);
+    const links = this.db
+      .prepare(
+        'SELECT workspace_id,document_id,version FROM reqhub_report_sources WHERE report_id=? AND scope_id=?',
+      )
+      .all(id, job.scopeId);
+    for (const item of this.rows(id)) {
+      if (
+        item.documentId &&
+        links.some(
+          (link) =>
+            link.workspace_id === item.workspaceId &&
+            link.document_id === item.documentId &&
+            link.version === item.sourceVersion,
+        ) &&
+        job.sourceIds?.includes(item.documentId) &&
+        item.sourceVersion ===
+          Number(String(job.sourceRevisions?.[item.documentId]).replace(/^rev-/, ''))
+      ) {
+        this.item(id, { id: item.workspaceId }, item.key, {
+          jobId: job.id,
+          status: job.status,
+          error: job.error || null,
+        });
+      }
+    }
   }
   knowledgeJob(job) {
     if (job.kind !== 'ingest') {
@@ -274,11 +339,13 @@ export class TaskReports {
           'SELECT s.* FROM reqhub_report_sources s JOIN reqhub_reports r ON r.id=s.report_id WHERE r.owner=? AND s.scope_id=? AND s.document_id=? AND s.version=?',
         )
         .all(this.owner, job.scopeId, id, version)) {
-        const key =
-          this.rows(link.report_id).find(
-            (item) => item.workspaceId === link.workspace_id && item.documentId === id,
-          )?.key || 'source:' + id;
-        this.item(link.report_id, { id: link.workspace_id }, key, {
+        const item = this.rows(link.report_id).find(
+          (item) => item.workspaceId === link.workspace_id && item.documentId === id,
+        );
+        if (!item || item.jobId !== job.id) {
+          continue;
+        }
+        this.item(link.report_id, { id: link.workspace_id }, item.key, {
           status: job.status,
           jobId: job.id,
           error: job.error,

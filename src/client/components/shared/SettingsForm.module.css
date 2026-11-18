@@ -18,6 +18,10 @@
   gap: 12px;
   min-width: 0;
 }
+.path {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .panel h3 {
   margin: 0;
   font-weight: 400;

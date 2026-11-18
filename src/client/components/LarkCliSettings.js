@@ -9,6 +9,7 @@ const { SettingsActionBar } = require('./shared/SettingsActionBar.js');
 const { Disclosure } = require('./shared/Disclosure.js');
 const { HoverCard } = require('./shared/controls.js');
 const { LarkTargetSettings } = require('./LarkTargetSettings.js');
+const { DocumentReplicaSettings } = require('./DocumentReplicaSettings.js');
 const { LarkErrorDetails } = require('./LarkErrorDetails.js');
 const { t, hasLocaleKey } = require('../locale.js');
 const css = require('./shared/SettingsForm.module.css').default;
@@ -466,6 +467,7 @@ function LarkCliSettings({ workspaceId } = {}) {
       disabled: !!busy || dirty,
       connectionBusy: !!busy,
     }),
+    h(DocumentReplicaSettings, { workspaceId, disabled: !!busy || dirty }),
   );
 }
 module.exports = { LarkCliSettings };

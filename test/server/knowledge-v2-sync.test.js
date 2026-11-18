@@ -47,6 +47,22 @@ function store(workspaceId, paths = []) {
   };
 }
 
+it('requeues unchanged imported files so failed compiles can recover on the next daily run', async () => {
+  const application = applicationFor({ A: store('A', ['saved.md']) });
+  application.importFiles.mockResolvedValue({
+    failed: 0,
+    results: [{ status: 'skipped', sourceId: 'source-1' }],
+  });
+  scheduler = new KnowledgeSyncScheduler({
+    application,
+    configLoader: async () => ({ general: { timeZone: 'Asia/Shanghai' }, knowledgeV2: values() }),
+  });
+  await scheduler.runDaily('A', '2026-11-17');
+  expect(application.enqueueCompile).toHaveBeenCalledWith(expect.anything(), 'ingest', [
+    'source-1',
+  ]);
+});
+
 describe('Knowledge V2 synchronization settings', () => {
   it('reads only knowledgeV2 automation settings and ignores legacy config blocks', async () => {
     let config = {

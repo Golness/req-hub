@@ -35,6 +35,23 @@ import { selectRelatedPages } from './search.js';
  * @returns The validated structured submission.
  */
 export async function runModelStep(options) {
+  const retryCount = options.config.knowledgeV2?.modelRetryCount ?? 1;
+  for (let attempt = 0; ; attempt++) {
+    options.signal.throwIfAborted();
+    try {
+      return await runModelAttempt(options);
+    } catch (error) {
+      options.signal.throwIfAborted();
+      const timedOut =
+        error.code === 'KB_MODEL_FAILED' && error.details?.errorCode === 'EXECUTION_TIMEOUT';
+      if (!timedOut || attempt >= retryCount) {
+        throw error;
+      }
+    }
+  }
+}
+
+async function runModelAttempt(options) {
   const {
     ctx,
     llm,
@@ -49,20 +66,22 @@ export async function runModelStep(options) {
     instruction,
     budget,
     description,
+    validateResult,
   } = options;
   signal.throwIfAborted();
-  const runtime = new KbTaskRuntime({ kind, documents, budget });
+  const runtime = new KbTaskRuntime({ kind, documents, budget, validateResult });
   runtime.signal = signal;
   const variables = {
     runtimeId: runtime.id,
     kind,
     instruction,
     documents: JSON.stringify(
-      documents.map(({ id, kind: docKind, title, version, required }) => ({
+      documents.map(({ id, kind: docKind, title, version, required, pageId }) => ({
         id,
         kind: docKind,
         title,
         version,
+        pageId,
         required: !!required,
       })),
     ),
@@ -204,6 +223,8 @@ export function validateUpserts(upserts, { source, active, currentPages, content
         fail('KB_MODEL_OUTPUT_INVALID', 400, {
           reason: 'baseHash mismatch; read the current page fully first',
           pageId,
+          documentId: 'wiki:' + pageId,
+          expectedHash: baseline.hash,
         });
       }
     } else if (upsert.baseHash) {
@@ -314,9 +335,21 @@ export async function runCompile({
       COMPILER_VERSION,
     ]);
   let targets =
-    job.kind === 'rebuild'
+    job.kind === 'rebuild' || !baseManifest
       ? active
       : active.filter((source) => (job.sourceIds || []).includes(source.id));
+  if (baseManifest && job.kind === 'ingest') {
+    const included = new Set(targets.map((source) => source.id));
+    for (const source of active) {
+      if (
+        !included.has(source.id) &&
+        (!baseManifest.pageHashes?.['sources/' + source.id] ||
+          baseManifest.fingerprints?.[source.id] !== fingerprint(source))
+      ) {
+        targets.push(source);
+      }
+    }
+  }
   if (job.kind === 'ingest' && baseManifest) {
     targets = targets.filter(
       (source) =>
@@ -417,6 +450,19 @@ export async function runCompile({
         version: digest(JSON.stringify(analysis)),
         required: true,
       };
+      const requested = new Set(analysis.existingPageIds || []);
+      const relatedForGeneration = selectRelatedPages(
+        afterSummary,
+        source.title + '\n' + analysis.summary,
+      );
+      const generationPages = [
+        ...new Map(
+          [
+            ...relatedForGeneration,
+            ...afterSummary.filter((page) => requested.has(page.pageId)),
+          ].map((page) => [page.pageId, page]),
+        ).values(),
+      ];
       const generated = await runModelStep({
         ctx,
         llm,
@@ -432,9 +478,7 @@ export async function runCompile({
           sourceDoc,
           analysisDoc,
           { ...indexDoc, body: buildIndex(afterSummary, 'staging') },
-          ...wikiDocuments(
-            selectRelatedPages(afterSummary, source.title + '\n' + analysis.summary),
-          ),
+          ...wikiDocuments(generationPages),
         ],
         instruction:
           `Generate Wiki page changes for source "${source.title}" (${source.id}@${source.revision}) ` +
@@ -442,6 +486,27 @@ export async function runCompile({
           'Read each page you update fully and copy its hash as baseHash. ' +
           'Return the complete updated overview. Do not write source summary pages; the Host owns them.',
         budget,
+        validateResult: (result, runtime) => {
+          for (const upsert of result.upserts) {
+            const baseline = afterSummary.find((page) => page.pageId === upsert.pageId);
+            if (baseline) {
+              const id = 'wiki:' + baseline.pageId;
+              const document = runtime.documents.find((item) => item.id === id);
+              if (!document || runtime.coverage.get(id) !== document.body.length) {
+                fail('KB_EVIDENCE_NOT_FULLY_READ', 400, {
+                  id,
+                  instruction: 'Read the exact frozen Wiki document completely before updating it.',
+                });
+              }
+            }
+          }
+          validateUpserts(result.upserts, {
+            source,
+            active: activeMap,
+            currentPages: afterSummary,
+            contents,
+          });
+        },
       });
       signal.throwIfAborted();
       const pages = validateUpserts(generated.upserts || [], {
@@ -484,6 +549,13 @@ export async function runCompile({
     });
     return {
       generationId: finalized.generationId,
+      artifacts: finalized.pages.map((page) => ({
+        pageId: page.pageId,
+        hash: page.hash,
+        sourcePaths: (page.meta.sources || []).map(
+          (reference) => activeMap.get(reference.id)?.origin?.relativePath || '',
+        ),
+      })),
       summary: {
         sources: targets.length,
         pages: finalized.pages.length,

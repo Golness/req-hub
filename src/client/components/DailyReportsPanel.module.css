@@ -1,0 +1,44 @@
+.panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  gap: 8px;
+  overflow: hidden;
+}
+.date {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.group {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 8px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+}
+.group h3 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+}
+.hint,
+.version {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.summary {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.file {
+  margin-block: 8px;
+}
+.version {
+  display: block;
+  overflow-wrap: anywhere;
+}

@@ -2,5 +2,8 @@
 .row {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 7px;
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+  letter-spacing: -0.2px;
 }

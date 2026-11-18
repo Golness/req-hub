@@ -1,3 +1,4 @@
+import { notifyDocumentCommit } from '../document-commits.js';
 import { msg } from '../messages.js';
 import { assertWorkspaceCaller } from './caller.js';
 import { freezeKnowledgeContext } from '../knowledge/enhancements/knowledge-context.js';
@@ -764,6 +765,7 @@ export function createSyncExecution({
                 storage.assert(syncTask);
               },
             });
+            await notifyDocumentCommit(options, workspaceId, relative(docsRoot, docPath), 'sync');
             await lifecycle.metadata({ publishState: 'document_written' });
             if (options.knowledgeV2?.sync) {
               try {

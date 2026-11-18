@@ -1,3 +1,4 @@
+import { notifyDocumentCommit } from '../document-commits.js';
 import { msg } from '../messages.js';
 import { safeDocumentPath } from '../safe-path.js';
 import { withDocumentLock } from '../sync-document-validator.js';
@@ -407,6 +408,9 @@ export function createTreeRoutes(registry, options = {}) {
           const fileStat = await stat(fullPath);
 
           const result = { success: true, mtime: fileStat.mtime.toISOString() };
+          if (options.documents || options.dailyReports) {
+            result.replica = await notifyDocumentCommit(options, workspaceId, filePath, 'docs');
+          }
           if (options.knowledgeService?.sync) {
             try {
               result.knowledge = await options.knowledgeService.sync.capture(workspaceId, filePath);

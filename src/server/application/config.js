@@ -51,6 +51,8 @@ export function createConfigApplication(registry, ctx, options = {}) {
             ...patch,
             general: { ...existing.general, ...patch.general },
             sync: { ...existing.sync, ...patch.sync },
+            documents: { ...existing.documents, ...patch.documents },
+            dailyReports: { ...existing.dailyReports, ...patch.dailyReports },
             knowledgeV2: { ...existing.knowledgeV2, ...patch.knowledgeV2 },
             ai: {
               ...existing.ai,
@@ -72,6 +74,13 @@ export function createConfigApplication(registry, ctx, options = {}) {
             reject('LARK_CHECK_REQUIRED', 400);
           }
           if (caller.kind === 'agent') {
+            if (
+              JSON.stringify(merged.dailyReports) !== JSON.stringify(existing.dailyReports || {}) ||
+              JSON.stringify(merged.documents) !== JSON.stringify(existing.documents || {}) ||
+              merged.docsDir !== existing.docsDir
+            ) {
+              reject('DOCUMENT_USER_REQUIRED');
+            }
             if (
               merged.defaultUsername !== existing.defaultUsername ||
               ['dailyUpdateEnabled', 'dailyUpdateTime', 'dailyOffsetDays'].some(

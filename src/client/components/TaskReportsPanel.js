@@ -1,4 +1,6 @@
 'use strict';
+const { DailyReportsPanel } = require('./DailyReportsPanel.js');
+const TABS = ['knowledge', 'sync', 'daily'];
 const clientApi = require('../api/index.js');
 const { formatDateTime, useTimeZone } = require('../time.js');
 const { PagedList } = require('./shared/PagedList.js');
@@ -12,6 +14,7 @@ const h = React.createElement;
 /** Browse scheduled reports and navigate with scoped server-provided document identities. */
 function TaskReportsPanel({ onClose, onNavigate }) {
   useTimeZone();
+  const panelId = React.useId();
   const [tab, setTab] = React.useState('knowledge');
   const [items, setItems] = React.useState([]);
   const [detail, setDetail] = React.useState(null);
@@ -30,6 +33,9 @@ function TaskReportsPanel({ onClose, onNavigate }) {
     return clientApi.requestJson(clientApi.endpoint('task-reports', query), { signal });
   };
   React.useEffect(() => {
+    if (tab === 'daily') {
+      return;
+    }
     const controller = new AbortController();
     owner.current = controller;
     let timer;
@@ -91,10 +97,29 @@ function TaskReportsPanel({ onClose, onNavigate }) {
         succeeded: value?.succeeded || 0,
         failed: value?.failed || 0,
         pending: value?.pending || 0,
+        skipped: value?.skipped || 0,
       })
     );
   };
   const status = (value) => label('status.' + value);
+  const failureSummary = (value) =>
+    value?.failureGroups?.length
+      ? h(
+          'div',
+          { className: css.hint },
+          h('p', null, t('reports.failedJobs', { count: value.failedJobs || 0 })),
+          ...value.failureGroups.map((group) =>
+            h(
+              'p',
+              { key: group.jobId || group.code },
+              localizeMessage(group.code),
+              ' · ',
+              t('reports.affectedItems', { count: group.count }),
+              group.reason && ' · ' + localizeMessage(group.reason),
+            ),
+          ),
+        )
+      : null;
   return h(
     'section',
     { className: css.panel },
@@ -103,17 +128,23 @@ function TaskReportsPanel({ onClose, onNavigate }) {
       { className: css.header },
       h(
         'div',
-        { role: 'tablist', 'aria-label': label('title'), className: css.tabs },
-        ...['knowledge', 'sync'].map((id, index) =>
+        {
+          role: 'tablist',
+          'aria-label': label('title'),
+          className: `rh-workbench-tabs ${css.tabs}`,
+        },
+        ...TABS.map((id, index) =>
           h(
             'button',
             {
               key: id,
               type: 'button',
               role: 'tab',
+              id: `${panelId}-${id}`,
+              'aria-controls': panelId,
               'aria-selected': tab === id,
               tabIndex: tab === id ? 0 : -1,
-              className: css.tab,
+              className: 'rh-workbench-tab',
               onClick: () => {
                 setDetail(null);
                 setItems([]);
@@ -122,15 +153,16 @@ function TaskReportsPanel({ onClose, onNavigate }) {
               onKeyDown: (event) => {
                 if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
                   event.preventDefault();
-                  let next = 1 - index;
+                  let next =
+                    (index + (event.key === 'ArrowLeft' ? -1 : 1) + TABS.length) % TABS.length;
                   if (event.key === 'Home') {
                     next = 0;
                   } else if (event.key === 'End') {
-                    next = 1;
+                    next = TABS.length - 1;
                   }
                   setDetail(null);
                   setItems([]);
-                  setTab(['knowledge', 'sync'][next]);
+                  setTab(TABS[next]);
                   event.currentTarget.parentElement.querySelectorAll('[role="tab"]')[next].focus();
                 }
               },
@@ -139,148 +171,195 @@ function TaskReportsPanel({ onClose, onNavigate }) {
           ),
         ),
       ),
-      h(Button, { variant: 'ghost', size: 'sm', onClick: onClose }, t('common.close')),
+      onClose && h(Button, { variant: 'ghost', size: 'sm', onClick: onClose }, t('common.close')),
     ),
     h(
       'div',
-      { className: css.toolbar },
-      detail &&
-        h(Button, { size: 'sm', variant: 'ghost', onClick: () => setDetail(null) }, label('back')),
-      h(
-        Button,
-        { size: 'sm', disabled: loading, onClick: () => setRevision((value) => value + 1) },
-        label('refresh'),
-      ),
-    ),
-    error && h('p', { role: 'alert' }, error),
-    loading && h('p', { role: 'status' }, label('loading')),
-    !detail && !loading && !items.length && h('p', null, label('empty')),
-    !detail &&
-      h(
-        PagedList,
-        {
-          resetKey: tab,
-          onPageChange: trackPage,
-          hasMore: cursor !== null,
-          onMore: async () => {
-            const signal = owner.current.signal;
-            try {
-              const next = await request({ kind: tab, cursor }, signal);
-              if (!signal.aborted) {
-                setItems((old) => [...old, ...next.items]);
-                setCursor(next.nextCursor ?? null);
-              }
-            } catch (reason) {
-              if (!signal.aborted) {
-                setError(reason.message);
-              }
-            }
-          },
-          busy: loading,
-        },
-        items.map((report) =>
-          h(
-            'article',
-            { key: report.id, className: css.record },
-            h('h3', null, report.day, ' · ', status(report.status)),
-            h('p', null, stats(report.stats)),
-            h('p', { className: css.hint }, formatDateTime(report.startedAt)),
-            report.targetDay && h('p', null, t('reports.targetDay', { day: report.targetDay })),
+      {
+        role: 'tabpanel',
+        id: panelId,
+        'aria-labelledby': `${panelId}-${tab}`,
+        className: css.body,
+      },
+      tab === 'daily'
+        ? h(DailyReportsPanel, { onNavigate })
+        : h(
+            React.Fragment,
+            null,
             h(
-              Button,
-              { size: 'sm', onClick: () => setDetail({ id: report.id, workspaces: [] }) },
-              label('detail'),
-            ),
-          ),
-        ),
-      ),
-    detail &&
-      h(
-        'div',
-        { className: css.list },
-        h(
-          'p',
-          null,
-          detail.day,
-          ' · ',
-          status(detail.status || 'running'),
-          ' · ',
-          stats(detail.stats),
-        ),
-        ...[
-          h(
-            PagedList,
-            { resetKey: detail.id },
-            (detail.workspaces || []).flatMap((workspace) =>
-              workspace.items.map((item) =>
+              'div',
+              { className: css.toolbar },
+              detail &&
                 h(
-                  'article',
-                  { key: workspace.id + item.key, className: css.record },
+                  Button,
+                  { size: 'sm', variant: 'ghost', onClick: () => setDetail(null) },
+                  label('back'),
+                ),
+              h(
+                Button,
+                { size: 'sm', disabled: loading, onClick: () => setRevision((value) => value + 1) },
+                label('refresh'),
+              ),
+            ),
+            error && h('p', { role: 'alert' }, error),
+            loading && h('p', { role: 'status' }, label('loading')),
+            !detail && !loading && !items.length && h('p', null, label('empty')),
+            !detail &&
+              h(
+                PagedList,
+                {
+                  resetKey: tab,
+                  onPageChange: trackPage,
+                  hasMore: cursor !== null,
+                  onMore: async () => {
+                    const signal = owner.current.signal;
+                    try {
+                      const next = await request({ kind: tab, cursor }, signal);
+                      if (!signal.aborted) {
+                        setItems((old) => [...old, ...next.items]);
+                        setCursor(next.nextCursor ?? null);
+                      }
+                    } catch (reason) {
+                      if (!signal.aborted) {
+                        setError(reason.message);
+                      }
+                    }
+                  },
+                  busy: loading,
+                },
+                items.map((report) =>
                   h(
-                    'h3',
-                    null,
-                    item.branch || localizeMessage(item.title) || item.sessionId || workspace.title,
-                  ),
-                  item.source &&
-                    h('span', { className: css.badge }, item.source === 'dsh' ? 'DSH' : 'Codex'),
-                  h('p', null, workspace.title, ' · ', status(item.status)),
-                  item.originWorkspace && h('p', { className: css.hint }, item.originWorkspace),
-                  item.reason && h('p', { className: css.hint }, localizeMessage(item.reason)),
-                  item.error && h('p', { role: 'alert' }, localizeMessage(item.error)),
-                  (item.documentId || item.documentIds?.[0]) &&
+                    'article',
+                    { key: report.id, className: css.record },
+                    h('h3', null, report.day, ' · ', status(report.status)),
+                    h('p', null, stats(report.stats)),
+                    failureSummary(report.stats),
+                    h('p', { className: css.hint }, formatDateTime(report.startedAt)),
+                    report.targetDay &&
+                      h('p', null, t('reports.targetDay', { day: report.targetDay })),
                     h(
                       Button,
-                      {
-                        size: 'sm',
-                        onClick: () =>
-                          onNavigate({
-                            kind: 'knowledge',
-                            workspaceId: workspace.id,
-                            documentId: item.documentId || item.documentIds[0],
-                          }),
-                      },
-                      label('source'),
-                    ),
-                  ...(item.tasks || []).map((task) =>
-                    h(
-                      'div',
-                      { key: task.id, className: css.toolbar },
-                      h(
-                        Button,
-                        {
-                          size: 'sm',
-                          onClick: () =>
-                            onNavigate({ kind: 'sync', workspaceId: workspace.id, task }),
-                        },
-                        t(
-                          task.docType === 'design'
-                            ? 'documents.design'
-                            : 'DocsViewerBody.message073',
-                        ),
-                        ' · ',
-                        label('history'),
-                      ),
-                      ['completed', 'state_committed', 'document_written'].includes(
-                        task.publishState || task.status,
-                      ) &&
-                        h(
-                          Button,
-                          {
-                            size: 'sm',
-                            onClick: () =>
-                              onNavigate({ kind: 'document', workspaceId: workspace.id, task }),
-                          },
-                          label('artifact'),
-                        ),
+                      { size: 'sm', onClick: () => setDetail({ id: report.id, workspaces: [] }) },
+                      label('detail'),
                     ),
                   ),
                 ),
               ),
-            ),
+            detail &&
+              h(
+                'div',
+                { className: css.list },
+                h(
+                  'p',
+                  null,
+                  detail.day,
+                  ' · ',
+                  status(detail.status || 'running'),
+                  ' · ',
+                  stats(detail.stats),
+                ),
+                failureSummary(detail.stats),
+                ...[
+                  h(
+                    PagedList,
+                    { resetKey: detail.id },
+                    (detail.workspaces || []).flatMap((workspace) =>
+                      workspace.items.map((item) =>
+                        h(
+                          'article',
+                          { key: workspace.id + item.key, className: css.record },
+                          h(
+                            'h3',
+                            null,
+                            item.branch ||
+                              localizeMessage(item.title) ||
+                              item.sessionId ||
+                              workspace.title,
+                          ),
+                          ['dsh', 'codex'].includes(item.source) &&
+                            h(
+                              'span',
+                              { className: css.badge },
+                              item.source === 'dsh' ? 'DSH' : 'Codex',
+                            ),
+                          h('p', null, workspace.title, ' · ', status(item.status)),
+                          item.originWorkspace &&
+                            h('p', { className: css.hint }, item.originWorkspace),
+                          item.reason &&
+                            h('p', { className: css.hint }, localizeMessage(item.reason)),
+                          item.error && h('p', { role: 'alert' }, localizeMessage(item.error)),
+                          (item.error?.details?.cause ||
+                            item.error?.details?.errorCode ||
+                            item.error?.details?.reason) &&
+                            h(
+                              'p',
+                              { className: css.hint },
+                              localizeMessage(
+                                item.error.details.cause ||
+                                  item.error.details.errorCode ||
+                                  item.error.details.reason,
+                              ),
+                            ),
+                          (item.documentId || item.documentIds?.[0]) &&
+                            h(
+                              Button,
+                              {
+                                size: 'sm',
+                                onClick: () =>
+                                  onNavigate({
+                                    kind: 'knowledge',
+                                    workspaceId: workspace.id,
+                                    documentId: item.documentId || item.documentIds[0],
+                                  }),
+                              },
+                              label('source'),
+                            ),
+                          ...(item.tasks || []).map((task) =>
+                            h(
+                              'div',
+                              { key: task.id, className: css.toolbar },
+                              h(
+                                Button,
+                                {
+                                  size: 'sm',
+                                  onClick: () =>
+                                    onNavigate({ kind: 'sync', workspaceId: workspace.id, task }),
+                                },
+                                t(
+                                  task.docType === 'design'
+                                    ? 'documents.design'
+                                    : 'DocsViewerBody.message073',
+                                ),
+                                ' · ',
+                                label('history'),
+                              ),
+                              ['completed', 'state_committed', 'document_written'].includes(
+                                task.publishState || task.status,
+                              ) &&
+                                h(
+                                  Button,
+                                  {
+                                    size: 'sm',
+                                    onClick: () =>
+                                      onNavigate({
+                                        kind: 'document',
+                                        workspaceId: workspace.id,
+                                        task,
+                                      }),
+                                  },
+                                  label('artifact'),
+                                ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            null,
           ),
-        ],
-      ),
-    null,
+    ),
   );
 }
 module.exports = { TaskReportsPanel };

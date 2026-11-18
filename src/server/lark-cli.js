@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { access, realpath } from 'node:fs/promises';
 import { dirname, join, delimiter } from 'node:path';
 import { homedir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { BoundedSemaphore } from './concurrency/BoundedSemaphore.js';
 import { inspectLarkTarget, larkTargetRevision } from './lark-target.js';
 import { listLarkTargets } from './lark-target-browser.js';
@@ -11,7 +12,7 @@ import {
   larkWorkspacesRevision,
   listLarkWorkspaceBindings,
 } from './lark-workspace-bindings.js';
-import { pushLarkDocuments, syncLarkFile } from './lark-file-sync.js';
+import { createLarkDocumentPublisher, pushLarkDocuments, syncLarkFile } from './lark-file-sync.js';
 import { loadConfig, saveConfig } from './config.js';
 import { verifyLarkApplication } from './lark-application.js';
 import { validateLarkSettings } from './lark-settings.js';
@@ -62,7 +63,7 @@ export function createLarkCliRoutes(registry = { list: () => [] }) {
   const controller = new AbortController();
   const tasks = new Set();
   const queue = new BoundedSemaphore(1);
-  const run = async (settings, args, signal, input) => {
+  const run = async (settings, args, signal, input, options = {}) => {
     const executable = await executablePath(settings.executable).catch((error) => {
       if (['ENOENT', 'ENOTDIR'].includes(error.code)) {
         throw new Error('LARK_CLI_NOT_FOUND');
@@ -74,7 +75,7 @@ export function createLarkCliRoutes(registry = { list: () => [] }) {
       const child = spawn(executable, args, {
         shell: false,
         windowsHide: true,
-        cwd: homedir(),
+        cwd: options.cwd || homedir(),
         stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
         env: {
           ...process.env,
@@ -451,7 +452,7 @@ export function createLarkCliRoutes(registry = { list: () => [] }) {
     })),
     /** Push one saved workspace document (scheduled sync products). */
     async pushFile({ workspaceId, path, signal } = {}) {
-      return runWithSlot(
+      const task = runWithSlot(
         ({ config, settings, signal: owned }) =>
           syncLarkFile({
             registry,
@@ -464,10 +465,12 @@ export function createLarkCliRoutes(registry = { list: () => [] }) {
           }),
         signal,
       );
+      tasks.add(task);
+      return task.finally(() => tasks.delete(task));
     },
     /** Push compiled Markdown products that are not stored under docsDir. */
     async pushDocuments({ workspaceId, documents, signal } = {}) {
-      return runWithSlot(
+      const task = runWithSlot(
         ({ config, settings, signal: owned }) =>
           pushLarkDocuments({
             registry,
@@ -480,6 +483,48 @@ export function createLarkCliRoutes(registry = { list: () => [] }) {
           }),
         signal,
       );
+      tasks.add(task);
+      return task.finally(() => tasks.delete(task));
+    },
+    /** Publish an immutable, exact-byte document version under the saved binding. */
+    async pushReplica({ workspaceId, path, bytes, version, expectedBinding, signal }) {
+      const task = runWithSlot(async ({ config, settings, signal: owned }) => {
+        const binding = createHash('sha256')
+          .update(JSON.stringify([config.lark, config.larkTargets?.[workspaceId]]))
+          .digest('hex');
+        if (binding !== expectedBinding || config.documents?.larkSyncEnabled !== true) {
+          throw new Error('LARK_TARGET_CONFLICT');
+        }
+        const execute = async (...args) => {
+          const latest = await loadConfig();
+          const currentBinding = createHash('sha256')
+            .update(JSON.stringify([latest.lark, latest.larkTargets?.[workspaceId]]))
+            .digest('hex');
+          owned.throwIfAborted();
+          if (currentBinding !== expectedBinding || latest.documents?.larkSyncEnabled !== true) {
+            throw new Error('LARK_TARGET_CONFLICT');
+          }
+          const workspace = registry.list().find((item) => item.id === workspaceId);
+          if (
+            !workspace ||
+            (await realpath(workspace.path)) !== latest.larkTargets?.[workspaceId]?.workspaceRoot
+          ) {
+            throw new Error('LARK_WORKSPACE_INVALID');
+          }
+          return run(...args);
+        };
+        const publisher = await createLarkDocumentPublisher({
+          registry,
+          config,
+          settings,
+          workspaceId,
+          execute,
+          signal: owned,
+        });
+        return publisher.publishReplica({ path, bytes, version });
+      }, signal);
+      tasks.add(task);
+      return task.finally(() => tasks.delete(task));
     },
     async dispose() {
       controller.abort();

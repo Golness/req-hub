@@ -1,6 +1,7 @@
 import { log } from '../logger.js';
 import { randomUUID } from 'node:crypto';
 import { ConversationStore, conversationError, CONVERSATION_POLICY } from './store.js';
+import { withDocumentLock } from '../sync-document-validator.js';
 
 /** Both providers share import, version, projection and task lifecycle. */
 export class ConversationService {
@@ -8,12 +9,15 @@ export class ConversationService {
     store = new ConversationStore(),
     owner = 'standalone',
     policy = async () => ({}),
+    onSnapshot,
   } = {}) {
     this.store = store;
     this.owner = owner;
     this.policy = policy;
+    this.onSnapshot = onSnapshot;
     this.queue = Promise.resolve();
     this.controllers = new Map();
+    this.captures = new Set();
     this.closed = false;
   }
   ready() {
@@ -50,6 +54,46 @@ export class ConversationService {
       ),
       refreshedAt: JSON.parse(binding.payload).refreshedAt || null,
     };
+  }
+  /**
+   * Serialize fresh source reads, library commits and docs exports across manual and daily owners.
+   * @param input - Authorized destination, source scope, adapter and session metadata.
+   * @returns The frozen snapshot and stored identity; export failure preserves the library copy.
+   */
+  async capture({ workspaceId, scope, adapter, session, details, signal }) {
+    if (this.closed) {
+      throw conversationError('SESSION_SERVICE_CLOSED', 503);
+    }
+    const controller = new AbortController();
+    this.controllers.set(controller, workspaceId);
+    signal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+    const pending = withDocumentLock(this.store.path, async () => {
+      signal?.throwIfAborted();
+      const snapshot = await adapter.snapshot(session, { signal });
+      signal?.throwIfAborted();
+      const stored = await this.store.putLocked(scope, details, snapshot, { signal });
+      let exportError = null;
+      try {
+        await this.onSnapshot?.({
+          workspaceId,
+          source: adapter.source,
+          id: JSON.stringify([adapter.instance, session.workspaceId, session.id]),
+          snapshot,
+          signal,
+        });
+      } catch (error) {
+        signal?.throwIfAborted();
+        exportError = error.code || 'DOCUMENT_EXPORT_FAILED';
+      }
+      return { snapshot, stored, exportError };
+    });
+    this.captures.add(pending);
+    try {
+      return await pending;
+    } finally {
+      this.controllers.delete(controller);
+      this.captures.delete(pending);
+    }
   }
   /**
    * Import one source through the shared queue with caller-owned cancellation.
@@ -129,9 +173,17 @@ export class ConversationService {
           delete details.sourcePath;
           delete details.nativeId;
           try {
-            const snapshot = await adapter.snapshot(session, { signal: controller.signal });
-            controller.signal.throwIfAborted();
-            await this.store.put(scope, details, snapshot, { signal: controller.signal });
+            const { exportError } = await this.capture({
+              workspaceId: workspace,
+              scope,
+              adapter,
+              session,
+              details,
+              signal: controller.signal,
+            });
+            if (exportError) {
+              warnings.push(`${session.title}: ${exportError}`);
+            }
             importedCount++;
           } catch (error) {
             controller.signal.throwIfAborted();
@@ -328,6 +380,7 @@ export class ConversationService {
       controller.abort(conversationError('SESSION_SERVICE_CLOSED'));
     }
     await this.queue;
+    await Promise.allSettled([...this.captures]);
     await this.initializing;
     await this.maintenance;
   }

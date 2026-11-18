@@ -1,7 +1,10 @@
+import { ConversationFiles } from './conversation-files.js';
+import { resolveScope } from './knowledge-v2/scope.js';
+import { safeDocumentPath } from './safe-path.js';
 import { msg } from './messages.js';
 import { createOperations, installOperationTool } from './operations.js';
 import { authenticatedRoute, createLifecycle } from './plugin-boundaries.js';
-import { createConfigRepository, Config } from './config.js';
+import { createConfigRepository, loadConfig, Config } from './config.js';
 import { join } from 'node:path';
 import { installSubagentScheduler } from './concurrency/SubagentScheduler.js';
 export { Config };
@@ -17,9 +20,14 @@ import { installSyncTools } from './sync-controlled-tools.js';
 
 import { createConfigRoutes } from './routes/config-routes.js';
 import { createLarkCliRoutes } from './lark-cli.js';
+import { DocumentReplicas } from './document-replicas.js';
+import { createDocumentRoutes } from './routes/document-routes.js';
 import { createTreeRoutes } from './routes/tree-routes.js';
 import { createCreationRoutes } from './routes/creation-routes.js';
 import { createSyncRoutes } from './routes/sync-routes.js';
+import { DailyReports, requirementGroup } from './daily-reports.js';
+import { createDailyBriefGenerator } from './daily-brief.js';
+import { createDailyReportRoutes } from './routes/daily-report-routes.js';
 import { TaskReports } from './task-reports.js';
 import { SyncDailyScheduler } from './sync-daily-scheduler.js';
 import { createWritingRoutes } from './routes/writing-routes.js';
@@ -124,6 +132,24 @@ export async function apply(ctx, config = {}) {
 
       const lark = createLarkCliRoutes(workspaceRegistry);
       lifecycle.own(() => lark.dispose());
+      const dailyReports = new DailyReports({ registry: workspaceRegistry });
+      lifecycle.own(
+        () => dailyReports.close(),
+        () => dailyReports.beginClose(),
+      );
+      const documents = new DocumentReplicas({ registry: workspaceRegistry, lark });
+      const conversationFiles = new ConversationFiles({ registry: workspaceRegistry });
+      lifecycle.own(
+        () => conversationFiles.close(),
+        () => conversationFiles.beginClose(),
+      );
+      dailyReports.onBrief = (workspaceId, path) =>
+        documents.committed(workspaceId, path, 'daily-brief');
+      lifecycle.own(
+        () => documents.close(),
+        () => documents.beginClose(),
+      );
+      await documents.start();
       const reports = new TaskReports(workspaceRegistry);
       lifecycle.own(() => reports.close());
       const knowledgeV2 = createKnowledgeApplication({
@@ -137,6 +163,47 @@ export async function apply(ctx, config = {}) {
         () => knowledgeV2.close(),
         () => knowledgeV2.beginClose(),
       );
+      dailyReports.generateBrief = createDailyBriefGenerator(ctx, knowledgeV2.installation);
+      lifecycle.own(() => dailyReports.execution);
+      dailyReports.knowledgeFile = async (file) => {
+        const workspace = workspaceRegistry.list().find((item) => item.id === file.workspaceId);
+        const config = await loadConfig();
+        const scope = await resolveScope({
+          root: knowledgeV2.root,
+          workspace,
+          docsDir: config.docsDir,
+        });
+        if (scope.scopeId !== file.knowledgeScopeId) {
+          throw Object.assign(new Error('DAILY_SOURCE_UNAVAILABLE'), {
+            code: 'DAILY_SOURCE_UNAVAILABLE',
+          });
+        }
+        const root = await safeDocumentPath(scope.dir, 'releases/' + file.release + '/wiki');
+        return { root, path: file.pageId + '.md' };
+      };
+      knowledgeV2.onPublished = (store, result) => {
+        if (!result.generationId) {
+          return;
+        }
+        for (const page of result.artifacts || []) {
+          const groups = new Set(page.sourcePaths.map(requirementGroup));
+          void dailyReports
+            .published(
+              store.scope.workspaceId,
+              { pageId: page.pageId, hash: page.hash, knowledgeScopeId: store.scope.scopeId },
+              groups.size === 1 ? [...groups][0] : '',
+              result.generationId,
+            )
+            .catch((error) => {
+              if (!dailyReports.controller.signal.aborted) {
+                dailyReports.scanErrors.set(
+                  store.scope.workspaceId,
+                  error.code || 'DAILY_CAPTURE_FAILED',
+                );
+              }
+            });
+        }
+      };
       knowledgeV2.reports = reports;
       knowledgeV2.onJobChange = (job) => reports.knowledgeJob(job);
       const enhancements = createEnhancementRoutes(knowledgeV2.context, ctx);
@@ -144,7 +211,17 @@ export async function apply(ctx, config = {}) {
         () => enhancements.dispose(),
         () => enhancements.service.beginClose(),
       );
-      const writing = createWritingRoutes(workspaceRegistry, llm, agents, ctx, knowledgeV2.context);
+      const writing = createWritingRoutes(
+        workspaceRegistry,
+        llm,
+        agents,
+        ctx,
+        knowledgeV2.context,
+        {
+          documents,
+          dailyReports,
+        },
+      );
       lifecycle.own(
         () => writing.dispose(),
         () => writing.beginClose(),
@@ -158,6 +235,9 @@ export async function apply(ctx, config = {}) {
 
       const syncRoutes = createSyncRoutes(workspaceRegistry, llm, sessions, agents, ctx, {
         knowledgeV2,
+        documents,
+        dailyReports,
+        conversationFiles,
       });
       lifecycle.own(
         () => syncRoutes.dispose(),
@@ -192,8 +272,21 @@ export async function apply(ctx, config = {}) {
         ...createConfigRoutes(workspaceRegistry, llm, ctx, {
           onSaved: async (config, previous) => {
             const pending = [];
+            if (
+              JSON.stringify(config.documents) !== JSON.stringify(previous.documents) ||
+              config.docsDir !== previous.docsDir
+            ) {
+              pending.push(documents.refresh());
+            }
             setContentLanguage(config.general?.contentLanguage);
             const zoneChanged = config.general?.timeZone !== previous.general?.timeZone;
+            if (
+              zoneChanged ||
+              config.docsDir !== previous.docsDir ||
+              JSON.stringify(config.dailyReports) !== JSON.stringify(previous.dailyReports)
+            ) {
+              pending.push(dailyReports.refresh());
+            }
             const keys = ['dailyUpdateEnabled', 'dailyUpdateTime', 'dailyOffsetDays'];
             if (
               config.defaultUsername !== previous.defaultUsername ||
@@ -226,9 +319,15 @@ export async function apply(ctx, config = {}) {
           },
         }),
         ...lark.routes,
+        ...createDocumentRoutes(workspaceRegistry, documents),
         ...reports.routes(),
+        ...createDailyReportRoutes(workspaceRegistry, dailyReports),
 
-        ...createTreeRoutes(workspaceRegistry, { knowledgeService: knowledgeV2 }),
+        ...createTreeRoutes(workspaceRegistry, {
+          knowledgeService: knowledgeV2,
+          documents,
+          dailyReports,
+        }),
         ...creation.routes,
 
         ...syncRoutes,
@@ -641,6 +740,10 @@ export async function apply(ctx, config = {}) {
         log.startup.warn('KNOWLEDGE_SYNC_START_FAILED: ' + error.message);
       });
       lifecycle.own(() => startup);
+      const dailyStartup = dailyReports.refresh().catch((error) => {
+        log.startup.warn('DAILY_START_FAILED: ' + error.message);
+      });
+      lifecycle.own(() => dailyStartup);
       void scheduledSync.refresh().catch((error) => {
         log.startup.warn('SYNC_SCHEDULE_REFRESH_FAILED: ' + error.message);
       });

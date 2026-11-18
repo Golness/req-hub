@@ -191,7 +191,10 @@ export class SyncDailyScheduler {
     const settings = syncSchedule(config);
     // The push flag is deliberately excluded from syncSchedule()'s digest, so
     // toggling it never resets the activation day and skips a scheduled run.
-    const pushEnabled = config.sync?.larkPushEnabled === true && !!this.lark;
+    const pushEnabled =
+      config.sync?.larkPushEnabled === true &&
+      config.documents?.larkSyncEnabled !== true &&
+      !!this.lark;
     this.state = { ...settings, state: settings.enabled ? 'enabled' : 'disabled' };
     const time = this.clock();
     const current = dailyClock(settings.timeZone, time);

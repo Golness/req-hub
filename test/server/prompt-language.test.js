@@ -7,7 +7,8 @@ import {
 import { TaskExecutor } from '../../src/server/task-executor.js';
 
 it('uses English instructions in every built-in template without changing protocol variables', () => {
-  expect(Object.keys(PROMPT_REGISTRY)).toHaveLength(16);
+  expect(Object.keys(PROMPT_REGISTRY)).toHaveLength(17);
+  expect(PROMPT_REGISTRY['daily-brief'].default).toContain('Read every required frozen document');
   for (const meta of Object.values(PROMPT_REGISTRY)) {
     expect(meta.default).not.toMatch(/\p{Script=Han}/u);
     for (const variable of meta.variables.filter((item) => item.required)) {

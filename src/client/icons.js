@@ -1,9 +1,10 @@
 'use strict';
-// Semantic aliases use a private copy of the DSH artwork; see DSH-UI-NOTICE.md.
+// Functional glyphs use the private DSH snapshot; the ReqHub brand is original artwork.
 const host = require('./icons-artwork.cjs');
+const { BODY_PATH, BRIDGE_PATH } = require('../shared/brand.cjs');
 const ICON_COMPONENTS = {
   loading: 'IconLoadingOutlineRegular',
-  reqHub: 'IconCordisPluginOutlineRegular',
+  reqHub: 'ReqHubMonogram',
   plus: 'IconPlusOutlineRegular',
   sync: 'IconRefreshOutlineRegular',
   eye: 'IconBrowseOutlineRegular',
@@ -43,6 +44,17 @@ const ICON_SIZE = { xs: 12, sm: 14, md: 16, lg: 18, xl: 20 };
  * @returns Plugin-owned icon components.
  */
 function createIconComponents(h) {
+  const ReqHubMonogram = ({ size }) =>
+    h(
+      'svg',
+      { width: size, height: size, viewBox: '0 0 64 64', fill: 'none', 'aria-hidden': true },
+      h('path', {
+        d: BODY_PATH,
+        fillRule: 'evenodd',
+        fill: 'var(--dsw-alias-label-primary, currentColor)',
+      }),
+      h('path', { d: BRIDGE_PATH, fill: 'var(--dsw-alias-state-business-primary, currentColor)' }),
+    );
   return Object.fromEntries(
     Object.entries(ICON_COMPONENTS).map(([name, exported]) => [
       'Icon' + name[0].toUpperCase() + name.slice(1),
@@ -67,7 +79,7 @@ function createIconComponents(h) {
             'aria-hidden': true,
             style: { ...style, '--rh-icon-color': color || 'currentColor' },
           },
-          h(host[exported], { size }),
+          h(exported === 'ReqHubMonogram' ? ReqHubMonogram : host[exported], { size }),
         );
       },
     ]),

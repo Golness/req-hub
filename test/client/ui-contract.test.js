@@ -344,6 +344,19 @@ it('resolves every component message through the owned dictionary', () => {
   expect(hardcoded).toEqual([]);
 });
 
+it('keeps date selection on the shared themed calendar instead of native browser popups', () => {
+  const violations = [];
+  for (const path of files(join(client, 'components')).filter((path) => /\.(js|mjs)$/.test(path))) {
+    const source = readFileSync(path, 'utf8');
+    if (
+      /\btype\s*[:=]\s*['"](?:date|datetime-local|month|week)['"]|\.showPicker\s*\(/.test(source)
+    ) {
+      violations.push(path);
+    }
+  }
+  expect(violations).toEqual([]);
+});
+
 it('loads no Harness Client runtime packages in source or built output', () => {
   const violations = [];
   for (const path of files(client).filter((path) => /\.(?:js|mjs|cjs)$/.test(path))) {

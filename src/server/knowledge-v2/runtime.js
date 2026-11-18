@@ -15,9 +15,10 @@ export class KbTaskRuntime {
   /**
    * @param options - {kind, documents, budget}; documents carry required flags.
    */
-  constructor({ kind, documents, budget = { limit: MAX_SYNC_INPUT_TOKENS } }) {
+  constructor({ kind, documents, budget = { limit: MAX_SYNC_INPUT_TOKENS }, validateResult }) {
     this.id = randomUUID();
     this.kind = kind;
+    this.validateResult = validateResult;
     this.budget = budget;
     this.documents = documents.map((doc) => ({ ...doc, hash: digest(doc.body) }));
     this.coverage = new Map();
@@ -93,6 +94,7 @@ export class KbTaskRuntime {
       fail('KB_EVIDENCE_NOT_FULLY_READ', 400, state);
     }
     validateSubmission(this.kind, result);
+    this.validateResult?.(result, this);
     this.updateActivity({ stage: 'submitted' });
     this.result = result;
     return { success: true };
@@ -221,13 +223,16 @@ export function installKbTaskTools(ctx) {
           }
           try {
             const value = runtime[i === 0 ? 'read' : 'submit'](i === 0 ? args : args.result);
-            runtime.repairFailures = 0;
+            if (i === 1) {
+              runtime.repairFailures = 0;
+            }
             return value;
           } catch (error) {
             runtime.repairFailures = (runtime.repairFailures || 0) + 1;
             if (runtime.repairFailures >= 3) {
               runtime.failure = Object.assign(new Error('KB_TOOL_FAILED'), {
                 code: 'KB_TOOL_FAILED',
+                details: { cause: error.code || error.message, causeDetails: error.details || {} },
               });
               runtime.onFatal?.(runtime.failure);
               throw runtime.failure;
@@ -237,6 +242,8 @@ export function installKbTaskTools(ctx) {
                 error.message +
                   ' ' +
                   JSON.stringify({
+                    code: error.code || error.message,
+                    details: error.details || {},
                     attempt: runtime.repairFailures,
                     limit: 3,
                     instruction:

@@ -27,7 +27,7 @@ import {
   buildSessionDocument,
   sessionMessages,
 } from '../../src/server/knowledge-v2/session-export.js';
-import { KbTaskRuntime } from '../../src/server/knowledge-v2/runtime.js';
+import { KbTaskRuntime, installKbTaskTools } from '../../src/server/knowledge-v2/runtime.js';
 import { KnowledgeQueue } from '../../src/server/knowledge-v2/queue.js';
 import { validateUpserts } from '../../src/server/knowledge-v2/compiler.js';
 import {
@@ -338,6 +338,94 @@ describe('session export', () => {
     expect(doc.markdown).toContain('## 第 1 轮');
     expect(doc.turns[0].endLine).toBeGreaterThan(doc.turns[0].startLine);
   });
+  it('round-trips persisted flat provenance through repeated and partial imports without dropping turns', () => {
+    const snapshot = { turns: [turn(1, 'First', 'one'), turn(2, 'Second', 'two')] };
+    const input = {
+      title: 'Session',
+      origin: { provider: 'dsh', sessionId: 's' },
+      snapshotVersion: 'v1',
+    };
+    const first = buildSessionDocument({ ...input, turns: describeTurns(snapshot) });
+    expect(first.turns[0].turn).toBeUndefined();
+    let persisted = JSON.parse(JSON.stringify(first.turns));
+    for (let index = 0; index < 3; index++) {
+      const merged = mergeSessionTurns(persisted, describeTurns({ turns: [snapshot.turns[1]] }), {
+        source: 'dsh',
+        mode: 'merge',
+      });
+      const next = buildSessionDocument({ ...input, turns: merged.turns });
+      expect(next.markdown).toBe(first.markdown);
+      expect(next.turns).toHaveLength(2);
+      expect(merged.counts).toEqual({ added: 0, updated: 0, skipped: 1 });
+      persisted = JSON.parse(JSON.stringify(next.turns));
+    }
+  });
+  it('retains legacy message text in persisted provenance and rejects unrestorable turns', () => {
+    const input = {
+      title: 'Legacy',
+      origin: { provider: 'codex', sessionId: 's' },
+      snapshotVersion: 'v1',
+    };
+    const described = describeTurns({
+      turns: [{ turnNumber: 1, userInput: 'Legacy question', summary: 'Legacy answer' }],
+    });
+    const first = buildSessionDocument({ ...input, turns: described });
+    expect(first.turns[0].messages).toHaveLength(2);
+    const merged = mergeSessionTurns(first.turns, [], { source: 'codex', mode: 'merge' });
+    expect(buildSessionDocument({ ...input, turns: merged.turns }).markdown).toBe(first.markdown);
+    const broken = mergeSessionTurns([{ key: 'id:broken', number: 1, status: 'completed' }], [], {
+      source: 'dsh',
+      mode: 'merge',
+    });
+    expect(() => buildSessionDocument({ ...input, turns: broken.turns })).toThrow(
+      'KB_SESSION_PROVENANCE_INVALID',
+    );
+  });
+  it('imports the same real persisted session source again without undefined turn.status', async () => {
+    const snapshot = {
+      version: 'snapshot',
+      turns: [turn(1, 'First question', 'one'), turn(2, 'Second question', 'two')],
+    };
+    const context = {
+      assertOpen() {},
+      registry: { list: () => [{ id: 'ws' }] },
+      sessionEntries: async () => [
+        {
+          conversationId: 'conversation',
+          source: 'dsh',
+          sourceInstanceId: 'instance',
+          id: 'session',
+          title: 'Session',
+        },
+      ],
+      conversations: {
+        library: {
+          closed: false,
+          store: { path: join(root, 'library-lock'), projectLocked: async () => snapshot },
+        },
+      },
+    };
+    const input = {
+      selections: [{ id: 'conversation', version: 'snapshot', turnKeys: ['id:one', 'id:two'] }],
+      ingest: false,
+    };
+    const first = await KnowledgeApplication.prototype.importSessions.call(context, store, input);
+    expect(first.saved).toBe(1);
+    const repeated = await KnowledgeApplication.prototype.importSessions.call(
+      context,
+      store,
+      input,
+    );
+    expect(repeated).toMatchObject({ saved: 0, skipped: 1 });
+    const partial = await KnowledgeApplication.prototype.importSessions.call(context, store, {
+      ...input,
+      selections: [{ ...input.selections[0], turnKeys: ['id:two'] }],
+    });
+    expect(partial).toMatchObject({ saved: 0, skipped: 1 });
+    const source = await getSource(store, first.results[0].sourceId);
+    expect(source.content).toContain('First question');
+    expect(source.content).toContain('Second question');
+  });
 });
 
 describe('session detail preview', () => {
@@ -414,6 +502,49 @@ describe('session detail preview', () => {
 });
 
 describe('task runtime', () => {
+  it('returns actionable validation details and does not reset failed submission limits on a read', async () => {
+    const tools = new Map();
+    const installation = installKbTaskTools({
+      tools: {
+        register: (tool) => {
+          tools.set(tool.name, tool);
+          return () => tools.delete(tool.name);
+        },
+        guard: () => () => {},
+      },
+      on: () => () => {},
+    });
+    const runtime = new KbTaskRuntime({
+      kind: 'generate',
+      documents: [{ id: 'evidence', body: 'text' }],
+      validateResult: () => {
+        throw Object.assign(new Error('KB_MODEL_OUTPUT_INVALID'), {
+          code: 'KB_MODEL_OUTPUT_INVALID',
+          details: { reason: 'baseHash mismatch', pageId: 'entities/order' },
+        });
+      },
+    });
+    installation.add(runtime);
+    runtime.bindSession('child');
+    const caller = { agent: { session: { id: 'child' } } };
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        expect(() =>
+          tools.get('req_hub_kb_task_submit').execute({ result: { upserts: [] } }, caller),
+        ).toThrow('baseHash mismatch');
+        tools.get('req_hub_kb_task_read').execute({ id: 'evidence' }, caller);
+      }
+      expect(() =>
+        tools.get('req_hub_kb_task_submit').execute({ result: { upserts: [] } }, caller),
+      ).toThrow('KB_TOOL_FAILED');
+      expect(runtime.failure.details).toMatchObject({
+        cause: 'KB_MODEL_OUTPUT_INVALID',
+        causeDetails: { reason: 'baseHash mismatch' },
+      });
+    } finally {
+      installation.dispose();
+    }
+  });
   const docs = () => [
     { id: 'rules', kind: 'rules', title: 'r', body: 'rules', version: 'h', required: true },
     {

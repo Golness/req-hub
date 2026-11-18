@@ -4,6 +4,7 @@
 
 Plugin-owned control behavior and styling reference DeepSeek Harness ui-primitives.
 `src/client/icons-artwork.cjs` is a bundled snapshot of the selected DSH SVG artwork; it does not load any Harness Client package at runtime.
+The ReqHub monogram in `src/shared/brand.cjs` and its exported SVG assets are original plugin artwork, separate from that snapshot.
 Source: https://github.com/deepseek-ai/deepseek-harness (local source snapshot, 2026-10-25).
 
 MIT License

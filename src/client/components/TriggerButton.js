@@ -33,7 +33,7 @@ function TriggerButton({ onClick, wide }) {
       onFocus: load,
       'aria-label': t('common.brand'),
     },
-    h(IconReqHub, { size: 16 }),
+    h(IconReqHub, { size: 18 }),
     wide && h('span', { className: css.label }, t('common.brand')),
   );
   const content = h(

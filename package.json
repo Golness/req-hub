@@ -14,7 +14,7 @@
     "test": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest watch",
-    "check:ui": "vitest run test/client/ui-contract.test.js test/client/icon-policy.test.js test/client/settings-css.test.js test/client/settings-layout-contract.test.js",
+    "check:ui": "vitest run test/client/ui-contract.test.js test/client/icon-policy.test.js test/client/settings-css.test.js test/client/settings-layout-contract.test.js test/client/locale-keys.test.js",
     "verify:package": "node scripts/verify-package.mjs"
   },
   "exports": {

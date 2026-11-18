@@ -887,6 +887,27 @@ describe('Host-owned quick sync', () => {
 });
 
 
+it('registers both committed scheduled artifacts through the shared document pipeline', async () => {
+  await routes.dispose();
+  const committed = vi.fn(async (workspace, path, source) => {
+    expect(workspace).toBe(workspaceId);
+    expect(source).toBe('sync');
+    expect(await readFile(join(repo, 'docs', path), 'utf8')).toContain('新规则');
+    return { status: 'queued' };
+  });
+  routes = createSyncRoutes(
+    { list: () => [{ id: workspaceId, path: repo }] }, {}, {},
+    { get: () => harness.parentAgent }, harness.ctx, { documents: { committed } },
+  );
+  const { runScheduledQuickSync } = await import('../../src/server/sync-daily-scheduler.js');
+  const result = await runScheduledQuickSync(routes, {
+    workspaceId, requirementId, targetBranch: 'feature/dev/' + requirementId,
+  }, harness.parentAgent, new AbortController().signal, () => {});
+  expect(result.value.type).toBe('done');
+  expect(committed.mock.calls.map((call) => call[1].replaceAll('\\', '/').split('/').at(-1)).sort())
+    .toEqual(['design.md', 'requirement.md']);
+});
+
 it('runs the scheduled adapter through the actual quick pipeline and retains both document tasks', async () => {
   const { runScheduledQuickSync } = await import('../../src/server/sync-daily-scheduler.js');
   const events = [];

@@ -113,7 +113,15 @@ export function matchingTurn(prior, item) {
  * @returns {turns, counts} with merged descriptors and change counters.
  */
 export function mergeSessionTurns(prior, selected, { source, mode }) {
-  const merged = new Map((mode === 'replace' ? [] : prior).map((turn) => [turn.key, turn]));
+  const restored = (mode === 'replace' ? [] : prior).map((item) => ({
+    ...item,
+    turn: item.turn || {
+      status: item.status,
+      syncable: item.syncable,
+      messages: sessionMessages(item),
+    },
+  }));
+  const merged = new Map(restored.map((turn) => [turn.key, turn]));
   const counts = { added: 0, updated: 0, skipped: 0 };
   for (const selectedTurn of selected) {
     let item = selectedTurn;
@@ -137,6 +145,7 @@ export function mergeSessionTurns(prior, selected, { source, mode }) {
     }
     if (previous?.hash === item.hash && previous.key === item.key) {
       counts.skipped++;
+      merged.set(item.key, { ...previous, turn: item.turn });
       continue;
     }
     counts[previous ? 'updated' : 'added']++;
@@ -150,6 +159,9 @@ export function mergeSessionTurns(prior, selected, { source, mode }) {
 
 function renderTurn(item) {
   const session = contentTemplates().session;
+  if (!sessionMessages(item.turn).length) {
+    fail('KB_SESSION_PROVENANCE_INVALID', 409, { turnKey: item.key });
+  }
   const status =
     item.turn.status === 'completed'
       ? ''
@@ -189,7 +201,7 @@ export function buildSessionDocument({ title, origin, snapshotVersion, turns }) 
       status: item.turn.status,
       syncable: item.turn.syncable,
       snapshotVersion: item.snapshotVersion || snapshotVersion,
-      messages: item.turn.messages,
+      messages: sessionMessages(item.turn),
       startLine,
       endLine,
     });

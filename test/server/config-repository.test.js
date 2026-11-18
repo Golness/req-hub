@@ -185,3 +185,21 @@ it('versions persisted settings before decorating them with automatic workspace 
     ).toBe(200);
   });
 });
+
+it('keeps document external-publication consent and its scope user-only', async () => {
+  const { repository } = await fixture();
+  await repository.run(async () => {
+    const app = createConfigApplication({ list: () => [] }, {});
+    await expect(
+      app.save({ documents: { larkSyncEnabled: true } }, { kind: 'agent' }),
+    ).rejects.toMatchObject({ code: 'DOCUMENT_USER_REQUIRED', status: 403 });
+    await expect(app.save({ docsDir: 'other' }, { kind: 'agent' })).rejects.toMatchObject({
+      code: 'DOCUMENT_USER_REQUIRED',
+      status: 403,
+    });
+    await expect(
+      app.save({ dailyReports: { enabled: false } }, { kind: 'agent' }),
+    ).rejects.toMatchObject({ code: 'DOCUMENT_USER_REQUIRED', status: 403 });
+    expect((await loadConfig()).documents?.larkSyncEnabled).not.toBe(true);
+  });
+});

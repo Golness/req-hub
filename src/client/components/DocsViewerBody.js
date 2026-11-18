@@ -151,7 +151,20 @@ function DocsViewerBody({
       return;
     }
     selectionRevision.current++;
-    if (reportTarget.kind === 'sync') {
+    if (reportTarget.kind === 'file') {
+      pendingSyncNavigation.current = null;
+      focusedSyncRef.current = null;
+      setFocusedSync(null);
+      setSelectedReq(null);
+      setSelectedFile({
+        workspaceId: workspace.id,
+        path: reportTarget.path,
+        name: reportTarget.path.split('/').pop(),
+        type: 'markdown',
+      });
+      setShowFileTree(true);
+      setActivePanel('files');
+    } else if (reportTarget.kind === 'sync') {
       pendingSyncNavigation.current = reportTarget.task;
       setFocusedSync(reportTarget.task);
     } else if (reportTarget.kind === 'knowledge') {
@@ -703,6 +716,8 @@ function DocsViewerBody({
       rightHeaderTitle = t('DocsViewerBody.message069');
     } else if (activePanel === 'knowledge') {
       rightHeaderTitle = t('kb.title');
+    } else if (activePanel === 'reports') {
+      rightHeaderTitle = t('reports.title');
     } else if (activePanel === 'files') {
       rightHeaderTitle = t('files.title');
     } else if (activePanel === 'writing') {
@@ -898,6 +913,7 @@ function DocsViewerBody({
               activePanel !== 'sync' &&
                 activePanel !== 'log' &&
                 activePanel !== 'settings' &&
+                activePanel !== 'reports' &&
                 activePanel !== 'knowledge' &&
                 h(
                   'div',

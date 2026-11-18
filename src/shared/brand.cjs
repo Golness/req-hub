@@ -1,0 +1,11 @@
+'use strict';
+
+// Original ReqHub ligature: the R counter stays open and its joint becomes the H bridge.
+const BODY_PATH =
+  'M18 2H46C55 2 62 9 62 18V46C62 55 55 62 46 62H18C9 62 2 55 2 46V18C2 9 9 2 18 2Z ' +
+  'M14 17H27C35 17 40 21.5 40 28C40 32.4 37.6 36 33.4 37.8L42 48H32.5L24.7 38H22V48H14V17Z ' +
+  'M22 24V31H27C30.3 31 32 29.8 32 27.5C32 25.2 30.3 24 27 24H22Z ' +
+  'M44 17H51V48H44Z';
+const BRIDGE_PATH = 'M36 29H48V35H36Z';
+
+module.exports = { BODY_PATH, BRIDGE_PATH };

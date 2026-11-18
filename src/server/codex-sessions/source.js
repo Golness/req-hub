@@ -17,6 +17,7 @@ export const codexError = (message, statusCode = 400) => {
   const descriptor = messageDescriptor(message);
   const code = typeof descriptor === 'string' ? descriptor : descriptor.code;
   const error = new Error(code);
+  error.code = code;
   error.messageCode = code;
   if (typeof descriptor === 'object') {
     error.params = descriptor.params;
@@ -154,6 +155,7 @@ export class CodexSource {
     const sessions = [];
     const workspaces = new Map();
     const warnings = [];
+    let missingRollouts = 0;
     const titles = await readTitles(this.home, warnings);
     const addWorkspace = (id, title, paths) => {
       const workspace = {
@@ -244,6 +246,20 @@ export class CodexSource {
           if (!beneath(resolve(this.home, 'sessions'), resolve(sourcePath))) {
             continue;
           }
+          try {
+            const actual = await realpath(sourcePath);
+            const root = await realpath(join(this.home, 'sessions'));
+            if (!beneath(root, actual) || !(await stat(actual)).isFile()) {
+              continue;
+            }
+          } catch (error) {
+            signal?.throwIfAborted();
+            if (['ENOENT', 'ENOTDIR'].includes(error.code)) {
+              missingRollouts++;
+              continue;
+            }
+            throw error;
+          }
           sessions.push({
             nativeId: row.id,
             id: 'codex:' + row.id,
@@ -298,6 +314,9 @@ export class CodexSource {
       }
     }
     signal?.throwIfAborted();
+    if (missingRollouts) {
+      warnings.push(msg('CODEX_SOURCE_FILES_MISSING', { count: missingRollouts }));
+    }
     return {
       workspaces: [...workspaces.values()].sort((a, b) => a.title.localeCompare(b.title)),
       sessions: sessions.sort((a, b) => b.updatedAt - a.updatedAt),
@@ -306,6 +325,18 @@ export class CodexSource {
   }
 
   async snapshot(session, { signal } = {}) {
+    try {
+      return await this.readSnapshot(session, { signal });
+    } catch (error) {
+      signal?.throwIfAborted();
+      if (['ENOENT', 'ENOTDIR'].includes(error.code)) {
+        throw codexError('CODEX_SOURCE_FILE_MISSING', 404);
+      }
+      throw error;
+    }
+  }
+
+  async readSnapshot(session, { signal } = {}) {
     signal?.throwIfAborted();
     const root = await realpath(join(this.home, 'sessions'));
     const path = await realpath(session.sourcePath);

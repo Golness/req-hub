@@ -145,7 +145,7 @@ export class KnowledgeApplication {
   async runJob(job, { store, signal, onStage }) {
     this.assertOpen();
     if (job.kind === 'ingest' || job.kind === 'rebuild') {
-      return runCompile({
+      const result = await runCompile({
         ctx: this.ctx,
         llm: this.ctx.llm,
         configLoader: this.configLoader,
@@ -155,6 +155,8 @@ export class KnowledgeApplication {
         onStage,
         installation: this.installation,
       });
+      await this.onPublished?.(store, result);
+      return result;
     }
     if (job.kind === 'lint') {
       return this.runSemanticLint({ store, signal, onStage });

@@ -20,6 +20,38 @@ const provider = (source = 'dsh', instance = 'profile-a', id = 'one') => ({ sour
   snapshot: async row => snap(row.id),
 });
 
+it('serializes fresh manual and background reads before exporting their committed snapshots', async () => {
+  let release;
+  let started;
+  const waiting = new Promise((resolve) => { started = resolve; });
+  const held = new Promise((resolve) => { release = resolve; });
+  const adapter = provider();
+  let calls = 0;
+  adapter.snapshot = vi.fn(async () => {
+    calls++;
+    if (calls === 1) {
+      started();
+      await held;
+      return snap('one', 'v1');
+    }
+    return snap('one', 'v2');
+  });
+  const scope = await store.scope('dsh', 'profile-a', { id: 'project', title: 'Project' });
+  const exported = [];
+  library.onSnapshot = async ({ snapshot }) => exported.push(snapshot.version);
+  const input = {
+    workspaceId: 'ws', scope, adapter,
+    session: { id: 'one', workspaceId: 'project' }, details: { id: 'one' },
+  };
+  const first = library.capture(input);
+  await waiting;
+  const second = library.capture(input);
+  expect(adapter.snapshot).toHaveBeenCalledTimes(1);
+  release();
+  await Promise.all([first, second]);
+  expect(exported).toEqual([snap('one', 'v1').version, snap('one', 'v2').version]);
+});
+
 it('propagates caller cancellation to source reads and never commits a late snapshot', async () => {
   const adapter = provider();
   let started;

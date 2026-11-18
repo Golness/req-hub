@@ -97,7 +97,7 @@ export class KnowledgeSyncScheduler {
       });
     }
     const next = validateSyncSettings({ ...current, ...values });
-    await this.configSaver({ ...config, knowledgeV2: next });
+    await this.configSaver({ ...config, knowledgeV2: { ...config.knowledgeV2, ...next } });
     await this.refresh();
     return this.settings(workspaceId);
   }
@@ -264,7 +264,9 @@ export class KnowledgeSyncScheduler {
         signal,
       });
       fileFailed += result.failed;
-      for (const item of result.results.filter((entry) => entry.status === 'saved')) {
+      for (const item of result.results.filter(
+        (entry) => ['saved', 'skipped'].includes(entry.status) && entry.sourceId,
+      )) {
         sourceIds.add(item.sourceId);
       }
     }
@@ -316,6 +318,15 @@ export class KnowledgeSyncScheduler {
     const job = sourceIds.size
       ? await this.application.enqueueCompile(store, 'ingest', [...sourceIds])
       : null;
+    if (reportId && job) {
+      this.reportSafe('bindKnowledgeJob', reportId, job);
+      if (store.jobs) {
+        const current = (await store.jobs()).jobs.find((item) => item.id === job.id);
+        if (current) {
+          this.reportSafe('knowledgeJob', current);
+        }
+      }
+    }
     let larkPush = null;
     if (this.lark && settings.larkPushEnabled === true) {
       // Pushing the release is a follow-up effect. A Lark outage must not

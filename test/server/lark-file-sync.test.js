@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { syncLarkFile } from '../../src/server/lark-file-sync.js';
+import { createLarkDocumentPublisher, syncLarkFile } from '../../src/server/lark-file-sync.js';
+import { createHash } from 'node:crypto';
 import { createLarkCliRoutes } from '../../src/server/lark-cli.js';
 
 const settings = { profile: 'team', identity: 'user', executable: 'lark-cli', timeoutMs: 30000 };
@@ -45,8 +46,13 @@ const valueOf = (args, flag) => {
 
 /** Fake the bounded CLI runner and record every issued command. */
 function runner(state) {
-  return vi.fn(async (_settings, args, _signal, input) => {
+  return vi.fn(async (_settings, args, _signal, input, options) => {
     state.calls.push({ args, input });
+    if (args.includes('+upload')) {
+      const bytes = await readFile(join(options.cwd, valueOf(args, '--file')));
+      state.write = { args, input: bytes, cwd: options.cwd };
+      return output({ file_token: 'File1', url: 'https://x.feishu.cn/file/File1' });
+    }
     if (args.includes('status')) {
       return output(state.auth === undefined ? auth : state.auth);
     }
@@ -195,12 +201,50 @@ it('follows all listing pages before creating a folder', async () => {
   expect(state.calls.some(({ args }) => args.includes('p2'))).toBe(true);
 });
 
-it('normalizes a non-Markdown document name', async () => {
+it('preserves non-Markdown names and bytes through an immutable attachment upload', async () => {
   await writeFile(join(docsRoot, '11-03 需求', 'notes.txt'), '纯文本', 'utf8');
   const state = stateOf();
   const result = await sync(state, folderBinding, '11-03 需求/notes.txt');
-  expect(result.name).toBe('notes.md');
-  expect(state.write.args).toContain('notes.md');
+  expect(result.name).toBe('notes.txt');
+  expect(state.write.args).toContain('notes.txt');
+  expect(state.write.args).toContain('+upload');
+  expect(state.write.input).toEqual(Buffer.from('纯文本'));
+  await expect(readFile(join(state.write.cwd, 'original.txt'))).rejects.toMatchObject({
+    code: 'ENOENT',
+  });
+});
+
+it('keeps original binary bytes and never overwrites an existing immutable version', async () => {
+  const bytes = Buffer.from([0, 255, 128, 10]);
+  const version = createHash('sha256').update(bytes).digest('hex');
+  const state = stateOf();
+  const publisher = await createLarkDocumentPublisher({
+    registry: registry(),
+    config: config(folderBinding),
+    settings,
+    workspaceId: 'ws',
+    execute: runner(state),
+    signal: new AbortController().signal,
+  });
+  const result = await publisher.publishReplica({ path: 'image.dat', bytes, version });
+  expect(result).toMatchObject({ name: 'image.dat', version, fileToken: 'File1' });
+  expect(state.write.input).toEqual(bytes);
+  const conflict = stateOf(() => ({
+    files: [{ name: 'image.dat', token: 'Other', type: 'file' }],
+    has_more: false,
+  }));
+  const other = await createLarkDocumentPublisher({
+    registry: registry(),
+    config: config(folderBinding),
+    settings,
+    workspaceId: 'ws',
+    execute: runner(conflict),
+    signal: new AbortController().signal,
+  });
+  await expect(other.publishReplica({ path: 'image.dat', bytes, version })).rejects.toThrow(
+    'DOCUMENT_REMOTE_UNCERTAIN',
+  );
+  expect(conflict.write).toBeNull();
 });
 
 it('rejects an unbound or stale workspace binding', async () => {

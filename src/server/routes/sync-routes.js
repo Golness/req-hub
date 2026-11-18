@@ -1,3 +1,4 @@
+import { notifyDocumentCommit } from '../document-commits.js';
 import { createSyncExecution } from '../application/sync-execution.js';
 import { msg } from '../messages.js';
 import { listDesignReferences } from '../sync-design-reference.js';
@@ -114,6 +115,13 @@ export function createSyncRoutes(registry, llm, sessions, agents, ctx, options =
     ),
     owner: profile?.dir || process.env.DSH_PROFILE_DIR || process.env.DSH_PROFILE || 'default',
     policy: async () => (await loadConfig()).conversations || {},
+    onSnapshot: options.conversationFiles
+      ? async (input) => {
+          const result = await options.conversationFiles.exportConversation(input);
+          void notifyDocumentCommit(options, input.workspaceId, result.path, 'conversation');
+          return result;
+        }
+      : undefined,
   });
   const dsh = dshSource({ registry, sessionQuery, sessions, instance: library.owner });
   const codex = options.codexService || new CodexSessionService({ ...options.codex, library });

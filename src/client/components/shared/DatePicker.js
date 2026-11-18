@@ -6,6 +6,7 @@ const { Popover } = require('./controls.js');
 const { t } = require('../../locale.js');
 const css = require('./DatePicker.module.css').default;
 const h = React.createElement;
+const { IconBack, IconChevronRight } = require('../../icons.js').createIconComponents(h);
 const keyOf = (date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 const parse = (value) => {
@@ -23,6 +24,8 @@ const parse = (value) => {
  */
 function DatePicker({ id, value, onChange, disabled = false, label }) {
   useTimeZone();
+  const generatedId = React.useId();
+  const pickerId = id || generatedId;
   const today = () => parse(formatDate(new Date()));
   const [open, setOpen] = React.useState(false);
   const [cursor, setCursor] = React.useState(() => parse(value) || today());
@@ -51,12 +54,14 @@ function DatePicker({ id, value, onChange, disabled = false, label }) {
   const choose = (date) => {
     onChange({ target: { value: keyOf(date) } });
     setOpen(false);
-    document.getElementById(id)?.focus();
+    document.getElementById(pickerId)?.focus();
   };
   const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
   const start = new Date(first);
   start.setDate(1 - ((first.getDay() + 6) % 7));
-  const dates = Array.from({ length: 42 }, (_, index) => {
+  const daysInMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+  const weeks = Math.ceil((((first.getDay() + 6) % 7) + daysInMonth) / 7);
+  const dates = Array.from({ length: weeks * 7 }, (_, index) => {
     const date = new Date(start);
     date.setDate(start.getDate() + index);
     return date;
@@ -75,7 +80,7 @@ function DatePicker({ id, value, onChange, disabled = false, label }) {
       anchor: h(
         Button,
         {
-          id,
+          id: pickerId,
           className: css.trigger,
           disabled,
           'aria-haspopup': 'dialog',
@@ -91,15 +96,31 @@ function DatePicker({ id, value, onChange, disabled = false, label }) {
       { className: css.header },
       h(
         Button,
-        { size: 'sm', variant: 'ghost', onClick: () => month(-1) },
-        t('datePicker.previous'),
+        {
+          className: css.nav,
+          size: 'sm',
+          variant: 'ghost',
+          'aria-label': t('datePicker.previous'),
+          onClick: () => month(-1),
+        },
+        h(IconBack, { size: 16 }),
       ),
       h(
         'span',
-        { 'aria-live': 'polite' },
+        { className: css.title, 'aria-live': 'polite' },
         t('datePicker.month', { year: cursor.getFullYear(), month: cursor.getMonth() + 1 }),
       ),
-      h(Button, { size: 'sm', variant: 'ghost', onClick: () => month(1) }, t('datePicker.next')),
+      h(
+        Button,
+        {
+          className: css.nav,
+          size: 'sm',
+          variant: 'ghost',
+          'aria-label': t('datePicker.next'),
+          onClick: () => month(1),
+        },
+        h(IconChevronRight, { size: 16 }),
+      ),
     ),
     h(
       'div',
@@ -138,12 +159,20 @@ function DatePicker({ id, value, onChange, disabled = false, label }) {
           }
         },
       },
-      Array.from({ length: 6 }, (_, row) =>
+      Array.from({ length: weeks }, (_, row) =>
         h(
           'div',
           { key: row, role: 'row', className: css.week },
-          dates.slice(row * 7, row * 7 + 7).map((date) =>
-            h(
+          dates.slice(row * 7, row * 7 + 7).map((date) => {
+            if (date.getMonth() !== cursor.getMonth()) {
+              return h('span', {
+                key: keyOf(date),
+                className: css.blank,
+                role: 'gridcell',
+                'aria-hidden': true,
+              });
+            }
+            return h(
               'button',
               {
                 key: keyOf(date),
@@ -155,12 +184,11 @@ function DatePicker({ id, value, onChange, disabled = false, label }) {
                 'aria-selected': keyOf(date) === value,
                 'aria-current': keyOf(date) === keyOf(today()) ? 'date' : undefined,
                 'data-date-focus': keyOf(date) === keyOf(cursor),
-                'data-outside': date.getMonth() !== cursor.getMonth(),
                 onClick: () => choose(date),
               },
               date.getDate(),
-            ),
-          ),
+            );
+          }),
         ),
       ),
     ),

@@ -214,6 +214,15 @@ it('transfers report artifact navigation across the keyed workspace remount', as
   const button = (text) =>
     [...container.querySelectorAll('button')].find((item) => item.textContent.trim() === text);
   await act(async () => button('任务报告').click());
+  expect(container.querySelector('.rh-right-header')).toBeNull();
+  const reports = container.querySelector('[aria-label="任务报告"][role="tablist"]');
+  expect(reports).not.toBeNull();
+  expect(reports.classList.contains('rh-workbench-tabs')).toBe(true);
+  expect(
+    [...reports.parentElement.querySelectorAll('button')].filter(
+      (item) => item.textContent.trim() === '关闭',
+    ),
+  ).toHaveLength(1);
   await act(async () => button('报告详情').click());
   await act(async () => button('产物').click());
   expect(topbar().textContent).toContain('Second workspace');

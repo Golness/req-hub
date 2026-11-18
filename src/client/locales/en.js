@@ -1,6 +1,63 @@
 'use strict';
 // English copy owned by the reqHub namespace.
 module.exports = {
+  'reports.status.partial': 'Partially failed',
+  'reports.status.queued': 'Queued',
+  'reports.status.waiting_session': 'Waiting for session',
+  'reports.status.pending_review': 'Awaiting review',
+  'reports.status.warning': 'Warning',
+  'reports.status.cancelling': 'Cancelling',
+  'reports.status.interrupted': 'Interrupted',
+  'reports.status.aborted': 'Aborted',
+  'reports.status.rejected': 'Rejected',
+  'reports.status.rolled_back': 'Rolled back',
+  'reports.failedJobs': '{count} failed compile jobs; one job may affect several sources',
+  'reports.affectedItems': '{count} affected items',
+  'server.CODEX_SOURCE_FILES_MISSING':
+    'Ignored {count} Codex index entries whose source files no longer exist. Source data was not changed.',
+  'server.CODEX_SOURCE_FILE_MISSING':
+    'The Codex source file no longer exists. Check whether the session was deleted or moved.',
+  'server.KB_SESSION_PROVENANCE_INVALID':
+    'The incremental conversation export lacks the data needed to reconstruct its content safely.',
+  'server.KB_MODEL_FAILED': 'The knowledge model failed. Open the task for its diagnostic.',
+  'server.KB_TOOL_FAILED':
+    'Knowledge tool validation failed repeatedly. Open the task for the last cause.',
+  'server.KB_MODEL_OUTPUT_INVALID':
+    'The knowledge page failed content, citation or version validation.',
+  'server.KB_SOURCE_SUMMARY_MISSING':
+    'The release lacks source summaries. Recompile the unfinished sources.',
+  'server.REPORT_ITEM_FAILED': 'The task did not complete. Review its report details.',
+  'server.REPORT_SOURCE_FILE_MISSING':
+    'The source file no longer exists. Check whether it was deleted or moved.',
+  'documents.title': 'Workspace document copies',
+  'documents.scope':
+    'After enabling, new and changed formal files under docs in every registered workspace are copied to its bound Lark target. This includes user files, generated documents, synchronized conversations, writing and daily jobs. Existing files are not backfilled. Missing targets remain failed until configured.',
+  'documents.enabled': 'Allow automatic publication of new files to bound Lark targets',
+  'documents.versions':
+    'Local originals remain. Lark copies preserve names and extensions in separate content versions. Existing remote content is never overwritten or deleted, and older links remain available. This feature does not import into OpenViking.',
+  'documents.save': 'Save',
+  'documents.refresh': 'Refresh status',
+  'documents.saved': 'Configuration saved',
+  'documents.queued': 'Queued; synchronization is pending',
+  'documents.failed':
+    'The operation did not complete. Review the error code and resolve it before retrying.',
+  'documents.scanFailed': 'File discovery did not complete; some files may not be registered yet.',
+  'documents.loading': 'Loading document copy status…',
+  'documents.empty':
+    'No registered files. New files and saved revisions are processed after enabling.',
+  'documents.open': 'Open the last successful Lark copy',
+  'documents.retry': 'Retry Lark synchronization',
+  'documents.previous': 'Previous',
+  'documents.next': 'Next',
+  'documents.state.historical': 'Existing file; excluded from automatic publication',
+  'documents.state.settling': 'Waiting for the local file to stabilize',
+  'documents.state.queued': 'Local file saved; Lark copy pending',
+  'documents.state.publishing': 'Local file saved; uploading to Lark',
+  'documents.state.saved': 'Current version saved locally and in Lark',
+  'documents.state.failed': 'Local file retained; Lark synchronization failed',
+  'documents.state.missing': 'Local file removed; remote copies retained',
+  'documents.state.uncertain':
+    'Remote write needs verification; automatic retry stopped to prevent duplication or overwrite',
   'disclosure.expand': 'Expand',
   'disclosure.collapse': 'Collapse',
   'writing.wikiAssistant': 'Knowledge Assistant',
@@ -696,7 +753,7 @@ module.exports = {
   'TopBar.message017': 'Open requirement directory',
   'TopBar.message018': 'Change project path',
   'TopBar.message019': 'Enter the docs directory path',
-  'common.brand': 'Req Hub',
+  'common.brand': 'ReqHub',
   'TriggerButton.message002': 'Loading...',
   'TriggerButton.message003': 'No workspaces',
   'WorkspaceModal.message001': 'Select workspace',
@@ -774,7 +831,7 @@ module.exports = {
   'tree.emptyDocuments': '{value0}/ directory or requirements not found',
   'common.skillLabel': 'Skill',
   'common.provider': 'Provider',
-  'common.brandLabel': ' Req Hub',
+  'common.brandLabel': 'ReqHub',
   'common.invalidJson': 'Invalid JSON format:\n',
   'common.loadFailed': 'Failed to load. Please retry.',
   'sync.activity.preparing': 'Preparing sync and checking inputs…',
@@ -1516,8 +1573,8 @@ module.exports = {
   'pagination.failed': 'Failed to change page',
   'reports.title': 'Task report',
   'reports.stats':
-    'Workspaces {workspaces} · Total {total} · Succeeded {succeeded} · Failed {failed} · Pending {pending}',
-  'reports.knowledgeStats': 'Knowledge pages {wiki} · Sources {sources}',
+    'Workspaces {workspaces} · Total {total} · Succeeded {succeeded} · Failed {failed} · Skipped/warnings {skipped} · Pending {pending}',
+  'reports.knowledgeStats': 'Documents {documents} · Sessions {sessions}',
   'reports.syncStats': 'Branches {branches} · Documents {documents} · Sessions {sessions}',
   'reports.targetDay': 'Target date',
   'reports.reason.SYNC_WORKSPACE_NOT_REPOSITORY':
@@ -2286,4 +2343,62 @@ module.exports = {
   'lark.filesystem.EPERM': 'Operation not permitted',
   'lark.filesystem.EIO': 'Filesystem I/O failed',
   'lark.filesystem.ENOSPC': 'Disk space is full',
+  'reports.daily': 'Daily',
+  'daily.date': 'File date',
+  'daily.schedule':
+    'Collect the previous day in {zone} and generate briefs at 08:00. Runs after startup if the Host was offline. Briefs exclude themselves.',
+  'daily.disabled': 'Automatic briefs are disabled. File collection continues.',
+  'daily.empty': 'No files collected for this date.',
+  'daily.public': 'Shared files (no requirement)',
+  'daily.count': '{total} files · {added} new · {changed} updated',
+  'daily.status.pending': 'Scheduled for 08:00',
+  'daily.status.running': 'Generating brief',
+  'daily.status.completed': 'Brief completed',
+  'daily.status.failed': 'Brief failed',
+  'daily.status.stale': 'Files changed; brief needs updating',
+  'daily.files': 'Show files and versions',
+  'daily.openBrief': 'Open brief file',
+  'daily.retry': 'Retry brief',
+  'daily.bytes': '{size} bytes',
+  'daily.observed': 'First discovery; date based on file modification time',
+  'daily.change.new': 'New',
+  'daily.change.modified': 'Updated',
+  'daily.source.docs': 'Workspace file',
+  'daily.source.sync': 'Sync output',
+  'daily.source.writing': 'Writing output',
+  'daily.source.conversation': 'Conversation file',
+  'daily.source.knowledge': 'Knowledge page',
+  'server.PROMPT_DAILY_BRIEF': 'Daily brief',
+  'server.PROMPT_DAILY_BRIEF_DESC': 'Daily file brief grouped by workspace and requirement',
+  'server.DAILY_INPUT_INVALID': 'Invalid daily report input.',
+  'server.DAILY_WORKSPACE_MISSING': 'Workspace unavailable.',
+  'server.DAILY_STORAGE_LIMIT': 'Snapshot storage budget reached; collection is incomplete.',
+  'server.DAILY_SCAN_LIMIT': 'File count exceeds the collection budget.',
+  'server.DAILY_SCAN_FAILED': 'File scan failed. Check workspace access.',
+  'server.DAILY_CAPTURE_FAILED': 'Knowledge published, but daily collection failed.',
+  'server.DAILY_SNAPSHOT_INVALID': 'File snapshot missing or invalid.',
+  'server.DAILY_BRIEF_INVALID': 'Model brief failed validation.',
+  'server.DAILY_OUTPUT_CONFLICT':
+    'Brief destination exists or was edited. Existing content was preserved.',
+  'server.DAILY_INTERRUPTED': 'Brief interrupted; awaiting restart.',
+  'server.DAILY_GENERATION_FAILED': 'Brief generation failed. Retry is available.',
+  'server.DAILY_BUSY': 'A daily brief task is already running.',
+  'server.DAILY_MODEL_DISABLED': 'AI is disabled. Files are retained; no brief was generated.',
+  'server.DAILY_INPUT_LIMIT':
+    'Complete input or model-call budget exceeded. No partial brief was published.',
+  'server.DAILY_FAILED': 'Daily report request failed. Refresh to retry.',
+  'server.DAILY_COLLECTION_INCOMPLETE':
+    'File collection is incomplete. Resolve collection errors before retrying.',
+  'server.DAILY_FILES_CHANGED': 'Collected file versions changed. Refresh before continuing.',
+  'daily.readUpdated':
+    'Some files changed after collection. The brief uses content read from the originals at generation time.',
+  'daily.readUnavailable':
+    'Some originals are missing or unreadable; the brief states that their contents were unavailable.',
+  'server.DAILY_MODEL_BUDGET_EXCEEDED':
+    'Model input or call budget exhausted. File references are retained; Feishu distribution is unaffected.',
+  'server.DAILY_SOURCE_CHANGED':
+    'An original file changed during generation. Generate the brief again.',
+  'server.DAILY_SOURCE_UNAVAILABLE': 'The original file is currently unavailable.',
+  'server.DAILY_EVIDENCE_INCOMPLETE':
+    'The complete file list was not read. No brief was published.',
 };

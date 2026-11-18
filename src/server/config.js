@@ -94,6 +94,8 @@ function validate(value) {
     'knowledgeV2',
     'lark',
     'larkTargets',
+    'documents',
+    'dailyReports',
   ]) {
     if (
       value[key] !== undefined &&
@@ -161,6 +163,18 @@ export const Config = Schema.object({
     identity: Schema.union(['user', 'bot']).default('user'),
     timeoutMs: Schema.natural().min(1000).max(120000).default(30000),
   }).default(undefined),
+  dailyReports: Schema.object({
+    enabled: Schema.boolean().default(true),
+    scanIntervalMs: Schema.natural().min(1000).max(60000).default(60000),
+    maxBriefInputBytes: Schema.natural().min(1000).max(20000000).default(1000000),
+    maxModelCalls: Schema.natural().min(1).max(128).default(32),
+  }).default(undefined),
+  documents: Schema.object({
+    larkSyncEnabled: Schema.boolean().default(false),
+    scanIntervalMs: Schema.natural().min(1000).max(3600000).default(10000),
+    maxFileBytes: Schema.natural().min(1).max(1000000000).default(100000000),
+    maxFiles: Schema.natural().min(1).max(1000000).default(100000),
+  }).default(undefined),
   larkTargets: Schema.dict(
     Schema.object({
       workspaceRoot: Schema.string().min(1),
@@ -197,6 +211,7 @@ export const Config = Schema.object({
     }).default(undefined),
   }).default(undefined),
   knowledgeV2: Schema.object({
+    modelRetryCount: Schema.natural().max(2).default(1),
     autoManage: Schema.boolean().default(DEFAULT_SYNC_SETTINGS.autoManage),
     autoManageDelayMs: Schema.natural()
       .max(3600000)

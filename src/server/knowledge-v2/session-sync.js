@@ -1,5 +1,6 @@
 import { realpath } from 'node:fs/promises';
 import { describeTurns, sessionMessages } from './session-export.js';
+import { messageDescriptor } from '../messages.js';
 
 const MAX_SESSIONS_PER_RUN = 20;
 
@@ -49,6 +50,17 @@ export class SessionSync {
     const destinationKey = pathKey(destination);
     const fail = (source, error, session = null, origin = null) => {
       signal?.throwIfAborted();
+      if (error?.code === 'CODEX_SOURCE_FILE_MISSING') {
+        counts.skipped++;
+        onItem({
+          kind: 'session',
+          source,
+          sessionId: session?.id || null,
+          status: 'skipped',
+          reason: error.code,
+        });
+        return;
+      }
       counts.failed++;
       const diagnostic = String(error?.message || error);
       report({
@@ -98,7 +110,7 @@ export class SessionSync {
             source: adapter.source,
             sessionId: null,
             status: 'warning',
-            error: diagnostic,
+            reason: messageDescriptor(warning),
           });
         }
       } catch (error) {
@@ -136,7 +148,29 @@ export class SessionSync {
           }
           counts.sessions++;
           try {
-            const snapshot = await adapter.snapshot(session, { signal });
+            const details = {
+              ...session,
+              source: adapter.source,
+              isPersisted: true,
+              importedAt: new Date().toISOString(),
+            };
+            delete details.sourcePath;
+            delete details.nativeId;
+            const captured = library.capture
+              ? await library.capture({
+                  workspaceId: store.scope.workspaceId,
+                  scope: sourceScope,
+                  adapter,
+                  session,
+                  details,
+                  signal,
+                })
+              : null;
+            const snapshot = captured?.snapshot || (await adapter.snapshot(session, { signal }));
+            if (captured?.exportError) {
+              fail(adapter.source, new Error(captured.exportError), session, origin);
+              continue;
+            }
             signal?.throwIfAborted();
             // Legacy snapshots may store userInput/summary instead of messages.
             // Normalize before selecting so an old turn cannot abort the batch.
@@ -155,15 +189,9 @@ export class SessionSync {
               });
               continue;
             }
-            const details = {
-              ...session,
-              source: adapter.source,
-              isPersisted: true,
-              importedAt: new Date().toISOString(),
-            };
-            delete details.sourcePath;
-            delete details.nativeId;
-            const frozen = await library.store.put(sourceScope, details, snapshot, { signal });
+            const frozen =
+              captured?.stored ||
+              (await library.store.put(sourceScope, details, snapshot, { signal }));
             signal?.throwIfAborted();
             const result = await this.application.importSessions(store, {
               selections: [
@@ -180,7 +208,7 @@ export class SessionSync {
             counts.saved += result.saved;
             counts.skipped += result.skipped;
             for (const item of result.results) {
-              if (item.status === 'saved') {
+              if (['saved', 'skipped'].includes(item.status) && item.sourceId) {
                 sourceIds.add(item.sourceId);
               }
               onItem({

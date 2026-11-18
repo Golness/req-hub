@@ -229,14 +229,16 @@ it('groups knowledge sources and imported sessions without duplicate rows, and h
   });
   reports.finish(report.id);
   expect(reports.detail(report.id).stats).toMatchObject({ total: 2, sessions: 1, documents: 1 });
-  reports.knowledgeJob({
+  const compile = {
     id: 'job',
     kind: 'ingest',
     scopeId: 'scope',
     status: 'completed',
     sourceIds: ['doc'],
     sourceRevisions: { doc: 'rev-1' },
-  });
+  };
+  reports.bindKnowledgeJob(report.id, { ...compile, status: 'queued' });
+  reports.knowledgeJob(compile);
   expect(reports.detail(report.id).workspaces[0].items[0]).toMatchObject({
     status: 'completed',
     source: 'codex',
@@ -290,6 +292,80 @@ it('waits for the shared sync owner without polling and removes aborted waiters'
   supervisor.release(owner);
   await next;
   expect(supervisor.waiters.size).toBe(0);
+});
+
+it('counts leaf outcomes separately from workspace rollups and groups actual failed compiles', () => {
+  const entries = Array.from({ length: 6 }, (_, index) => ({
+    workspaceId: String(index),
+    kind: 'workspace',
+    status: 'partial',
+  }));
+  const add = (count, status, error, jobId) => {
+    for (let index = 0; index < count; index++) {
+      entries.push({ workspaceId: String(index % 6), kind: 'session', status, error, jobId });
+    }
+  };
+  add(69, 'failed', "Cannot read properties of undefined (reading 'status')");
+  add(36, 'failed', 'ENOENT: no such file or directory');
+  add(1, 'failed', { code: 'KB_SOURCE_SUMMARY_MISSING' }, 'compile');
+  add(45, 'completed');
+  add(7, 'skipped');
+  const counts = reports.stats(entries);
+  expect(counts).toMatchObject({
+    total: 158,
+    failed: 106,
+    succeeded: 45,
+    skipped: 7,
+    pending: 0,
+    failedJobs: 1,
+  });
+  expect(counts.total).toBe(counts.failed + counts.succeeded + counts.skipped + counts.pending);
+  expect(counts.failureGroups).toContainEqual({
+    code: 'KB_SESSION_PROVENANCE_INVALID',
+    jobId: null,
+    count: 69,
+  });
+});
+
+it('does not let an unrelated compile of the same revision overwrite an earlier report', () => {
+  const store = { scope: { scopeId: 'scope', workspaceId: 'a', workspace: workspaces[0] } };
+  const source = {
+    id: 'doc',
+    revision: 'rev-1',
+    kind: 'session',
+    origin: { provider: 'dsh', sessionId: 'session' },
+  };
+  const job = {
+    id: 'first',
+    kind: 'ingest',
+    scopeId: 'scope',
+    status: 'queued',
+    sourceIds: ['doc'],
+    sourceRevisions: { doc: 'rev-1' },
+  };
+  const first = reports.begin('knowledge', '2026-11-16').report;
+  reports.knowledgeSource(first.id, store, source);
+  reports.bindKnowledgeJob(first.id, job);
+  reports.knowledgeJob({ ...job, status: 'completed' });
+  reports.finish(first.id);
+  const second = reports.begin('knowledge', '2026-11-17').report;
+  reports.knowledgeSource(second.id, store, source);
+  reports.bindKnowledgeJob(second.id, { ...job, id: 'second' });
+  reports.knowledgeJob({
+    ...job,
+    id: 'second',
+    status: 'failed',
+    error: { code: 'KB_TOOL_FAILED' },
+  });
+  reports.finish(second.id);
+  expect(reports.detail(first.id)).toMatchObject({
+    status: 'completed',
+    stats: { succeeded: 1, failed: 0 },
+  });
+  expect(reports.detail(second.id)).toMatchObject({
+    status: 'partial',
+    stats: { succeeded: 0, failed: 1 },
+  });
 });
 
 it('serves newest reports first and rejects report mutation or invalid pagination', () => {

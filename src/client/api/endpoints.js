@@ -27,6 +27,8 @@ const paths = Object.freeze(
       'stats',
       'open-in-explorer',
       'task-reports',
+      'daily-reports/list',
+      'daily-reports/retry',
       'sync-active',
       'sync-branch-info',
       'sync-branches',
@@ -53,6 +55,7 @@ const paths = Object.freeze(
 );
 
 const namespaces = Object.freeze({
+  documents: '/documents',
   'knowledge-v2': '/knowledge-v2',
   'knowledge/enhancements': '/knowledge/enhancements',
   writing: '/writing',

@@ -18,6 +18,22 @@ beforeEach(async () => {
 afterEach(async () => { native?.close(); native = null; await service.close(); await rm(root, { recursive: true, force: true }); });
 const parse = records => { const parser = createCodexTranscript('codex:cx-one'); records.forEach(record => parser.push(record)); return parser.finish(); };
 
+it('ignores stale SQLite rollout paths without consuming the daily session allowance or changing Codex data', async () => {
+  const path = await writeCodexRollout(home, codexRecords());
+  native = codexState(home, [
+    { id: 'gone', cwd: root, file: join(home, 'sessions/gone.jsonl') },
+    { id: 'cx-one', cwd: root, file: path },
+  ]);
+  const inventory = await new CodexSource(home).inventory();
+  expect(inventory.sessions.map((item) => item.id)).toEqual(['codex:cx-one']);
+  expect(inventory.workspaces.reduce((sum, item) => sum + item.sessionCount, 0)).toBe(1);
+  expect(JSON.parse(JSON.stringify(inventory.warnings))).toContainEqual({ code: 'CODEX_SOURCE_FILES_MISSING', params: { count: 1 } });
+  expect(native.prepare('SELECT count(*) AS n FROM threads').get().n).toBe(2);
+  await rm(path);
+  await expect(new CodexSource(home).snapshot({ id: 'codex:cx-one', nativeId: 'cx-one', sourcePath: path }))
+    .rejects.toMatchObject({ code: 'CODEX_SOURCE_FILE_MISSING', statusCode: 404 });
+});
+
 it.each([
   ['D:\\project\\repo', 'd:/PROJECT/repo/', true],
   ['D:/project/other/../repo', 'd:/project/repo', true],

@@ -1,3 +1,4 @@
+import { notifyDocumentCommit } from '../document-commits.js';
 import { msg } from '../messages.js';
 import { resolve } from 'node:path';
 import { safeDocumentPath } from '../safe-path.js';
@@ -238,6 +239,14 @@ export function createWritingRoutes(registry, llm, agents, ctx, knowledge, optio
             }
             req.operationExec?.signal?.throwIfAborted();
           });
+          if (options.documents || options.dailyReports) {
+            saved.replica = await notifyDocumentCommit(
+              options,
+              input.workspaceId,
+              saved.path,
+              'writing',
+            );
+          }
           return json(res, saved);
         } catch (error) {
           if (/^WRITING_[A-Z_]+$/.test(error.message)) {

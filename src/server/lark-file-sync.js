@@ -1,5 +1,7 @@
-import { readFile, realpath, stat } from 'node:fs/promises';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { safeDocumentPath } from './safe-path.js';
 import { larkCliError } from './lark-errors.js';
 
@@ -122,6 +124,14 @@ export async function createLarkDocumentPublisher({
     const identity = auth?.identities?.[settings.identity];
     if (!identity?.available || identity.verified !== true || typeof auth.appId !== 'string') {
       fail('LARK_AUTH_UNVERIFIED');
+    }
+    if (
+      (binding.appId && binding.appId !== auth.appId) ||
+      (binding.accountId && binding.accountId !== (identity.openId || auth.appId)) ||
+      (binding.profile !== undefined && binding.profile !== settings.profile) ||
+      (binding.identity && binding.identity !== settings.identity)
+    ) {
+      fail('LARK_TARGET_CONFLICT');
     }
     authenticated = true;
   };
@@ -361,7 +371,120 @@ export async function createLarkDocumentPublisher({
     }
     return { results, directoriesCreated };
   };
-  return { publish };
+  /** Create an immutable version, preserving both binary bytes and the original extension. */
+  const publishReplica = async ({ path, bytes, version }) => {
+    if (!Buffer.isBuffer(bytes) || createHash('sha256').update(bytes).digest('hex') !== version) {
+      fail('LARK_SYNC_CONTENT_INVALID');
+    }
+    const parts = path.split(/[\\/]/).map(segment);
+    const name = parts.pop();
+    const docKey = createHash('sha256').update(path).digest('hex');
+    const docs = (config.docsDir || 'docs').split(/[\\/]/).map(segment);
+    // Versions are separate objects because CLI overwrite has no verified atomic revision guard.
+    const segments = [...docs, ...parts, 'reqhub-versions', docKey, version];
+    await ensureAuth();
+    let parent = { token: binding.token };
+    for (let index = 0; index < segments.length; index++) {
+      const key = [binding.token, ...segments.slice(0, index + 1)].join('/');
+      parent = await ensureDirectory(parent, segments[index], key);
+    }
+    if ((await list(parent.token)).some((item) => item.title === name)) {
+      // A lost creation response cannot authorize adopting or overwriting an unknown remote file.
+      fail('DOCUMENT_REMOTE_UNCERTAIN');
+    }
+    signal.throwIfAborted();
+    const parentFlag = binding.kind === 'folder' ? '--folder-token' : '--wiki-token';
+    let data;
+    const text = /\.(md|markdown)$/i.test(name) ? bytes.toString('utf8') : null;
+    if (text !== null && Buffer.from(text).equals(bytes)) {
+      data = await call(
+        [
+          'markdown',
+          '+create',
+          parentFlag,
+          parent.token,
+          '--name',
+          name,
+          '--content',
+          '-',
+          '--as',
+          settings.identity,
+          '--format',
+          'json',
+        ],
+        text,
+      );
+    } else {
+      const directory = await mkdtemp(join(tmpdir(), 'reqhub-lark-replica-'));
+      try {
+        // The CLI accepts cwd-relative paths only; use an owned, extension-preserving snapshot.
+        const file =
+          'original' + (basename(name).includes('.') ? name.slice(name.lastIndexOf('.')) : '');
+        await writeFile(join(directory, file), bytes, { flag: 'wx', mode: 0o600 });
+        signal.throwIfAborted();
+        let result;
+        try {
+          result = JSON.parse(
+            await execute(
+              settings,
+              [
+                ...prefix,
+                'drive',
+                '+upload',
+                '--file',
+                file,
+                parentFlag,
+                parent.token,
+                '--name',
+                name,
+                '--as',
+                settings.identity,
+                '--format',
+                'json',
+              ],
+              signal,
+              undefined,
+              { cwd: directory },
+            ),
+          );
+        } catch (error) {
+          throw /^LARK_|^DOCUMENT_/.test(error.message)
+            ? error
+            : new Error('LARK_RESPONSE_INVALID');
+        }
+        if (result?.ok === false) {
+          throw larkCliError(result, settings.identity);
+        }
+        data = result?.data || result;
+      } finally {
+        const actualDirectory = await realpath(directory);
+        const temporaryRoot = await realpath(tmpdir());
+        const owned = relative(temporaryRoot, actualDirectory);
+        if (
+          !owned ||
+          owned.startsWith('..') ||
+          isAbsolute(owned) ||
+          !owned.startsWith('reqhub-lark-replica-')
+        ) {
+          fail('LARK_SYNC_PATH_INVALID');
+        }
+        await rm(directory, { recursive: true, force: true });
+      }
+    }
+    const fileToken = data?.file_token || data?.token;
+    if (!TOKEN.test(fileToken || '')) {
+      fail('DOCUMENT_REMOTE_UNCERTAIN');
+    }
+    return {
+      fileToken,
+      name,
+      version,
+      path: [...segments, name].join(' / '),
+      url: typeof data.url === 'string' && /^https:\/\//.test(data.url) ? data.url : '',
+      permissionStatus: data.permission_grant?.status || null,
+    };
+  };
+  return { publish, publishReplica };
 }
 
 /**
@@ -377,7 +500,8 @@ export async function pushLarkDocuments(input) {
 
 /**
  * Synchronize one saved document into the workspace's bound Lark parent.
- * The remote layout is <bound parent>/<docsDir>/<requirement dirs>/<file>.md.
+ * Markdown retains the explicit in-place publication behavior; other formats
+ * use immutable, extension-preserving attachments under the version layout.
  * @param input - Workspace, path, saved config, CLI settings and owned runner.
  * @returns {action, path, name, url, fileToken, directoriesCreated}.
  */
@@ -413,13 +537,13 @@ export async function syncLarkFile({
   if (!rel || rel.startsWith('..') || isAbsolute(rel)) {
     fail('LARK_SYNC_PATH_INVALID');
   }
-  let text;
+  let bytes;
   try {
     const info = await stat(fullPath);
     if (!info.isFile() || info.size > MAX_CONTENT_BYTES) {
       fail('LARK_SYNC_CONTENT_INVALID');
     }
-    text = await readFile(fullPath, 'utf8');
+    bytes = await readFile(fullPath);
   } catch (error) {
     if (/^LARK_[A-Z_]+$/.test(error.message)) {
       throw error;
@@ -428,6 +552,22 @@ export async function syncLarkFile({
   }
   const parts = rel.split(/[\\/]/).filter(Boolean);
   const localName = parts.pop() || '';
+  if (!/\.(md|markdown)$/i.test(localName) || !Buffer.from(bytes.toString('utf8')).equals(bytes)) {
+    const publisher = await createLarkDocumentPublisher({
+      registry,
+      config,
+      settings,
+      workspaceId,
+      execute,
+      signal,
+    });
+    const result = await publisher.publishReplica({
+      path: rel,
+      bytes,
+      version: createHash('sha256').update(bytes).digest('hex'),
+    });
+    return { ...result, action: 'created', directoriesCreated: 0 };
+  }
   const segments = [...docsDir.split(/[\\/]/).filter(Boolean), ...parts].map(segment);
   const name = documentName(localName);
   const { results, directoriesCreated } = await pushLarkDocuments({
@@ -437,7 +577,7 @@ export async function syncLarkFile({
     workspaceId,
     execute,
     signal,
-    documents: [{ segments, name, content: text }],
+    documents: [{ segments, name, content: bytes.toString('utf8') }],
   });
   return { ...results[0], directoriesCreated };
 }
